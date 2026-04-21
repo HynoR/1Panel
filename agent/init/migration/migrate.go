@@ -83,6 +83,7 @@ func InitAgentDB() {
 		migrations.AddFileManageAISettings,
 		migrations.AddFileShareTable,
 		migrations.AddFileHistoryTable,
+		migrations.AddFirewallProviderSetting,
 	})
 	if err := m.Migrate(); err != nil {
 		global.LOG.Error(err)

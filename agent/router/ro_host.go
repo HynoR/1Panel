@@ -33,6 +33,8 @@ func (s *HostRouter) InitRouter(Router *gin.RouterGroup) {
 		hostRouter.POST("/firewall/rollback/status", baseApi.GetFirewallRollbackStatus)
 		hostRouter.POST("/firewall/rollback/confirm", baseApi.ConfirmFirewallRollback)
 
+		hostRouter.POST("/firewall/providers", baseApi.ListFirewallProviders)
+
 		firewallMutate := hostRouter.Group("", middleware.FirewallEmergencyCallerGuard())
 		{
 			firewallMutate.POST("/firewall/operate", baseApi.OperateFirewall)
@@ -48,6 +50,7 @@ func (s *HostRouter) InitRouter(Router *gin.RouterGroup) {
 			firewallMutate.POST("/firewall/filter/operate", baseApi.OperateFilterChain)
 
 			firewallMutate.POST("/firewall/snapshot/restore", baseApi.RestoreFirewallSnapshot)
+			firewallMutate.POST("/firewall/provider/switch", baseApi.SwitchFirewallProvider)
 		}
 
 		hostRouter.POST("/monitor/search", baseApi.LoadMonitor)

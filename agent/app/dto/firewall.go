@@ -121,3 +121,25 @@ type FirewallRollbackStatus struct {
 	SnapshotName     string `json:"snapshotName"`
 	RemainingSeconds int64  `json:"remainingSeconds"`
 }
+
+type FirewallProviderSwitch struct {
+	Provider string `json:"provider" validate:"required,oneof=iptables nftables"`
+	Force    bool   `json:"force"`
+}
+
+// FirewallProvider summarises a backend's availability to the UI.
+// Mirrors firewall.ProviderInfo — duplicated here so the dto layer does
+// not depend on utils packages and the OpenAPI output stays flat.
+type FirewallProvider struct {
+	Name          string `json:"name"`
+	Available     bool   `json:"available"`
+	IsCurrent     bool   `json:"isCurrent"`
+	IsInitialized bool   `json:"isInitialized"`
+	Version       string `json:"version"`
+}
+
+type FirewallProvidersResult struct {
+	Providers []FirewallProvider `json:"providers"`
+	Current   string             `json:"current"`
+	Preferred string             `json:"preferred"`
+}

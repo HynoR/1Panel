@@ -1260,3 +1260,23 @@ var AddFileHistoryTable = &gormigrate.Migration{
 		return nil
 	},
 }
+
+// AddFirewallProviderSetting seeds the FirewallProvider preference with
+// the empty "auto" value. The key existing-but-empty is how
+// utils/firewall.NewFirewallClient distinguishes "user has not chosen
+// anything, prefer iptables" from a legitimate runtime miss. Never
+// writes "nftables" automatically — switching a running host to the
+// nftables backend is always an explicit UI action.
+var AddFirewallProviderSetting = &gormigrate.Migration{
+	ID: "20260422-add-firewall-provider-setting",
+	Migrate: func(tx *gorm.DB) error {
+		var exist model.Setting
+		if err := tx.Where("`key` = ?", "FirewallProvider").First(&exist).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return tx.Create(&model.Setting{Key: "FirewallProvider", Value: ""}).Error
+			}
+			return err
+		}
+		return nil
+	},
+}

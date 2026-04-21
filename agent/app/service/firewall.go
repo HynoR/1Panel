@@ -13,11 +13,13 @@ import (
 	"github.com/1Panel-dev/1Panel/agent/buserr"
 	"github.com/1Panel-dev/1Panel/agent/constant"
 	"github.com/1Panel-dev/1Panel/agent/global"
+	"github.com/1Panel-dev/1Panel/agent/utils/cmd"
 	"github.com/1Panel-dev/1Panel/agent/utils/common"
 	"github.com/1Panel-dev/1Panel/agent/utils/controller"
 	"github.com/1Panel-dev/1Panel/agent/utils/firewall"
 	fireClient "github.com/1Panel-dev/1Panel/agent/utils/firewall/client"
 	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client/iptables"
+	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client/nftables"
 	"github.com/jinzhu/copier"
 )
 
@@ -39,6 +41,9 @@ type IFirewallService interface {
 	RestoreSnapshot(req dto.FirewallSnapshotRestore) error
 	GetRollbackStatus() dto.FirewallRollbackStatus
 	ConfirmRollback() dto.FirewallRollbackStatus
+
+	ListProviders() dto.FirewallProvidersResult
+	SwitchProvider(req dto.FirewallProviderSwitch) error
 }
 
 func NewIFirewallService() IFirewallService {
@@ -719,4 +724,118 @@ func (u *FirewallService) ConfirmRollback() dto.FirewallRollbackStatus {
 		Pending:      false,
 		SnapshotName: name,
 	}
+}
+
+// ListProviders reports which firewall backends the host has installed,
+// which one NewFirewallClient resolves to right now, and what the user
+// has persisted as a preference. Callers (notably the UI) use
+// IsInitialized to warn before offering a switch when a managed
+// backend is actively carrying rules.
+func (u *FirewallService) ListProviders() dto.FirewallProvidersResult {
+	raw := firewall.AvailableProviders()
+	out := dto.FirewallProvidersResult{
+		Preferred: firewall.LoadPreferredProvider(),
+		Providers: make([]dto.FirewallProvider, 0, len(raw)),
+	}
+	for _, p := range raw {
+		out.Providers = append(out.Providers, dto.FirewallProvider{
+			Name:          p.Name,
+			Available:     p.Available,
+			IsCurrent:     p.IsCurrent,
+			IsInitialized: p.IsInitialized,
+			Version:       p.Version,
+		})
+		if p.IsCurrent {
+			out.Current = p.Name
+		}
+	}
+	return out
+}
+
+// SwitchProvider flips the persisted FirewallProvider preference. The
+// switch is refused when:
+//   - ufw or firewalld is active on the host (the setting has no effect
+//     in that case; the system firewall takes precedence regardless);
+//   - the requested backend's binary is missing;
+//   - the currently active backend is a managed one that is already
+//     initialised (has chains bound / topology live) and the caller has
+//     not opted into force=true.
+//
+// When switching toward nftables, a snapshot of the live iptables
+// ruleset is captured first so the user can roll back via the existing
+// snapshot API. The nft filter topology is pre-seeded with emergency
+// accepts so the cutover does not create a reachability gap even
+// before the agent restarts with the new provider.
+func (u *FirewallService) SwitchProvider(req dto.FirewallProviderSwitch) error {
+	target := req.Provider
+	if target != firewall.ProviderIptables && target != firewall.ProviderNftables {
+		return fmt.Errorf("unsupported provider %q", target)
+	}
+
+	if cmdExists("firewalld") || cmdExists("ufw") {
+		return fmt.Errorf("firewalld/ufw is active; cannot override with FirewallProvider while a native firewall is installed")
+	}
+
+	if target == firewall.ProviderNftables && !cmdExists("nft") {
+		return fmt.Errorf("nftables selected but `nft` binary is not available on the host")
+	}
+	if target == firewall.ProviderIptables && !cmdExists("iptables") {
+		return fmt.Errorf("iptables selected but the `iptables` binary is not available on the host")
+	}
+
+	providers := firewall.AvailableProviders()
+	for _, p := range providers {
+		if !p.IsCurrent || p.Name == target {
+			continue
+		}
+		if p.IsInitialized && !req.Force {
+			return fmt.Errorf("%s is currently initialised with 1Panel-managed rules; pass force=true to confirm the switch (a snapshot will be captured first)", p.Name)
+		}
+	}
+
+	if _, err := firewall.CaptureSnapshot("provider-switch-to-" + target); err != nil {
+		global.LOG.Warnf("[firewall-provider] pre-switch snapshot failed, proceeding: %v", err)
+	}
+
+	if target == firewall.ProviderNftables {
+		if err := u.preseedNftablesForSwitch(); err != nil {
+			return fmt.Errorf("pre-seed nftables topology failed: %w", err)
+		}
+	}
+
+	if err := firewall.SetPreferredProvider(target); err != nil {
+		return fmt.Errorf("persist provider preference failed: %w", err)
+	}
+
+	global.LOG.Infof("[firewall-provider] preference flipped to %q (force=%v). Effective on the next NewFirewallClient call; restart 1panel-agent to re-run boot-time init for the new backend.", target, req.Force)
+	return nil
+}
+
+// preseedNftablesForSwitch ensures the inet 1panel table, panel_*
+// chains, input hook and emergency SSH/panel ACCEPT entries all exist
+// before the switch completes. If the user ran this while iptables was
+// handling traffic, the nftables side is ready to receive packets as
+// soon as the agent restarts with the new preference.
+func (u *FirewallService) preseedNftablesForSwitch() error {
+	n, err := fireClient.NewNftables()
+	if err != nil {
+		return err
+	}
+	if err := n.Reload(); err != nil {
+		return err
+	}
+	panelPort := LoadPanelPort()
+	sshPort := LoadSSHPort()
+	if panelPort == "" {
+		return fmt.Errorf("cannot resolve 1panel service port; refusing to pre-seed nft emergency accepts")
+	}
+	specs := nftables.EmergencyAcceptSpecs(sshPort, panelPort, []string{"80", "443"})
+	if err := nftables.EnsureEmergencyAccepts(nftables.InetFamily, nftables.FilterTable, nftables.ChainPanelBefore, specs); err != nil {
+		return err
+	}
+	return nftables.VerifyEmergencyAccepts(nftables.InetFamily, nftables.FilterTable, nftables.ChainPanelBefore, specs)
+}
+
+func cmdExists(bin string) bool {
+	return cmd.Which(bin)
 }

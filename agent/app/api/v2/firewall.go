@@ -397,3 +397,35 @@ func (b *BaseApi) GetFirewallRollbackStatus(c *gin.Context) {
 func (b *BaseApi) ConfirmFirewallRollback(c *gin.Context) {
 	helper.SuccessWithData(c, firewallService.ConfirmRollback())
 }
+
+// @Tags Firewall
+// @Summary List available firewall providers
+// @Accept json
+// @Success 200 {object} dto.FirewallProvidersResult
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/providers [post]
+func (b *BaseApi) ListFirewallProviders(c *gin.Context) {
+	helper.SuccessWithData(c, firewallService.ListProviders())
+}
+
+// @Tags Firewall
+// @Summary Switch the managed firewall provider (iptables <-> nftables)
+// @Accept json
+// @Param request body dto.FirewallProviderSwitch true "request"
+// @Success 200
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/provider/switch [post]
+// @x-panel-log {"bodyKeys":["provider","force"],"paramKeys":[],"BeforeFunctions":[],"formatZH":"切换防火墙到 [provider] (force=[force])","formatEN":"switch firewall provider to [provider] (force=[force])"}
+func (b *BaseApi) SwitchFirewallProvider(c *gin.Context) {
+	var req dto.FirewallProviderSwitch
+	if err := helper.CheckBindAndValidate(&req, c); err != nil {
+		return
+	}
+	if err := firewallService.SwitchProvider(req); err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.Success(c)
+}
