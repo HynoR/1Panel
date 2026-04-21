@@ -11,6 +11,7 @@ import (
 	"github.com/1Panel-dev/1Panel/agent/constant"
 	"github.com/1Panel-dev/1Panel/agent/global"
 	"github.com/1Panel-dev/1Panel/agent/utils/cmd"
+	firewallUtil "github.com/1Panel-dev/1Panel/agent/utils/firewall"
 	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client"
 	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client/iptables"
 )
@@ -68,6 +69,11 @@ func (s *IptablesService) OperateRule(req dto.IptablesRuleOp, withSave bool) err
 	action := "ACCEPT"
 	if req.Strategy == "drop" {
 		action = "DROP"
+	}
+	if req.Operation == "add" && (req.Strategy == "drop" || req.Strategy == "reject") {
+		if _, err := firewallUtil.CaptureSnapshot(fmt.Sprintf("rule-%s-%s", req.Operation, req.Strategy)); err != nil {
+			global.LOG.Warnf("[firewall-snapshot] pre-rule snapshot failed, proceeding: %v", err)
+		}
 	}
 	policy := iptables.FilterRules{
 		Protocol: req.Protocol,
@@ -136,6 +142,9 @@ func (s *IptablesService) BatchOperate(req dto.IptablesBatchOperate) error {
 	if len(req.Rules) == 0 {
 		return errors.New("no rules to operate")
 	}
+	if _, err := firewallUtil.CaptureSnapshot("rule-batch"); err != nil {
+		global.LOG.Warnf("[firewall-snapshot] pre-batch snapshot failed, proceeding: %v", err)
+	}
 	for _, rule := range req.Rules {
 		if err := s.OperateRule(rule, false); err != nil {
 			return err
@@ -154,6 +163,9 @@ func (s *IptablesService) BatchOperate(req dto.IptablesBatchOperate) error {
 }
 
 func (s *IptablesService) Operate(req dto.IptablesOp) error {
+	if _, err := firewallUtil.CaptureSnapshot("chain-" + req.Operate); err != nil {
+		global.LOG.Warnf("[firewall-snapshot] pre-op snapshot failed, proceeding: %v", err)
+	}
 	targetChain := iptables.ChainInput
 	if req.Name == iptables.Chain1PanelOutput {
 		targetChain = iptables.ChainOutput
@@ -369,7 +381,7 @@ func initPreRules() error {
 	if len(panelPort) == 0 {
 		return errors.New("find 1panel service port failed")
 	}
-	ports := []string{"80", "443", panelPort, loadSSHPort()}
+	ports := []string{"80", "443", panelPort, LoadSSHPort()}
 	for _, item := range ports {
 		if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelBasicBefore, fmt.Sprintf("-p tcp -m tcp --dport %v -j ACCEPT", item)); err != nil {
 			return err

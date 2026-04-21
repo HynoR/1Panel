@@ -1374,7 +1374,7 @@ func updateSSHSocketFile(newPort string) error {
 	return nil
 }
 
-func loadSSHPort() string {
+func LoadSSHPort() string {
 	port := "22"
 	sshConf, err := os.ReadFile(sshPath)
 	if err != nil {

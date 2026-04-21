@@ -34,6 +34,11 @@ type IFirewallService interface {
 	UpdateAddrRule(req dto.AddrRuleUpdate) error
 	UpdateDescription(req dto.UpdateFirewallDescription) error
 	BatchOperateRule(req dto.BatchRuleOperate) error
+
+	ListSnapshots() ([]firewall.SnapshotInfo, error)
+	RestoreSnapshot(req dto.FirewallSnapshotRestore) error
+	GetRollbackStatus() dto.FirewallRollbackStatus
+	ConfirmRollback() dto.FirewallRollbackStatus
 }
 
 func NewIFirewallService() IFirewallService {
@@ -155,8 +160,6 @@ func (u *FirewallService) SearchWithPage(req dto.RuleSearch) (int64, interface{}
 			}
 		}
 	}
-
-	go u.cleanUnUsedData(client)
 
 	return int64(total), backDatas, nil
 }
@@ -554,30 +557,6 @@ func (u *FirewallService) loadPortByApp() []portOfApp {
 	return datas
 }
 
-func (u *FirewallService) cleanUnUsedData(client firewall.FirewallClient) {
-	list, _ := client.ListPort()
-	addressList, _ := client.ListAddress()
-	list = append(list, addressList...)
-	if len(list) == 0 {
-		return
-	}
-	records, _ := hostRepo.ListFirewallRecord()
-	if len(records) == 0 {
-		return
-	}
-	for _, item := range list {
-		for i := 0; i < len(records); i++ {
-			if records[i].DstPort == item.Port && records[i].Protocol == item.Protocol && records[i].Strategy == item.Strategy && records[i].SrcIP == item.Address {
-				records = append(records[:i], records[i+1:]...)
-			}
-		}
-	}
-
-	for _, record := range records {
-		_ = hostRepo.DeleteFirewallRecordByID(record.ID)
-	}
-}
-
 func (u *FirewallService) addPortsBeforeStart(client firewall.FirewallClient) error {
 	if !global.IsMaster {
 		if err := client.Port(fireClient.FireInfo{Port: global.CONF.Base.Port, Protocol: "tcp", Strategy: "accept"}, "add"); err != nil {
@@ -592,7 +571,7 @@ func (u *FirewallService) addPortsBeforeStart(client firewall.FirewallClient) er
 			}
 		}
 	}
-	if err := client.Port(fireClient.FireInfo{Port: loadSSHPort(), Protocol: "tcp", Strategy: "accept"}, "add"); err != nil {
+	if err := client.Port(fireClient.FireInfo{Port: LoadSSHPort(), Protocol: "tcp", Strategy: "accept"}, "add"); err != nil {
 		return err
 	}
 	if err := client.Port(fireClient.FireInfo{Port: "80", Protocol: "tcp", Strategy: "accept"}, "add"); err != nil {
@@ -711,4 +690,33 @@ func checkPortUsed(ports, proto string, apps []portOfApp) string {
 	}
 
 	return ""
+}
+
+func (u *FirewallService) ListSnapshots() ([]firewall.SnapshotInfo, error) {
+	return firewall.ListSnapshots()
+}
+
+func (u *FirewallService) RestoreSnapshot(req dto.FirewallSnapshotRestore) error {
+	if _, err := firewall.CaptureSnapshot("pre-manual-restore"); err != nil {
+		global.LOG.Warnf("[firewall-snapshot] pre-restore snapshot failed, proceeding: %v", err)
+	}
+	firewall.ConfirmRollback()
+	return firewall.RestoreSnapshot(req.Name)
+}
+
+func (u *FirewallService) GetRollbackStatus() dto.FirewallRollbackStatus {
+	name, remaining := firewall.PendingRollback()
+	return dto.FirewallRollbackStatus{
+		Pending:          name != "",
+		SnapshotName:     name,
+		RemainingSeconds: int64(remaining.Seconds()),
+	}
+}
+
+func (u *FirewallService) ConfirmRollback() dto.FirewallRollbackStatus {
+	name := firewall.ConfirmRollback()
+	return dto.FirewallRollbackStatus{
+		Pending:      false,
+		SnapshotName: name,
+	}
 }

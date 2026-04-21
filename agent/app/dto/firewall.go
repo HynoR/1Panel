@@ -111,3 +111,13 @@ type IptablesChainStatus struct {
 	IsBind          bool   `json:"isBind"`
 	DefaultStrategy string `json:"defaultStrategy"`
 }
+
+type FirewallSnapshotRestore struct {
+	Name string `json:"name" validate:"required"`
+}
+
+type FirewallRollbackStatus struct {
+	Pending          bool   `json:"pending"`
+	SnapshotName     string `json:"snapshotName"`
+	RemainingSeconds int64  `json:"remainingSeconds"`
+}

@@ -46,6 +46,15 @@ func NewFirewallClient() (FirewallClient, error) {
 		return client.NewUfw()
 	}
 
+	// nftables integration point: when the real driver lands, insert
+	//     if cmd.Which("nft") { return client.NewNftables() }
+	// here — BEFORE the iptables fallback — so modern distros prefer the
+	// transactional nftables backend while older ones continue to use
+	// iptables. The stub in client/nftables.go is deliberately not wired
+	// yet; plumbing it in prematurely would surface as "not implemented"
+	// errors on hosts that happen to have `nft` installed alongside
+	// iptables (which is the common case on recent kernels).
+
 	iptables := cmd.Which("iptables")
 	if iptables {
 		return client.NewIptables()

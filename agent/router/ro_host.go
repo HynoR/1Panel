@@ -2,6 +2,7 @@ package router
 
 import (
 	v2 "github.com/1Panel-dev/1Panel/agent/app/api/v2"
+	"github.com/1Panel-dev/1Panel/agent/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -23,20 +24,31 @@ func (s *HostRouter) InitRouter(Router *gin.RouterGroup) {
 
 		hostRouter.POST("/firewall/base", baseApi.LoadFirewallBaseInfo)
 		hostRouter.POST("/firewall/search", baseApi.SearchFirewallRule)
-		hostRouter.POST("/firewall/operate", baseApi.OperateFirewall)
-		hostRouter.POST("/firewall/port", baseApi.OperatePortRule)
-		hostRouter.POST("/firewall/forward", baseApi.OperateForwardRule)
-		hostRouter.POST("/firewall/ip", baseApi.OperateIPRule)
-		hostRouter.POST("/firewall/batch", baseApi.BatchOperateRule)
-		hostRouter.POST("/firewall/update/port", baseApi.UpdatePortRule)
-		hostRouter.POST("/firewall/update/addr", baseApi.UpdateAddrRule)
 		hostRouter.POST("/firewall/update/description", baseApi.UpdateFirewallDescription)
 
 		hostRouter.POST("/firewall/filter/rule/search", baseApi.SearchFilterRules)
-		hostRouter.POST("/firewall/filter/rule/operate", baseApi.OperateFilterRule)
-		hostRouter.POST("/firewall/filter/rule/batch", baseApi.BatchOperateFilterRule)
-		hostRouter.POST("/firewall/filter/operate", baseApi.OperateFilterChain)
 		hostRouter.POST("/firewall/filter/chain/status", baseApi.LoadChainStatus)
+
+		hostRouter.POST("/firewall/snapshot/list", baseApi.ListFirewallSnapshots)
+		hostRouter.POST("/firewall/rollback/status", baseApi.GetFirewallRollbackStatus)
+		hostRouter.POST("/firewall/rollback/confirm", baseApi.ConfirmFirewallRollback)
+
+		firewallMutate := hostRouter.Group("", middleware.FirewallEmergencyCallerGuard())
+		{
+			firewallMutate.POST("/firewall/operate", baseApi.OperateFirewall)
+			firewallMutate.POST("/firewall/port", baseApi.OperatePortRule)
+			firewallMutate.POST("/firewall/forward", baseApi.OperateForwardRule)
+			firewallMutate.POST("/firewall/ip", baseApi.OperateIPRule)
+			firewallMutate.POST("/firewall/batch", baseApi.BatchOperateRule)
+			firewallMutate.POST("/firewall/update/port", baseApi.UpdatePortRule)
+			firewallMutate.POST("/firewall/update/addr", baseApi.UpdateAddrRule)
+
+			firewallMutate.POST("/firewall/filter/rule/operate", baseApi.OperateFilterRule)
+			firewallMutate.POST("/firewall/filter/rule/batch", baseApi.BatchOperateFilterRule)
+			firewallMutate.POST("/firewall/filter/operate", baseApi.OperateFilterChain)
+
+			firewallMutate.POST("/firewall/snapshot/restore", baseApi.RestoreFirewallSnapshot)
+		}
 
 		hostRouter.POST("/monitor/search", baseApi.LoadMonitor)
 		hostRouter.POST("/monitor/gpu/search", baseApi.LoadGPUMonitor)

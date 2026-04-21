@@ -192,3 +192,55 @@ func AddChainWithAppend(tab, parentChain, chain string) error {
 func AppendChain(tab string, parentChain, chain string) error {
 	return Run(tab, fmt.Sprintf("-A %s -j %s", parentChain, chain))
 }
+
+// EmergencyAccepts builds the baseline ACCEPT rule specs that must sit in
+// BASIC_BEFORE to keep the machine reachable even when user rules or the final
+// BASIC_AFTER DROP-all chain are in effect. Order: loopback, ESTABLISHED,
+// sshPort (tcp), panelPort (tcp), plus any extraTcpPorts (e.g. 80/443).
+// Empty port values are skipped.
+func EmergencyAccepts(sshPort, panelPort string, extraTcpPorts []string) []string {
+	specs := []string{IoRuleIn, EstablishedRule}
+	tcpPorts := make([]string, 0, 2+len(extraTcpPorts))
+	if sshPort != "" {
+		tcpPorts = append(tcpPorts, sshPort)
+	}
+	if panelPort != "" && panelPort != sshPort {
+		tcpPorts = append(tcpPorts, panelPort)
+	}
+	for _, p := range extraTcpPorts {
+		if p == "" {
+			continue
+		}
+		tcpPorts = append(tcpPorts, p)
+	}
+	for _, p := range tcpPorts {
+		specs = append(specs, fmt.Sprintf("-p tcp -m tcp --dport %s -j ACCEPT", p))
+	}
+	return specs
+}
+
+// EnsureEmergencyAccepts idempotently injects the given rule specs into chain
+// via AddRule (which uses -C to avoid duplicates). Returns the specs actually
+// applied so the caller can pair this with VerifyRulesExist.
+func EnsureEmergencyAccepts(tab, chain string, specs []string) error {
+	if err := AddChain(tab, chain); err != nil {
+		return err
+	}
+	for _, spec := range specs {
+		if err := AddRule(tab, chain, spec); err != nil {
+			return fmt.Errorf("add emergency rule %q to %s failed: %w", spec, chain, err)
+		}
+	}
+	return nil
+}
+
+// VerifyRulesExist returns an error naming the first missing spec in chain,
+// or nil if every spec is present. Used as a post-condition for EnsureEmergencyAccepts.
+func VerifyRulesExist(tab, chain string, specs []string) error {
+	for _, spec := range specs {
+		if !CheckRuleExist(tab, chain, spec) {
+			return fmt.Errorf("rule %q missing from chain %s", spec, chain)
+		}
+	}
+	return nil
+}

@@ -337,3 +337,63 @@ func (b *BaseApi) LoadChainStatus(c *gin.Context) {
 
 	helper.SuccessWithData(c, iptablesService.LoadChainStatus(req))
 }
+
+// @Tags Firewall
+// @Summary List firewall iptables-save snapshots
+// @Accept json
+// @Success 200 {array} firewall.SnapshotInfo
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/snapshot/list [post]
+func (b *BaseApi) ListFirewallSnapshots(c *gin.Context) {
+	list, err := firewallService.ListSnapshots()
+	if err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.SuccessWithData(c, list)
+}
+
+// @Tags Firewall
+// @Summary Restore a firewall snapshot by name
+// @Accept json
+// @Param request body dto.FirewallSnapshotRestore true "request"
+// @Success 200
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/snapshot/restore [post]
+// @x-panel-log {"bodyKeys":["name"],"paramKeys":[],"BeforeFunctions":[],"formatZH":"回滚防火墙快照 [name]","formatEN":"restore firewall snapshot [name]"}
+func (b *BaseApi) RestoreFirewallSnapshot(c *gin.Context) {
+	var req dto.FirewallSnapshotRestore
+	if err := helper.CheckBindAndValidate(&req, c); err != nil {
+		return
+	}
+	if err := firewallService.RestoreSnapshot(req); err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.Success(c)
+}
+
+// @Tags Firewall
+// @Summary Get pending auto-rollback status
+// @Accept json
+// @Success 200 {object} dto.FirewallRollbackStatus
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/rollback/status [post]
+func (b *BaseApi) GetFirewallRollbackStatus(c *gin.Context) {
+	helper.SuccessWithData(c, firewallService.GetRollbackStatus())
+}
+
+// @Tags Firewall
+// @Summary Confirm and cancel the pending auto-rollback
+// @Accept json
+// @Success 200 {object} dto.FirewallRollbackStatus
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/rollback/confirm [post]
+// @x-panel-log {"bodyKeys":[],"paramKeys":[],"BeforeFunctions":[],"formatZH":"确认保留当前防火墙规则","formatEN":"confirm and keep current firewall rules"}
+func (b *BaseApi) ConfirmFirewallRollback(c *gin.Context) {
+	helper.SuccessWithData(c, firewallService.ConfirmRollback())
+}

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -29,6 +30,7 @@ import (
 	"github.com/1Panel-dev/1Panel/agent/init/validator"
 	"github.com/1Panel-dev/1Panel/agent/init/viper"
 	"github.com/1Panel-dev/1Panel/agent/utils/encrypt"
+	firewallUtil "github.com/1Panel-dev/1Panel/agent/utils/firewall"
 	"github.com/1Panel-dev/1Panel/agent/utils/re"
 )
 
@@ -47,6 +49,7 @@ func Start() {
 	cron.Run()
 	hook.Init()
 	go firewall.Init()
+	firewallUtil.StartEmergencyCleanup(context.Background())
 	InitOthers()
 
 	rootRouter := router.Routers()
