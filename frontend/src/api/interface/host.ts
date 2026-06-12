@@ -73,6 +73,31 @@ export namespace Host {
         version: string;
         pingStatus: string;
     }
+
+    export interface FirewallProvider {
+        name: string;
+        available: boolean;
+        isCurrent: boolean;
+        isInitialized: boolean;
+        version: string;
+    }
+    export interface FirewallProvidersResult {
+        providers: FirewallProvider[];
+        current: string;
+        preferred: string;
+    }
+    export interface FirewallSnapshot {
+        name: string;
+        tag: string;
+        createdAt: string;
+        sizeV4: number;
+        sizeV6: number;
+    }
+    export interface FirewallRollbackStatus {
+        pending: boolean;
+        snapshotName: string;
+        remainingSeconds: number;
+    }
     export interface RuleSearch extends ReqPage {
         strategy: string;
         info: string;

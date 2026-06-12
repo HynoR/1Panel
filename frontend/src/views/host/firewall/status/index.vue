@@ -3,13 +3,20 @@
         <div class="app-status card-interval" v-if="baseInfo.isExist">
             <el-card>
                 <div class="flex w-full flex-col gap-4 md:flex-row">
-                    <div class="flex flex-wrap gap-4 ml-3">
+                    <div class="flex flex-wrap items-center gap-2 ml-3">
                         <el-tag effect="dark" type="success">{{ baseInfo.name }}</el-tag>
                         <Status class="mt-0.5" :status="baseInfo.isActive ? 'enable' : 'disable'" />
                         <el-tag>{{ $t('app.version') }}: {{ baseInfo.version }}</el-tag>
+                        <el-tag
+                            v-if="preferredProvider && preferredProvider !== baseInfo.name"
+                            type="warning"
+                            size="small"
+                        >
+                            {{ $t('firewall.providerPreferredLabel', [preferredProvider]) }}
+                        </el-tag>
                     </div>
                     <div class="mt-0.5">
-                        <template v-if="baseInfo.name !== 'iptables'">
+                        <template v-if="baseInfo.name !== 'iptables' && baseInfo.name !== 'nftables'">
                             <el-button type="primary" v-if="baseInfo.isActive" @click="onOperate('stop')" link>
                                 {{ $t('commons.button.stop') }}
                             </el-button>
@@ -36,6 +43,16 @@
                                 {{ $t('commons.button.bind') }}
                             </el-button>
                         </template>
+                        <el-divider direction="vertical" />
+                        <el-button type="primary" link @click="openSnapshots">
+                            {{ $t('firewall.snapshots') }}
+                        </el-button>
+                        <template v-if="showProviderSwitch">
+                            <el-divider direction="vertical" />
+                            <el-button type="primary" link @click="openSwitch">
+                                {{ $t('firewall.switchProvider') }}
+                            </el-button>
+                        </template>
                         <span v-if="onPing !== 'None'">
                             <el-divider direction="vertical" />
                             <el-button type="primary" link>{{ $t('firewall.noPing') }}</el-button>
@@ -52,7 +69,7 @@
                 </div>
             </el-card>
         </div>
-        <NoSuchService v-else name="Firewalld / Ufw / iptables" />
+        <NoSuchService v-else name="Firewalld / Ufw / iptables / nftables" />
 
         <LayoutContent :divider="true" v-if="baseInfo.isExist && baseInfo.isActive && !baseInfo.isInit">
             <template #main>
@@ -77,18 +94,23 @@
                 <span>{{ $t('firewall.' + operation + 'FirewallHelper') }}</span>
             </template>
         </DockerRestart>
+
+        <SwitchProviderDialog ref="switchDialogRef" @refresh="onProviderChanged" />
+        <SnapshotDrawer ref="snapshotDrawerRef" @refresh="loadBaseInfo(false)" />
     </div>
 </template>
 
 <script lang="ts" setup>
 import { Host } from '@/api/interface/host';
-import { loadFireBaseInfo, operateFilterChain, operateFire } from '@/api/modules/host';
+import { listFirewallProviders, loadFireBaseInfo, operateFilterChain, operateFire } from '@/api/modules/host';
 import i18n from '@/lang';
 import NoSuchService from '@/components/layout-content/no-such-service.vue';
 import DockerRestart from '@/components/docker-proxy/docker-restart.vue';
+import SwitchProviderDialog from '@/views/host/firewall/status/switch-provider-dialog.vue';
+import SnapshotDrawer from '@/views/host/firewall/status/snapshot-drawer.vue';
 import { MsgSuccess } from '@/utils/message';
 import { ElMessageBox } from 'element-plus';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { loadDockerStatus } from '@/api/modules/container';
 
 const props = defineProps({
@@ -107,13 +129,24 @@ const baseInfo = ref<Host.FirewallBase>({
 const onPing = ref('Disable');
 const oldStatus = ref();
 const dockerRef = ref();
+const switchDialogRef = ref();
+const snapshotDrawerRef = ref();
 const operation = ref('restart');
 const dockerStatus = ref();
 const withDockerRestart = ref(false);
+const preferredProvider = ref('');
+
+// Provider switching is meaningful only when 1Panel is the authority
+// (iptables or nftables). On ufw/firewalld systems the system firewall
+// wins and the preference has no effect, so we hide the entry.
+const showProviderSwitch = computed(
+    () => baseInfo.value.name === 'iptables' || baseInfo.value.name === 'nftables',
+);
 
 const acceptParams = (): void => {
     loadBaseInfo(true);
     loadDocker();
+    loadPreferred();
 };
 const emit = defineEmits([
     'search',
@@ -154,6 +187,28 @@ const loadBaseInfo = async (search: boolean) => {
 const loadDocker = async () => {
     const res = await loadDockerStatus();
     dockerStatus.value = res.data.isExist;
+};
+
+const loadPreferred = async () => {
+    try {
+        const res = await listFirewallProviders();
+        preferredProvider.value = res.data?.preferred || '';
+    } catch {
+        preferredProvider.value = '';
+    }
+};
+
+const openSwitch = () => {
+    switchDialogRef.value?.acceptParams();
+};
+
+const openSnapshots = () => {
+    snapshotDrawerRef.value?.acceptParams();
+};
+
+const onProviderChanged = () => {
+    loadBaseInfo(false);
+    loadPreferred();
 };
 
 const loadInitMsg = () => {
@@ -217,7 +272,7 @@ const onUnBind = async () => {
 
 const onOperate = async (op: string) => {
     operation.value = op;
-    if (baseInfo.value.name === 'iptables' || !dockerStatus.value) {
+    if (baseInfo.value.name === 'iptables' || baseInfo.value.name === 'nftables' || !dockerStatus.value) {
         emit('update:loading', true);
         emit('update:maskShow', true);
         await operateFire(operation.value, false)

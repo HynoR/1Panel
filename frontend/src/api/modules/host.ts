@@ -61,6 +61,26 @@ export const operateFilterChain = (name: string, op: string) => {
     return http.post(`/hosts/firewall/filter/operate`, { name: name, operate: op }, TimeoutEnum.T_60S);
 };
 
+// Firewall providers, snapshots, rollback
+export const listFirewallProviders = () => {
+    return http.post<Host.FirewallProvidersResult>(`/hosts/firewall/providers`, {});
+};
+export const switchFirewallProvider = (provider: string, force: boolean) => {
+    return http.post(`/hosts/firewall/provider/switch`, { provider, force }, TimeoutEnum.T_60S);
+};
+export const listFirewallSnapshots = () => {
+    return http.post<Host.FirewallSnapshot[]>(`/hosts/firewall/snapshot/list`, {});
+};
+export const restoreFirewallSnapshot = (name: string) => {
+    return http.post(`/hosts/firewall/snapshot/restore`, { name }, TimeoutEnum.T_60S);
+};
+export const getFirewallRollbackStatus = () => {
+    return http.post<Host.FirewallRollbackStatus>(`/hosts/firewall/rollback/status`, {});
+};
+export const confirmFirewallRollback = () => {
+    return http.post<Host.FirewallRollbackStatus>(`/hosts/firewall/rollback/confirm`, {});
+};
+
 // monitors
 export const loadMonitor = (param: Host.MonitorSearch) => {
     return http.post<Array<Host.MonitorData>>(`/hosts/monitor/search`, param);
