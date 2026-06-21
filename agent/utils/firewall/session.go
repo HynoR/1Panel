@@ -236,9 +236,11 @@ func persistManagedChains() {
 		file  string
 	}
 	items := []chainFile{
-		{iptables.FilterTab, iptables.Chain1PanelBasicBefore, iptables.BasicBeforeFileName},
-		{iptables.FilterTab, iptables.Chain1PanelBasic, iptables.BasicFileName},
-		{iptables.FilterTab, iptables.Chain1PanelBasicAfter, iptables.BasicAfterFileName},
+		{iptables.FilterTab, iptables.Chain1PanelGuard, iptables.GuardFileName},
+		{iptables.FilterTab, iptables.Chain1PanelDeny, iptables.DenyFileName},
+		{iptables.FilterTab, iptables.Chain1PanelBaseline, iptables.BaselineFileName},
+		{iptables.FilterTab, iptables.Chain1PanelAllow, iptables.AllowFileName},
+		{iptables.FilterTab, iptables.Chain1PanelAfter, iptables.AfterFileName},
 		{iptables.FilterTab, iptables.Chain1PanelInput, iptables.InputFileName},
 		{iptables.FilterTab, iptables.Chain1PanelOutput, iptables.OutputFileName},
 		{iptables.FilterTab, iptables.Chain1PanelForward, iptables.ForwardFileName},

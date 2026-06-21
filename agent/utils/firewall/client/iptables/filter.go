@@ -137,19 +137,24 @@ func LoadInitStatus(clientName, tab string) (bool, bool) {
 			return false, false
 		}
 		lines := strings.Split(filterRules, "\n")
+		// 新布局（PR-3）：GUARD/DENY/BASELINE/ALLOW/AFTER。
 		initRules := []string{
-			"-N " + Chain1PanelBasicBefore,
-			"-N " + Chain1PanelBasic,
-			"-N " + Chain1PanelBasicAfter,
-			fmt.Sprintf("-A %s %s -j ACCEPT", Chain1PanelBasicBefore, strings.ReplaceAll(strings.ReplaceAll(IoRuleIn, "'", "\""), " -j ACCEPT", "")),
-			fmt.Sprintf("-A %s %s -j ACCEPT", Chain1PanelBasicBefore, strings.ReplaceAll(strings.ReplaceAll(EstablishedRule, "'", "\""), " -j ACCEPT", "")),
-			fmt.Sprintf("-A %s %s", Chain1PanelBasicAfter, DropAllTcp),
-			fmt.Sprintf("-A %s %s", Chain1PanelBasicAfter, DropAllUdp),
+			"-N " + Chain1PanelGuard,
+			"-N " + Chain1PanelDeny,
+			"-N " + Chain1PanelBaseline,
+			"-N " + Chain1PanelAllow,
+			"-N " + Chain1PanelAfter,
+			fmt.Sprintf("-A %s %s -j ACCEPT", Chain1PanelGuard, strings.ReplaceAll(strings.ReplaceAll(IoRuleIn, "'", "\""), " -j ACCEPT", "")),
+			fmt.Sprintf("-A %s %s -j ACCEPT", Chain1PanelGuard, strings.ReplaceAll(strings.ReplaceAll(EstablishedRule, "'", "\""), " -j ACCEPT", "")),
+			fmt.Sprintf("-A %s %s", Chain1PanelAfter, DropAllTcp),
+			fmt.Sprintf("-A %s %s", Chain1PanelAfter, DropAllUdp),
 		}
 		bindRules := []string{
-			fmt.Sprintf("-A %s -j %s", ChainInput, Chain1PanelBasicBefore),
-			fmt.Sprintf("-A %s -j %s", ChainInput, Chain1PanelBasic),
-			fmt.Sprintf("-A %s -j %s", ChainInput, Chain1PanelBasicAfter),
+			fmt.Sprintf("-A %s -j %s", ChainInput, Chain1PanelGuard),
+			fmt.Sprintf("-A %s -j %s", ChainInput, Chain1PanelDeny),
+			fmt.Sprintf("-A %s -j %s", ChainInput, Chain1PanelBaseline),
+			fmt.Sprintf("-A %s -j %s", ChainInput, Chain1PanelAllow),
+			fmt.Sprintf("-A %s -j %s", ChainInput, Chain1PanelAfter),
 		}
 		return checkWithInitAndBind(initRules, bindRules, lines)
 	case "advance":

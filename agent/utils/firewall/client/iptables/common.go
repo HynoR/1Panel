@@ -18,10 +18,34 @@ const (
 	ChainOutput            = "OUTPUT"
 	Chain1PanelInput       = "1PANEL_INPUT"
 	Chain1PanelOutput      = "1PANEL_OUTPUT"
+
+	// 旧布局（保留供升级迁移读取，迁移完成后两个版本清理，修 C6/C9）。
 	Chain1PanelBasicBefore = "1PANEL_BASIC_BEFORE"
 	Chain1PanelBasic       = "1PANEL_BASIC"
 	Chain1PanelBasicAfter  = "1PANEL_BASIC_AFTER"
+
+	// 新布局（设计稿 §3.4）：INPUT 固定 6 个 jump，序号即真理。
+	//   1 GUARD    lo / ESTABLISHED / caller-IP 紧急放行
+	//   2 DENY     用户全部 drop/reject 规则（黑名单先于端口放行 → 根治 #12897）
+	//   3 BASELINE SSH + 面板端口 ACCEPT（不可移除）
+	//   4 ALLOW    用户 accept 规则 + 端口白名单（80/443 默认在此，可删）
+	//   5 1PANEL_INPUT  高级过滤（可选 bind）
+	//   6 AFTER    严格模式 DROP all
+	Chain1PanelGuard    = "1PANEL_GUARD"
+	Chain1PanelDeny     = "1PANEL_DENY"
+	Chain1PanelBaseline = "1PANEL_BASELINE"
+	Chain1PanelAllow    = "1PANEL_ALLOW"
+	Chain1PanelAfter    = "1PANEL_AFTER"
 )
+
+// BaseChainOrder 是新布局在 INPUT 中的固定顺序（不含可选的 1PANEL_INPUT 高级链）。
+// bind 后须按此顺序回读断言（修 C9 的链顺序错乱）。
+var BaseChainOrder = []string{
+	Chain1PanelGuard,
+	Chain1PanelDeny,
+	Chain1PanelBaseline,
+	Chain1PanelAllow,
+}
 
 const (
 	EstablishedRule = "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT -m comment --comment \"ESTABLISHED Whitelist\""

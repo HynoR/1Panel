@@ -62,12 +62,15 @@ func (i *Iptables) Version() (string, error) {
 
 func (i *Iptables) ListPort() ([]FireInfo, error) {
 	var datas []FireInfo
-	basicRules, err := iptables.ReadFilterRulesByChain(iptables.Chain1PanelBasic)
+	// 新布局：端口规则散落在 DENY(黑名单)、BASELINE(保底)、ALLOW(放行/白名单) 三条链。
+	denyRules, err := iptables.ReadFilterRulesByChain(iptables.Chain1PanelDeny)
 	if err != nil {
 		return nil, err
 	}
-	beforeRules, _ := iptables.ReadFilterRulesByChain(iptables.Chain1PanelBasicBefore)
-	basicRules = append(basicRules, beforeRules...)
+	baselineRules, _ := iptables.ReadFilterRulesByChain(iptables.Chain1PanelBaseline)
+	allowRules, _ := iptables.ReadFilterRulesByChain(iptables.Chain1PanelAllow)
+	basicRules := append(denyRules, baselineRules...)
+	basicRules = append(basicRules, allowRules...)
 	for _, item := range basicRules {
 		if len(item.DstPort) == 0 {
 			continue
@@ -91,10 +94,13 @@ func (i *Iptables) ListPort() ([]FireInfo, error) {
 
 func (i *Iptables) ListAddress() ([]FireInfo, error) {
 	var datas []FireInfo
-	basicRules, err := iptables.ReadFilterRulesByChain(iptables.Chain1PanelBasic)
+	// 新布局：IP 规则在 DENY(黑名单) 与 ALLOW(白名单) 两条链。
+	denyRules, err := iptables.ReadFilterRulesByChain(iptables.Chain1PanelDeny)
 	if err != nil {
 		return nil, err
 	}
+	allowRules, _ := iptables.ReadFilterRulesByChain(iptables.Chain1PanelAllow)
+	basicRules := append(denyRules, allowRules...)
 	for _, item := range basicRules {
 		if len(item.DstPort) != 0 || len(item.SrcPort) != 0 {
 			continue
@@ -116,7 +122,11 @@ func (i *Iptables) Port(port FireInfo, operation string) error {
 		return buserr.New("ErrCmdIllegal")
 	}
 	if len(port.Chain) == 0 {
-		port.Chain = iptables.Chain1PanelBasic
+		// accept → ALLOW；drop/reject → DENY（黑名单先于放行，修 C6）。
+		port.Chain = iptables.Chain1PanelAllow
+		if port.Strategy == "drop" || port.Strategy == "reject" {
+			port.Chain = iptables.Chain1PanelDeny
+		}
 	}
 
 	portSpec, err := normalizePortSpec(port.Port)
@@ -145,12 +155,9 @@ func (i *Iptables) Port(port FireInfo, operation string) error {
 		}
 	}
 
-	name := iptables.BasicFileName
-	if port.Chain == iptables.Chain1PanelBasicBefore {
-		name = iptables.BasicBeforeFileName
-	}
+	name := iptables.ChainFileName(port.Chain)
 	if err := iptables.SaveRulesToFile(iptables.FilterTab, port.Chain, name); err != nil {
-		global.LOG.Errorf("persistence for %s failed, err: %v", iptables.Chain1PanelBasic, err)
+		global.LOG.Errorf("persistence for %s failed, err: %v", port.Chain, err)
 	}
 	return nil
 }
@@ -160,7 +167,11 @@ func (i *Iptables) RichRules(rule FireInfo, operation string) error {
 		return buserr.New("ErrCmdIllegal")
 	}
 	if len(rule.Chain) == 0 {
-		rule.Chain = iptables.Chain1PanelBasic
+		// accept → ALLOW；drop/reject → DENY（黑名单先于放行，修 C6）。
+		rule.Chain = iptables.Chain1PanelAllow
+		if rule.Strategy == "drop" || rule.Strategy == "reject" {
+			rule.Chain = iptables.Chain1PanelDeny
+		}
 	}
 
 	address := strings.TrimSpace(rule.Address)
@@ -203,20 +214,31 @@ func (i *Iptables) RichRules(rule FireInfo, operation string) error {
 		if err := iptables.AddRule(iptables.FilterTab, rule.Chain, ruleArgs...); err != nil {
 			return err
 		}
+		// 黑名单立即生效：清掉该源已建立的连接（ESTABLISHED 在 GUARD 中被放行，否则封禁对现存连接无效）。
+		if action == "DROP" && address != "" {
+			clearConntrack(address)
+		}
 	} else {
 		if err := iptables.DeleteRule(iptables.FilterTab, rule.Chain, ruleArgs...); err != nil {
 			return err
 		}
 	}
 
-	name := iptables.BasicFileName
-	if rule.Chain == iptables.Chain1PanelBasicBefore {
-		name = iptables.BasicBeforeFileName
-	}
+	name := iptables.ChainFileName(rule.Chain)
 	if err := iptables.SaveRulesToFile(iptables.FilterTab, rule.Chain, name); err != nil {
-		global.LOG.Errorf("persistence for %s failed, err: %v", iptables.Chain1PanelBasic, err)
+		global.LOG.Errorf("persistence for %s failed, err: %v", rule.Chain, err)
 	}
 	return nil
+}
+
+// clearConntrack 在系统存在 conntrack 工具时清掉某源的现存连接，使新加的黑名单立即生效（设计稿 §3.4）。
+func clearConntrack(ip string) {
+	if !cmd.Which("conntrack") {
+		return
+	}
+	if err := cmd.NewCommandMgr(cmd.WithTimeout(20*time.Second)).RunWithOptionalSudo("conntrack", "-D", "-s", ip); err != nil {
+		global.LOG.Debugf("conntrack -D -s %s returned: %v", ip, err)
+	}
 }
 
 func (i *Iptables) PortForward(info Forward, operation string) error {

@@ -13,15 +13,54 @@ import (
 )
 
 const (
+	// 旧布局文件（迁移用，保留两个版本）。
 	BasicBeforeFileName = "1panel_basic_before.rules"
 	BasicFileName       = "1panel_basic.rules"
 	BasicAfterFileName  = "1panel_basic_after.rules"
-	InputFileName       = "1panel_input.rules"
-	OutputFileName      = "1panel_out.rules"
-	ForwardFileName     = "1panel_forward.rules"
-	ForwardFileName1    = "1panel_forward_pre.rules"
-	ForwardFileName2    = "1panel_forward_post.rules"
+
+	// 新布局文件（设计稿 §3.4）。
+	GuardFileName    = "1panel_guard.rules"
+	DenyFileName     = "1panel_deny.rules"
+	BaselineFileName = "1panel_baseline.rules"
+	AllowFileName    = "1panel_allow.rules"
+	AfterFileName    = "1panel_after.rules"
+
+	InputFileName    = "1panel_input.rules"
+	OutputFileName   = "1panel_out.rules"
+	ForwardFileName  = "1panel_forward.rules"
+	ForwardFileName1 = "1panel_forward_pre.rules"
+	ForwardFileName2 = "1panel_forward_post.rules"
 )
+
+// ChainFileName 返回某条 1PANEL 链对应的持久化文件名。
+func ChainFileName(chain string) string {
+	switch chain {
+	case Chain1PanelGuard:
+		return GuardFileName
+	case Chain1PanelDeny:
+		return DenyFileName
+	case Chain1PanelBaseline:
+		return BaselineFileName
+	case Chain1PanelAllow:
+		return AllowFileName
+	case Chain1PanelAfter:
+		return AfterFileName
+	case Chain1PanelInput:
+		return InputFileName
+	case Chain1PanelOutput:
+		return OutputFileName
+	case Chain1PanelForward:
+		return ForwardFileName
+	case Chain1PanelBasicBefore:
+		return BasicBeforeFileName
+	case Chain1PanelBasic:
+		return BasicFileName
+	case Chain1PanelBasicAfter:
+		return BasicAfterFileName
+	default:
+		return ""
+	}
+}
 
 func SaveRulesToFile(tab, chain, fileName string) error {
 	rulesFile := path.Join(global.Dir.FirewallDir, fileName)

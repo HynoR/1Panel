@@ -68,32 +68,39 @@ func runBootReplay() string {
 		return "ok"
 	}
 
+	// PR-3：把旧 BASIC 布局文件一次性迁移为新的 GUARD/DENY/BASELINE/ALLOW/AFTER 布局文件（幂等）。
+	migrateLegacyChains()
+
 	// L4 ①：在任何重放/绑定前，先确保 INPUT 默认策略不是 DROP；若是，直接注入 SSH/面板紧急 ACCEPT。
 	firewall.EnsureInputPolicySafe(service.LoadBaselinePorts())
 
-	if err := iptables.LoadRulesFromFile(iptables.FilterTab, iptables.Chain1PanelBasicBefore, iptables.BasicBeforeFileName); err != nil {
-		global.LOG.Errorf("[firewall-boot] load basic before rules from file failed, err: %v", err)
-		return "failed:load basic before rules"
+	baseChains := []struct {
+		chain string
+		file  string
+	}{
+		{iptables.Chain1PanelGuard, iptables.GuardFileName},
+		{iptables.Chain1PanelDeny, iptables.DenyFileName},
+		{iptables.Chain1PanelBaseline, iptables.BaselineFileName},
+		{iptables.Chain1PanelAllow, iptables.AllowFileName},
+		{iptables.Chain1PanelAfter, iptables.AfterFileName},
 	}
-	if err := iptables.LoadRulesFromFile(iptables.FilterTab, iptables.Chain1PanelBasic, iptables.BasicFileName); err != nil {
-		global.LOG.Errorf("[firewall-boot] load basic rules from file failed, err: %v", err)
-		return "failed:load basic rules"
-	}
-	if err := iptables.LoadRulesFromFile(iptables.FilterTab, iptables.Chain1PanelBasicAfter, iptables.BasicAfterFileName); err != nil {
-		global.LOG.Errorf("[firewall-boot] load basic after rules from file failed, err: %v", err)
-		return "failed:load basic after rules"
+	for _, item := range baseChains {
+		if err := iptables.LoadRulesFromFile(iptables.FilterTab, item.chain, item.file); err != nil {
+			global.LOG.Errorf("[firewall-boot] load %s rules from file failed, err: %v", item.chain, err)
+			return "failed:load " + item.chain
+		}
 	}
 	panelPort := service.LoadPanelPort()
 	if len(panelPort) == 0 {
 		global.LOG.Errorf("[firewall-boot] find 1panel service port failed")
 		return "failed:find panel port"
 	}
-	// 保底注入：面板端口 ACCEPT（回读校验见下）。
-	if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelBasicBefore, "-p", "tcp", "-m", "tcp", "--dport", panelPort, "-j", "ACCEPT"); err != nil {
+	// 保底注入：面板端口 ACCEPT 进 BASELINE（回读校验见下）。
+	if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelBaseline, "-p", "tcp", "-m", "tcp", "--dport", panelPort, "-j", "ACCEPT"); err != nil {
 		global.LOG.Errorf("[firewall-boot] add panel port accept rule %v failed, err: %v", panelPort, err)
 		return "failed:inject baseline"
 	}
-	global.LOG.Infof("[firewall-boot] loaded iptables rules for basic from file successfully")
+	global.LOG.Infof("[firewall-boot] loaded iptables base chains from file successfully")
 
 	iptablesService := service.IptablesService{}
 	iptablesStatus, _ := settingRepo.GetValueByKey("IptablesStatus")
@@ -103,8 +110,8 @@ func runBootReplay() string {
 			global.LOG.Errorf("[firewall-boot] bind base chains failed, err: %v", err)
 			return "failed:bind base"
 		}
-		// L4：回读校验保底端口 ACCEPT 是否存在；缺失则降级告警（不阻断，但 UI 横幅提示）。
-		if !iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelBasicBefore, "-p", "tcp", "-m", "tcp", "--dport", panelPort, "-j", "ACCEPT") {
+		// L4：回读校验 BASELINE 面板端口 ACCEPT 是否存在；缺失则降级告警（不阻断，但 UI 横幅提示）。
+		if !iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelBaseline, "-p", "tcp", "-m", "tcp", "--dport", panelPort, "-j", "ACCEPT") {
 			global.LOG.Warnf("[firewall-boot] baseline panel port accept verification failed")
 			bootStatus = "degraded:baseline verify failed"
 		}

@@ -299,7 +299,11 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 		return err
 	}
 	if len(req.Chain) == 0 && client.Name() == "iptables" {
-		req.Chain = iptables.Chain1PanelBasic
+		// accept → ALLOW；drop → DENY（黑名单先于放行，修 C6/#12897）。
+		req.Chain = iptables.Chain1PanelAllow
+		if req.Strategy == "drop" {
+			req.Chain = iptables.Chain1PanelDeny
+		}
 	}
 	// L1 红线预检 + L3 提交-确认会话（设计稿 §3.5）。
 	if err := precheckPortRule(req); err != nil {
@@ -492,7 +496,11 @@ func (u *FirewallService) OperateAddressRule(req dto.AddrRuleOperate, reload boo
 	}
 	chain := ""
 	if client.Name() == "iptables" {
-		chain = iptables.Chain1PanelBasic
+		// accept → ALLOW；drop → DENY（黑名单先于放行，修 C6/#12897）。
+		chain = iptables.Chain1PanelAllow
+		if req.Strategy == "drop" {
+			chain = iptables.Chain1PanelDeny
+		}
 	}
 	// L1 红线预检 + L3 提交-确认会话（设计稿 §3.5）。
 	if err := precheckAddressRule(req); err != nil {
