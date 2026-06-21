@@ -44,14 +44,19 @@ func (u *FirewallService) LoadBaseInfo(tab string) (dto.FirewallBaseInfo, error)
 	var baseInfo dto.FirewallBaseInfo
 	baseInfo.Version = "-"
 	baseInfo.Name = "-"
-	client, err := firewall.NewFirewallClient()
+	// 用 Detect()（带缓存）而非 NewFirewallClient：即便 ufw+firewalld 冲突也能返回基础信息（修 C11/C12）。
+	provider, err := firewall.Detect()
 	if err != nil {
 		global.LOG.Errorf("load firewall failed, err: %v", err)
 		baseInfo.IsExist = false
 		return baseInfo, nil
 	}
 	baseInfo.IsExist = true
-	baseInfo.Name = client.Name()
+	baseInfo.Name = provider.Name()
+	baseInfo.Mode = string(provider.Mode())
+	baseInfo.Capabilities = toDtoCapabilities(provider.Capabilities())
+	baseInfo.Conflict = toDtoConflict(provider.Conflict())
+	client := provider.Client()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -63,10 +68,36 @@ func (u *FirewallService) LoadBaseInfo(tab string) (dto.FirewallBaseInfo, error)
 	go func() {
 		defer wg.Done()
 		baseInfo.IsActive, _ = client.Status()
-		baseInfo.IsInit, baseInfo.IsBind = iptables.LoadInitStatus(baseInfo.Name, tab)
+		// 修 C4：init/bind 状态只在 managed（iptables 私有链）下才有意义。
+		if provider.Mode() == firewall.ModeManaged {
+			baseInfo.IsInit, baseInfo.IsBind = iptables.LoadInitStatus(baseInfo.Name, tab)
+		} else {
+			baseInfo.IsInit, baseInfo.IsBind = true, true
+		}
 	}()
 	wg.Wait()
 	return baseInfo, nil
+}
+
+func toDtoCapabilities(c firewall.Capabilities) dto.FirewallCapabilities {
+	return dto.FirewallCapabilities{
+		Rules:       c.Rules,
+		Forward:     c.Forward,
+		ForwardImpl: c.ForwardImpl,
+		Filter:      c.Filter,
+		Baseline:    c.Baseline,
+		Snapshot:    c.Snapshot,
+		IPv6Rules:   c.IPv6Rules,
+		DefaultDrop: c.DefaultDrop,
+	}
+}
+
+func toDtoConflict(c firewall.ConflictState) dto.FirewallConflict {
+	return dto.FirewallConflict{
+		HasConflict: c.HasConflict,
+		Providers:   c.Providers,
+		Message:     c.Message,
+	}
 }
 
 func (u *FirewallService) SearchWithPage(req dto.RuleSearch) (int64, interface{}, error) {
@@ -172,6 +203,7 @@ func (u *FirewallService) OperateFirewall(req dto.FirewallOperation) error {
 		if err := client.Start(); err != nil {
 			return err
 		}
+		firewall.InvalidateProbe()
 		if err := u.addPortsBeforeStart(client); err != nil {
 			_ = client.Stop()
 			return err
@@ -181,11 +213,13 @@ func (u *FirewallService) OperateFirewall(req dto.FirewallOperation) error {
 		if err := client.Stop(); err != nil {
 			return err
 		}
+		firewall.InvalidateProbe()
 		needRestartDocker = true
 	case "restart":
 		if err := client.Restart(); err != nil {
 			return err
 		}
+		firewall.InvalidateProbe()
 		if err := u.addPortsBeforeStart(client); err != nil {
 			return err
 		}

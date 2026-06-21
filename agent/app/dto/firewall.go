@@ -2,12 +2,33 @@ package dto
 
 type FirewallBaseInfo struct {
 	Name       string `json:"name"`
+	Mode       string `json:"mode"` // managed | external
 	IsExist    bool   `json:"isExist"`
 	IsActive   bool   `json:"isActive"`
 	IsInit     bool   `json:"isInit"`
 	IsBind     bool   `json:"isBind"`
 	Version    string `json:"version"`
 	PingStatus string `json:"pingStatus"`
+
+	Capabilities FirewallCapabilities `json:"capabilities"`
+	Conflict     FirewallConflict     `json:"conflict"`
+}
+
+type FirewallCapabilities struct {
+	Rules       bool   `json:"rules"`
+	Forward     bool   `json:"forward"`
+	ForwardImpl string `json:"forwardImpl"`
+	Filter      bool   `json:"filter"`
+	Baseline    bool   `json:"baseline"`
+	Snapshot    string `json:"snapshot"`
+	IPv6Rules   bool   `json:"ipv6Rules"`
+	DefaultDrop bool   `json:"defaultDrop"`
+}
+
+type FirewallConflict struct {
+	HasConflict bool     `json:"hasConflict"`
+	Providers   []string `json:"providers"`
+	Message     string   `json:"message"`
 }
 
 type RuleSearch struct {
