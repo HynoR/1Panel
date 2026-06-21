@@ -89,6 +89,12 @@ func runBootReplay() string {
 			global.LOG.Errorf("[firewall-boot] load %s rules from file failed, err: %v", item.chain, err)
 			return "failed:load " + item.chain
 		}
+		// v6 镜像链重放（存在 ip6tables 且有 .v6 文件时）。
+		if iptables.HasIP6tables() {
+			if err := iptables.LoadRulesFromFile6(iptables.FilterTab, item.chain, item.file); err != nil {
+				global.LOG.Warnf("[firewall-boot] load v6 %s rules failed: %v", item.chain, err)
+			}
+		}
 	}
 	panelPort := service.LoadPanelPort()
 	if len(panelPort) == 0 {

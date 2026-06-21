@@ -254,5 +254,9 @@ func persistManagedChains() {
 		if err := iptables.SaveRulesToFile(item.tab, item.chain, item.file); err != nil {
 			global.LOG.Warnf("[firewall-session] persist chain %s failed: %v", item.chain, err)
 		}
+		// 镜像写 v6（filter 表的链才有 v6 镜像）。
+		if item.tab == iptables.FilterTab && iptables.HasIP6tables() && iptables.CheckChainExist6(item.tab, item.chain) {
+			_ = iptables.SaveRulesToFile6(item.tab, item.chain, item.file)
+		}
 	}
 }

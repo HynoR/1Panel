@@ -265,7 +265,7 @@ func loadPort(position string, portStr []string) string {
 }
 
 func loadIP(ipStr string) string {
-	if ipStr == ANYWHERE || ipStr == "0.0.0.0/0" {
+	if ipStr == ANYWHERE || ipStr == "0.0.0.0/0" || ipStr == "::/0" {
 		return ""
 	}
 	return ipStr

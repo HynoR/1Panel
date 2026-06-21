@@ -175,13 +175,26 @@ func (s *IptablesService) Operate(req dto.IptablesOp) error {
 				return err
 			}
 		}
+		// v6：先建链（让白名单镜像能写 BASELINE6/ALLOW6），再渲染固定规则、绑定、持久化。
+		if err := setupBaseChains6(); err != nil {
+			return err
+		}
 		if err := initPreRules(); err != nil {
+			return err
+		}
+		if err := renderGuardAfter6(); err != nil {
 			return err
 		}
 		if err := bindBaseChainsInOrder(); err != nil {
 			return err
 		}
+		if err := bindBaseChainsInOrder6(); err != nil {
+			return err
+		}
 		if err := saveBaseChains(); err != nil {
+			return err
+		}
+		if err := saveBaseChains6(); err != nil {
 			return err
 		}
 		_ = settingRepo.Update("IptablesStatus", constant.StatusEnable)
@@ -210,13 +223,25 @@ func (s *IptablesService) Operate(req dto.IptablesOp) error {
 		_ = settingRepo.Update("IptablesOutputStatus", constant.StatusEnable)
 		return nil
 	case "bind-base":
+		if err := setupBaseChains6(); err != nil {
+			return err
+		}
 		if err := initPreRules(); err != nil {
+			return err
+		}
+		if err := renderGuardAfter6(); err != nil {
 			return err
 		}
 		if err := bindBaseChainsInOrder(); err != nil {
 			return err
 		}
+		if err := bindBaseChainsInOrder6(); err != nil {
+			return err
+		}
 		if err := saveBaseChains(); err != nil {
+			return err
+		}
+		if err := saveBaseChains6(); err != nil {
 			return err
 		}
 		_ = settingRepo.Update("IptablesStatus", constant.StatusEnable)
@@ -225,10 +250,14 @@ func (s *IptablesService) Operate(req dto.IptablesOp) error {
 		if err := bindBaseChainsInOrder(); err != nil {
 			return err
 		}
+		if err := bindBaseChainsInOrder6(); err != nil {
+			return err
+		}
 		_ = settingRepo.Update("IptablesStatus", constant.StatusEnable)
 		return nil
 	case "unbind-base":
 		unbindBaseChains()
+		unbindBaseChains6()
 		_ = settingRepo.Update("IptablesStatus", constant.StatusDisable)
 		return nil
 	case "bind":
@@ -456,6 +485,85 @@ func orderedPanelJumps() []string {
 	return jumps
 }
 
+var baseChainOrder = []string{
+	iptables.Chain1PanelGuard,
+	iptables.Chain1PanelDeny,
+	iptables.Chain1PanelBaseline,
+	iptables.Chain1PanelAllow,
+	iptables.Chain1PanelAfter,
+}
+
+// setupBaseChains6 在 ip6tables 上建链 + 渲染 GUARD6/AFTER6 固定规则（BASELINE6/ALLOW6 由白名单同步镜像写入），
+// 须在 initPreRules 之前建好链（否则白名单镜像 AddRule6 找不到链）。设计稿 §3.7。
+func setupBaseChains6() error {
+	if !iptables.HasIP6tables() {
+		return nil
+	}
+	for _, chain := range baseChainOrder {
+		if err := iptables.AddChain6(iptables.FilterTab, chain); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// renderGuardAfter6 写入 v6 的 GUARD（lo + ICMPv6/NDP + ESTABLISHED）与 AFTER（DROP all）。
+// ICMPv6 必放行，否则 NDP 被丢导致 IPv6 不通。
+func renderGuardAfter6() error {
+	if !iptables.HasIP6tables() {
+		return nil
+	}
+	if err := iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelGuard, "-i", "lo", "-j", "ACCEPT"); err != nil {
+		return err
+	}
+	if err := iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelGuard, "-p", "ipv6-icmp", "-j", "ACCEPT"); err != nil {
+		return err
+	}
+	if err := iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelGuard, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"); err != nil {
+		return err
+	}
+	if err := iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", "tcp", "-j", "DROP"); err != nil {
+		return err
+	}
+	return iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", "udp", "-j", "DROP")
+}
+
+func bindBaseChainsInOrder6() error {
+	if !iptables.HasIP6tables() {
+		return nil
+	}
+	for _, chain := range baseChainOrder {
+		iptables.UnbindChain6(iptables.FilterTab, iptables.ChainInput, chain)
+	}
+	for i, chain := range baseChainOrder {
+		if err := iptables.InsertChain6(iptables.FilterTab, iptables.ChainInput, chain, i+1); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func unbindBaseChains6() {
+	if !iptables.HasIP6tables() {
+		return
+	}
+	for _, chain := range baseChainOrder {
+		iptables.UnbindChain6(iptables.FilterTab, iptables.ChainInput, chain)
+	}
+}
+
+func saveBaseChains6() error {
+	if !iptables.HasIP6tables() {
+		return nil
+	}
+	for _, chain := range baseChainOrder {
+		if err := iptables.SaveRulesToFile6(iptables.FilterTab, chain, iptables.ChainFileName(chain)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func saveBaseChains() error {
 	for _, chain := range []string{
 		iptables.Chain1PanelGuard,
@@ -487,7 +595,7 @@ func syncIptablesFirewallPortWhiteList(withSave bool, oldConfiguredPortWhiteList
 }
 
 func applyRequiredFirewallPortWhiteListRules(portWhiteList []firewallPortWhitelist, withSave bool) error {
-	// 保底集（SSH/面板）渲染进 BASELINE 链（不可移除）。
+	// 保底集（SSH/面板）渲染进 BASELINE 链（不可移除），镜像写 v6（修 C7）。
 	if err := syncRequiredFirewallPortWhiteListRules(portWhiteList); err != nil {
 		return err
 	}
@@ -495,12 +603,19 @@ func applyRequiredFirewallPortWhiteListRules(portWhiteList []firewallPortWhiteli
 		if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelBaseline, "-p", item.Protocol, "-m", item.Protocol, "--dport", item.Port, "-j", "ACCEPT"); err != nil {
 			return err
 		}
+		if iptables.HasIP6tables() {
+			_ = iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelBaseline, "-p", item.Protocol, "-m", item.Protocol, "--dport", item.Port, "-j", "ACCEPT")
+		}
 	}
 	if !withSave {
 		return nil
 	}
 	if err := iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelBaseline, iptables.BaselineFileName); err != nil {
 		return err
+	}
+	if iptables.HasIP6tables() {
+		_ = iptables.SaveRulesToFile6(iptables.FilterTab, iptables.Chain1PanelBaseline, iptables.BaselineFileName)
+		_ = iptables.SaveRulesToFile6(iptables.FilterTab, iptables.Chain1PanelAfter, iptables.AfterFileName)
 	}
 	return iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelAfter, iptables.AfterFileName)
 }
@@ -514,9 +629,15 @@ func applyFirewallPortWhiteListRules(portWhiteList []firewallPortWhitelist, with
 		if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelAllow, "-p", item.Protocol, "-m", item.Protocol, "--dport", item.Port, "-j", "ACCEPT"); err != nil {
 			return err
 		}
+		if iptables.HasIP6tables() {
+			_ = iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelAllow, "-p", item.Protocol, "-m", item.Protocol, "--dport", item.Port, "-j", "ACCEPT")
+		}
 	}
 	if !withSave {
 		return nil
+	}
+	if iptables.HasIP6tables() {
+		_ = iptables.SaveRulesToFile6(iptables.FilterTab, iptables.Chain1PanelAllow, iptables.AllowFileName)
 	}
 	return iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelAllow, iptables.AllowFileName)
 }

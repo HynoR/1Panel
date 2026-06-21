@@ -55,8 +55,10 @@ type PortRuleOperate struct {
 	Port      string `json:"port" validate:"required"`
 	Protocol  string `json:"protocol" validate:"required,oneof=tcp udp tcp/udp"`
 	Strategy  string `json:"strategy" validate:"required,oneof=accept drop"`
+	Family    string `json:"family"` // ipv4 | ipv6 | both（空=both，端口规则默认双栈；修 C7）
 
-	Description string `json:"description"`
+	Description   string `json:"description"`
+	ApplyToDocker bool   `json:"applyToDocker"` // PR-6：同时拦截 Docker 端口流量
 }
 
 type ForwardRuleOperate struct {
@@ -90,8 +92,10 @@ type AddrRuleOperate struct {
 	Operation string `json:"operation" validate:"required,oneof=add remove"`
 	Address   string `json:"address"  validate:"required"`
 	Strategy  string `json:"strategy" validate:"required,oneof=accept drop"`
+	Family    string `json:"family"` // 空=按地址自动判定族（修 C7）
 
-	Description string `json:"description"`
+	Description   string `json:"description"`
+	ApplyToDocker bool   `json:"applyToDocker"` // PR-6：同时拦截 Docker 端口流量
 }
 
 type PortRuleUpdate struct {
