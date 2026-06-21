@@ -26,6 +26,7 @@ type IHostRepo interface {
 	ListFirewallRecord(opts ...DBOption) ([]model.Firewall, error)
 	SaveFirewallRecord(firewall *model.Firewall) error
 	DeleteFirewallRecordByID(id uint) error
+	DeleteFirewallRecordByTuple(record model.Firewall) error
 
 	GetFirewallMeta(fingerprint string) (model.FirewallRuleMeta, error)
 	ListFirewallMeta(opts ...DBOption) ([]model.FirewallRuleMeta, error)
@@ -181,6 +182,22 @@ func (h *HostRepo) SaveFirewallRecord(firewall *model.Firewall) error {
 
 func (h *HostRepo) DeleteFirewallRecordByID(id uint) error {
 	return global.DB.Where("id = ?", id).Delete(&model.Firewall{}).Error
+}
+
+// DeleteFirewallRecordByTuple 按规则元组删除描述记录（删除请求不携带 id 时使用），与 SaveFirewallRecord 的匹配口径一致，
+// 避免删规则后 firewalls 行残留、再次添加同名规则时复活旧描述。
+func (h *HostRepo) DeleteFirewallRecordByTuple(record model.Firewall) error {
+	db := global.DB.Where("type = ? AND strategy = ?", record.Type, record.Strategy)
+	switch record.Type {
+	case "port":
+		db = db.Where("dst_port = ? AND protocol = ? AND src_ip = ?", record.DstPort, record.Protocol, record.SrcIP)
+	case "address":
+		db = db.Where("src_ip = ?", record.SrcIP)
+	default:
+		db = db.Where("chain = ? AND src_port = ? AND dst_port = ? AND protocol = ? AND src_ip = ? AND dst_ip = ?",
+			record.Chain, record.SrcPort, record.DstPort, record.Protocol, record.SrcIP, record.DstIP)
+	}
+	return db.Delete(&model.Firewall{}).Error
 }
 
 func (h *HostRepo) GetFirewallMeta(fingerprint string) (model.FirewallRuleMeta, error) {

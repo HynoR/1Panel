@@ -48,7 +48,9 @@ var firewallRescueCmd = &cobra.Command{
 }
 
 var rescueBaseChains = map[string][]string{
-	"filter": {"INPUT", "OUTPUT", "FORWARD"},
+	// DOCKER-USER 也在此：rescue 须解绑挂在它下面的 1PANEL_DOCKER jump，否则
+	// --clean-new-chains 删 1PANEL_DOCKER 会因仍被引用而失败，Docker 封禁残留（修 P2）。
+	"filter": {"INPUT", "OUTPUT", "FORWARD", "DOCKER-USER"},
 	"nat":    {"PREROUTING", "POSTROUTING", "OUTPUT"},
 }
 

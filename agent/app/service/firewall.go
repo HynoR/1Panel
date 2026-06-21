@@ -317,7 +317,8 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 		}
 	}
 	// PR-6：Docker 端口防护与防火墙模式正交，按勾选同步到 1PANEL_DOCKER（用 conntrack 还原原始目的端口）。
-	if req.ApplyToDocker && req.Strategy == "drop" && firewall.DockerProtectionAvailable() {
+	// 删除时不依赖 applyToDocker（列表行不携带该标记），一律尝试清理对应的镜像规则，避免残留（修 stale-rule P2）。
+	if (req.ApplyToDocker || req.Operation == "remove") && req.Strategy == "drop" && firewall.DockerProtectionAvailable() {
 		for _, proto := range strings.Split(req.Protocol, "/") {
 			for _, port := range strings.Split(req.Port, ",") {
 				port = strings.TrimSpace(strings.ReplaceAll(port, "-", ":"))
@@ -548,7 +549,8 @@ func (u *FirewallService) OperateAddressRule(req dto.AddrRuleOperate, reload boo
 			return err
 		}
 		// PR-6：勾选时把 IP 封禁同步到 Docker（"封掉这个 IP"不应因业务跑在容器里就失效）。
-		if req.ApplyToDocker && req.Strategy == "drop" && firewall.DockerProtectionAvailable() {
+		// 删除时不依赖 applyToDocker（列表行不携带该标记），一律尝试清理对应的镜像规则，避免残留（修 stale-rule P2）。
+		if (req.ApplyToDocker || req.Operation == "remove") && req.Strategy == "drop" && firewall.DockerProtectionAvailable() {
 			if err := firewall.ApplyDockerIPRule(addressList[i], req.Operation); err != nil {
 				global.LOG.Warnf("apply docker ip rule %s failed: %v", addressList[i], err)
 			}
@@ -826,6 +828,11 @@ func (u *FirewallService) CleanOrphanFirewallRecords() error {
 		}
 	}
 	for _, rec := range records {
+		// 只清理本函数能验证存活性的 port/address 记录；advance(1PANEL_INPUT/OUTPUT, Type="") 与 forward 记录
+		// 不在 keep 计算范围内，绝不能被它们的存活集误删（否则会抹掉高级规则的描述）。
+		if rec.Type != "port" && rec.Type != "address" {
+			continue
+		}
 		if _, ok := keep[rec.ID]; ok {
 			continue
 		}
@@ -864,7 +871,8 @@ func (u *FirewallService) addPortRecord(req dto.PortRuleOperate) error {
 		if req.ID != 0 {
 			return hostRepo.DeleteFirewallRecordByID(req.ID)
 		}
-		return nil
+		// 删除请求不携带 id（列表/批量删除均不传），按元组删除，避免残留行复活旧描述。
+		return hostRepo.DeleteFirewallRecordByTuple(model.Firewall{Type: "port", DstPort: req.Port, Protocol: req.Protocol, SrcIP: req.Address, Strategy: req.Strategy})
 	}
 
 	if len(req.Description) == 0 {
@@ -893,7 +901,8 @@ func (u *FirewallService) addAddressRecord(chain string, req dto.AddrRuleOperate
 		if req.ID != 0 {
 			return hostRepo.DeleteFirewallRecordByID(req.ID)
 		}
-		return nil
+		// 删除请求不携带 id（列表/批量删除均不传），按元组删除，避免残留行复活旧描述。
+		return hostRepo.DeleteFirewallRecordByTuple(model.Firewall{Type: "address", SrcIP: req.Address, Strategy: req.Strategy})
 	}
 
 	if err := hostRepo.SaveFirewallRecord(&model.Firewall{

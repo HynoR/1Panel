@@ -10,6 +10,7 @@ import (
 
 	"github.com/1Panel-dev/1Panel/agent/global"
 	"github.com/1Panel-dev/1Panel/agent/utils/cmd"
+	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client/iptables"
 )
 
 // 安全栈 L3 的快照与"限定恢复"（设计稿 §3.5）。
@@ -25,6 +26,13 @@ const snapshotKeep = 10
 const panelChainPrefix = "1PANEL_"
 
 var baseChainsByTable = map[string][]string{
+	// 刻意不含 DOCKER-USER：Docker 防护（1PANEL_DOCKER 链 + DOCKER-USER 跳转 + 持久化文件）与
+	// 提交-确认会话/快照完全解耦，统一由 docker.go（persistDocker / LoadDockerRules / EnsureDockerChain，
+	// dockerMu 串行）维护。快照恢复既不增删 1PANEL_DOCKER 链内容（applyScoped step2/3 跳过），也不动
+	// DOCKER-USER 上的跳转——否则会与巡检/用户操作跨 goroutine 竞争，并可能误删独立维护的容器封禁规则（P1）。
+	// 代价：commit-confirm 回滚 / 手动恢复快照不会回滚 Docker 封禁规则，但其本属"只增加拦截"的兜底动作、
+	// 不会造成把自己锁在外面，且内核与文件始终一致（不会陈旧复活），可由 Docker 防护页独立管理。
+	// 链/基础链不存在时各操作自动 no-op。
 	"filter": {"INPUT", "OUTPUT", "FORWARD"},
 	"nat":    {"PREROUTING", "POSTROUTING", "OUTPUT"},
 }
@@ -220,15 +228,11 @@ func parseSave(content string) map[string]*savedTable {
 	return tables
 }
 
+// jumpTarget 仅认"纯 jump"（恰好 `-j 1PANEL_*`，无其它匹配条件），与 BindChain 写出的形式一致。
+// 带额外匹配条件的跳转不认（返回 ""），避免恢复时把它当纯 jump 重插而丢失其匹配条件。
 func jumpTarget(rest []string) string {
-	for i := 0; i+1 < len(rest); i++ {
-		if rest[i] == "-j" && strings.HasPrefix(rest[i+1], panelChainPrefix) {
-			// 仅认"纯 jump"（无其它匹配条件），与 BindChain 行为一致。
-			if i == 0 && len(rest) == 2 {
-				return rest[i+1]
-			}
-			return rest[i+1]
-		}
+	if len(rest) == 2 && rest[0] == "-j" && strings.HasPrefix(rest[1], panelChainPrefix) {
+		return rest[1]
 	}
 	return ""
 }
@@ -263,7 +267,12 @@ func applyScoped(tables map[string]*savedTable, bin string) error {
 			continue
 		}
 		// 2. 重建快照中的 1PANEL 链。
+		//    跳过 1PANEL_DOCKER：Docker 防护与会话/快照解耦，其链内容只由 docker.go 维护，
+		//    在此重建会与巡检/用户操作跨 goroutine 竞争（dockerMu 覆盖不到本路径），P1/P2。
 		for chain, rules := range tbl.chains {
+			if chain == iptables.Chain1PanelDocker {
+				continue
+			}
 			_ = runScoped(bin, tab, "-N", chain) // 已存在则忽略（WithIgnoreExist1）
 			_ = runScoped(bin, tab, "-F", chain)
 			for _, rule := range rules {
@@ -271,7 +280,11 @@ func applyScoped(tables map[string]*savedTable, bin string) error {
 			}
 		}
 		// 3. 删除当前存在但快照里没有的 1PANEL 链。
+		//    同样跳过 1PANEL_DOCKER：它由 persistDocker/LoadDockerRules 独立维护，删它会永久丢规则（P1）。
 		for _, chain := range listPanelChains(bin, tab) {
+			if chain == iptables.Chain1PanelDocker {
+				continue
+			}
 			if _, ok := tbl.chains[chain]; !ok {
 				_ = runScoped(bin, tab, "-F", chain)
 				_ = runScoped(bin, tab, "-X", chain)
@@ -301,6 +314,10 @@ func unbindAllPanelJumps(bin, tab, base string) {
 	}
 }
 
+// findFirstPanelJump 返回基础链上第一条"目标列为 1PANEL_* 链"的规则行号（step1 解绑用）。
+// 注意与 jumpTarget（step4 重绑用）的非对称：step1 会解绑任意以 1PANEL_* 为目标的跳转
+// （含带匹配条件的），而 step4 只重绑"纯 jump"。这是有意的——1Panel 自己只产生纯 jump，
+// 故纳管规则可无损往返；step1 顺带清掉手工/第三方加的带条件跳转（不重建）属于清理而非回滚丢失。
 func findFirstPanelJump(bin, tab, base string) int {
 	out, err := cmd.NewCommandMgr(cmd.WithTimeout(30*time.Second), cmd.WithIgnoreExist1()).
 		RunWithOptionalSudoAndStdout(bin, "-t", tab, "-w", "-L", base, "--line-numbers", "-n")

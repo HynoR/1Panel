@@ -247,8 +247,18 @@ func persistManagedChains() {
 		{iptables.NatTab, iptables.Chain1PanelPreRouting, iptables.ForwardFileName1},
 		{iptables.NatTab, iptables.Chain1PanelPostRouting, iptables.ForwardFileName2},
 	}
+	// 注意：1PANEL_DOCKER 刻意不在此列表内。Docker 规则由 persistDocker（写）+ LoadDockerRules（开机重放）
+	// 独立维护，与提交-确认会话/快照解耦。若让会话机制读内核 docker 链回写文件，会在开机"链已建空但
+	// 尚未 LoadDockerRules"的窗口里用空内容覆盖文件而永久丢规则（P1），且与巡检/用户操作存在跨 goroutine
+	// 竞争。解耦后内核与文件始终由 docker.go（dockerMu 串行）保持一致，不会出现陈旧文件复活。
 	for _, item := range items {
 		if exist, _ := iptables.CheckChainExist(item.tab, item.chain); !exist {
+			// 链已不存在（如 revert 删掉了本会话新建的转发链）→ 删掉其残留持久化文件，
+			// 否则下次开机重放会把已撤销的规则复活，破坏"确认前不落盘"承诺。
+			_ = os.Remove(path.Join(global.Dir.FirewallDir, item.file))
+			if item.tab == iptables.FilterTab {
+				_ = os.Remove(path.Join(global.Dir.FirewallDir, item.file+".v6"))
+			}
 			continue
 		}
 		if err := iptables.SaveRulesToFile(item.tab, item.chain, item.file); err != nil {
