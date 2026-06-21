@@ -10,6 +10,8 @@
                 v-model:mask-show="maskShow"
                 v-model:is-active="isActive"
                 v-model:name="fireName"
+                v-model:capabilities="capabilities"
+                v-model:mode="mode"
                 current-tab="forward"
             />
             <div v-if="fireName !== '-'">
@@ -58,7 +60,7 @@
                             <el-table-column :label="$t('firewall.sourcePort')" :min-width="70" prop="port" />
                             <el-table-column :min-width="80" :label="$t('firewall.targetIP')" prop="targetIP" />
                             <el-table-column :label="$t('firewall.targetPort')" :min-width="70" prop="targetPort" />
-                            <template v-if="fireName === 'ufw'">
+                            <template v-if="capabilities.forwardImpl === 'panel-nat'">
                                 <el-table-column
                                     :label="$t('firewall.forwardInboundInterface')"
                                     :min-width="70"
@@ -122,6 +124,8 @@ const searchStrategy = ref('');
 const maskShow = ref(true);
 const isActive = ref(false);
 const fireName = ref();
+const mode = ref('');
+const capabilities = ref<Host.FirewallCapabilities>({} as Host.FirewallCapabilities);
 const fireStatusRef = ref();
 
 const opRef = ref();
@@ -184,6 +188,7 @@ const onOpenDialog = async (
         title,
         rowData: { ...rowData },
         fireName: fireName.value,
+        capabilities: capabilities.value,
     };
     dialogRef.value!.acceptParams(params);
 };
@@ -231,7 +236,7 @@ const onSubmitDelete = async () => {
 };
 
 const onImport = () => {
-    dialogImportRef.value.acceptParams(fireName.value);
+    dialogImportRef.value.acceptParams(fireName.value, capabilities.value.forwardImpl);
 };
 
 const onExport = () => {

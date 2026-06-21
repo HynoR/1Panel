@@ -1,8 +1,5 @@
 <template>
     <DrawerPro v-model="drawerVisible" :header="title" @close="handleClose" size="large">
-        <div v-if="dialogData.fireName === 'iptables'" class="mb-2">
-            <el-alert :closable="false" :title="$t('firewall.ipv4Limit')" />
-        </div>
         <el-form
             ref="formRef"
             label-position="top"

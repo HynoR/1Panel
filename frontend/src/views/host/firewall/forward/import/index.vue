@@ -40,7 +40,7 @@
                     <el-table-column :label="$t('firewall.targetIP')" :min-width="100" prop="targetIP" />
                     <el-table-column :label="$t('firewall.targetPort')" :min-width="70" prop="targetPort" />
                     <el-table-column
-                        v-if="currentFireName === 'ufw'"
+                        v-if="forwardImpl === 'panel-nat'"
                         :label="$t('firewall.forwardInboundInterface')"
                         :min-width="100"
                         prop="interface"
@@ -86,7 +86,7 @@ const loading = ref(false);
 const selects = ref<any>([]);
 const displayData = ref<any>([]);
 const currentRules = ref<Host.RuleInfo[]>([]);
-const currentFireName = ref('');
+const forwardImpl = ref('');
 const availableInterfaces = ref<string[]>([]);
 
 const uploadRef = ref();
@@ -98,15 +98,15 @@ const paginationConfig = reactive({
     total: 0,
 });
 
-const acceptParams = async (fireName: string): Promise<void> => {
+const acceptParams = async (_fireName: string, impl?: string): Promise<void> => {
     visible.value = true;
     displayData.value = [];
     selects.value = [];
-    currentFireName.value = fireName;
-    loadCurrentData(fireName);
+    forwardImpl.value = impl || '';
+    loadCurrentData(impl);
 };
 
-const loadCurrentData = async (fireName: string) => {
+const loadCurrentData = async (impl?: string) => {
     const res = await searchFireRule({
         type: 'forward',
         strategy: '',
@@ -115,7 +115,8 @@ const loadCurrentData = async (fireName: string) => {
         pageSize: 10000,
     });
     currentRules.value = res.data.items || [];
-    if (fireName === 'ufw') {
+    // panel-nat 转发（ufw / iptables）才需要选择入站网卡；firewalld 原生转发不需要。
+    if (impl === 'panel-nat') {
         const networkRes = await getNetworkOptions();
         availableInterfaces.value = networkRes.data || [];
     }
@@ -177,7 +178,7 @@ const checkDataFormat = (item: any): boolean => {
         return false;
     }
 
-    if (currentFireName.value === 'ufw' && item.interface !== undefined && item.interface !== null) {
+    if (forwardImpl.value === 'panel-nat' && item.interface !== undefined && item.interface !== null) {
         const interfaceValue = item.interface;
         if (interfaceValue !== '' && interfaceValue !== 'all') {
             if (!availableInterfaces.value.includes(interfaceValue)) {

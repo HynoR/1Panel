@@ -1,8 +1,5 @@
 <template>
     <DrawerPro v-model="drawerVisible" :header="title" @close="handleClose" size="large">
-        <div v-if="dialogData.fireName === 'iptables'" class="mb-2">
-            <el-alert :closable="false" :title="$t('firewall.ipv4Limit')" />
-        </div>
         <el-form ref="formRef" label-position="top" :model="dialogData.rowData" :rules="rules" v-loading="loading">
             <el-form-item :label="$t('commons.table.protocol')" prop="protocol">
                 <el-select class="w-full" v-model="dialogData.rowData!.protocol">
@@ -41,6 +38,23 @@
                     <el-radio value="drop">{{ $t('firewall.drop') }}</el-radio>
                 </el-radio-group>
             </el-form-item>
+            <el-form-item
+                v-if="dialogData.capabilities && dialogData.capabilities.ipv6Rules"
+                :label="$t('firewall.family')"
+                prop="family"
+            >
+                <el-radio-group v-model="dialogData.rowData!.family">
+                    <el-radio value="both">{{ $t('firewall.familyBoth') }}</el-radio>
+                    <el-radio value="ipv4">IPv4</el-radio>
+                    <el-radio value="ipv6">IPv6</el-radio>
+                </el-radio-group>
+            </el-form-item>
+            <el-form-item v-if="dockerAvailable && dialogData.rowData!.strategy === 'drop'" prop="applyToDocker">
+                <el-checkbox v-model="dialogData.rowData!.applyToDocker">
+                    {{ $t('firewall.applyToDocker') }}
+                </el-checkbox>
+                <span class="input-help">{{ $t('firewall.applyToDockerHelper') }}</span>
+            </el-form-item>
             <el-form-item :label="$t('commons.table.description')" prop="description">
                 <el-input clearable v-model.trim="dialogData.rowData!.description" />
             </el-form-item>
@@ -63,15 +77,17 @@ import i18n from '@/lang';
 import { ElForm } from 'element-plus';
 import { MsgError, MsgSuccess } from '@/utils/message';
 import { Host } from '@/api/interface/host';
-import { operatePortRule, updatePortRule } from '@/api/modules/host';
+import { loadFireDockerStatus, operatePortRule, updatePortRule } from '@/api/modules/host';
 import { checkCidr, checkCidrV6, checkIpV4V6, checkPort } from '@/utils/validate';
 import { deepCopy } from '@/utils/misc';
 const loading = ref();
 const oldRule = ref<Host.RulePort>();
+const dockerAvailable = ref(false);
 
 interface DialogProps {
     title: string;
     fireName: string;
+    capabilities?: Host.FirewallCapabilities;
     rowData?: Host.RulePort;
     getTableList?: () => Promise<any>;
 }
@@ -83,6 +99,10 @@ const dialogData = ref<DialogProps>({
 });
 const acceptParams = (params: DialogProps): void => {
     dialogData.value = params;
+    if (dialogData.value.rowData && !dialogData.value.rowData.family) {
+        dialogData.value.rowData.family = 'both';
+    }
+    loadDockerStatus();
     if (dialogData.value.title === 'edit') {
         if (params.rowData.address && params.rowData.address !== 'Anywhere') {
             dialogData.value.rowData.source = 'address';
@@ -94,6 +114,18 @@ const acceptParams = (params: DialogProps): void => {
     }
     title.value = i18n.global.t('firewall.' + dialogData.value.title);
     drawerVisible.value = true;
+};
+const loadDockerStatus = async () => {
+    dockerAvailable.value = false;
+    try {
+        const res = await loadFireDockerStatus();
+        dockerAvailable.value = res.data.available;
+        if (dockerAvailable.value && dialogData.value.title === 'create' && dialogData.value.rowData) {
+            dialogData.value.rowData.applyToDocker = true;
+        }
+    } catch (error) {
+        dockerAvailable.value = false;
+    }
 };
 const emit = defineEmits<{ (e: 'search'): void }>();
 

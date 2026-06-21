@@ -11,6 +11,8 @@
                 v-model:mask-show="maskShow"
                 v-model:is-active="isActive"
                 v-model:is-bind="isBind"
+                v-model:capabilities="capabilities"
+                v-model:mode="mode"
                 current-tab="base"
             />
 
@@ -19,12 +21,12 @@
                     <span>{{ $t('firewall.firewallNotStart') }}</span>
                 </el-card>
                 <el-card v-if="!isBind && maskShow" class="mask-prompt">
-                    <span>{{ $t('firewall.basicStatus', ['1PANEL_BASIC']) }}</span>
+                    <span>{{ $t('firewall.basicStatus', ['1PANEL']) }}</span>
                 </el-card>
 
                 <LayoutContent :title="$t('firewall.ipRule', 2)" :class="{ mask: !isActive || !isBind }">
                     <template #prompt>
-                        <div v-if="fireName !== 'iptables'">
+                        <div v-if="mode === 'external'">
                             <el-alert :closable="false" :title="$t('firewall.iptablesHelper', [fireName])" />
                         </div>
                     </template>
@@ -154,6 +156,8 @@ const selects = ref<any>([]);
 const searchName = ref();
 const searchStrategy = ref('');
 const fireName = ref();
+const mode = ref('');
+const capabilities = ref<Host.FirewallCapabilities>({} as Host.FirewallCapabilities);
 
 const maskShow = ref(true);
 const isActive = ref(false);
@@ -207,6 +211,7 @@ const onOpenDialog = async (
     let params = {
         title,
         fireName: fireName.value,
+        capabilities: capabilities.value,
         rowData: { ...rowData },
     };
     dialogRef.value!.acceptParams(params);
@@ -215,7 +220,7 @@ const onOpenDialog = async (
 const onChange = async (row: any) => {
     let params = {
         type: 'address',
-        chain: fireName.value === 'iptables' ? '1PANEL_BASIC' : '',
+        chain: '',
         srcIP: row.address,
         dstIP: '',
         srcPort: '',

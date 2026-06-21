@@ -10,9 +10,11 @@
                 v-model:mask-show="maskShow"
                 v-model:is-active="isActive"
                 v-model:name="fireName"
+                v-model:capabilities="capabilities"
+                v-model:mode="mode"
                 current-tab="advance"
             />
-            <div v-if="fireName !== '-' && fireName !== 'iptables'">
+            <div v-if="fireName !== '-' && !capabilities.filter">
                 <LayoutContent :divider="true">
                     <template #main>
                         <div class="app-warn">
@@ -27,7 +29,7 @@
                 </LayoutContent>
             </div>
 
-            <div v-if="fireName === 'iptables'">
+            <div v-if="capabilities.filter">
                 <el-card v-if="!isActive && maskShow" class="mask-prompt">
                     <span>{{ $t('firewall.firewallNotStart') }}</span>
                 </el-card>
@@ -173,6 +175,8 @@ const maskShow = ref(true);
 const isActive = ref(false);
 const isBind = ref(false);
 const fireName = ref();
+const mode = ref('');
+const capabilities = ref<Host.FirewallCapabilities>({} as Host.FirewallCapabilities);
 const fireStatusRef = ref();
 
 const opRef = ref();

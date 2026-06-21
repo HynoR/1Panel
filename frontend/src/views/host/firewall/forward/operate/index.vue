@@ -29,7 +29,7 @@
             </el-form-item>
 
             <el-form-item
-                v-if="dialogData.fireName !== 'firewalld'"
+                v-if="!dialogData.capabilities || dialogData.capabilities.forwardImpl !== 'native'"
                 :label="$t('firewall.forwardInboundInterface')"
                 prop="interface"
             >
@@ -73,6 +73,7 @@ interface DialogProps {
     title: string;
     rowData?: Host.RuleForward;
     fireName?: string;
+    capabilities?: Host.FirewallCapabilities;
     getTableList?: () => Promise<any>;
 }
 const title = ref<string>('');

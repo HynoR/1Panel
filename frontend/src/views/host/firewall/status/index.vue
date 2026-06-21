@@ -5,11 +5,27 @@
                 <div class="flex w-full flex-col gap-4 md:flex-row">
                     <div class="flex flex-wrap gap-4 ml-3">
                         <el-tag effect="dark" type="success">{{ baseInfo.name }}</el-tag>
+                        <el-tooltip
+                            v-if="baseInfo.mode"
+                            :content="
+                                baseInfo.mode === 'managed'
+                                    ? $t('firewall.modeManagedTip')
+                                    : $t('firewall.modeExternalTip', [baseInfo.name])
+                            "
+                        >
+                            <el-tag type="info">
+                                {{
+                                    baseInfo.mode === 'managed'
+                                        ? $t('firewall.modeManaged')
+                                        : $t('firewall.modeExternal')
+                                }}
+                            </el-tag>
+                        </el-tooltip>
                         <Status class="mt-0.5" :status="baseInfo.isActive ? 'enable' : 'disable'" />
                         <el-tag>{{ $t('app.version') }}: {{ baseInfo.version }}</el-tag>
                     </div>
                     <div class="mt-0.5">
-                        <template v-if="baseInfo.name !== 'iptables'">
+                        <template v-if="baseInfo.mode === 'external'">
                             <el-button
                                 v-permission
                                 v-node-admin
@@ -41,7 +57,7 @@
                                 {{ $t('commons.button.init') }}
                             </el-button>
                         </template>
-                        <template v-if="baseInfo.name === 'iptables' && baseInfo.isInit && props.currentTab == 'base'">
+                        <template v-if="baseInfo.mode === 'managed' && baseInfo.isInit && props.currentTab == 'base'">
                             <el-divider direction="vertical" />
                             <el-button
                                 v-if="baseInfo.isBind"
@@ -70,6 +86,10 @@
                             <el-button link type="primary" v-permission v-node-admin @click="onOpenWhiteList" plain>
                                 {{ $t('firewall.portWhiteList') }}
                             </el-button>
+                            <el-divider direction="vertical" />
+                            <el-button link type="primary" v-permission v-node-admin @click="onOpenSnapshot" plain>
+                                {{ $t('firewall.snapshot') }}
+                            </el-button>
                         </template>
 
                         <span v-if="onPing !== 'None'">
@@ -89,6 +109,22 @@
                     </div>
                 </div>
             </el-card>
+            <el-alert
+                v-if="baseInfo.conflict && baseInfo.conflict.hasConflict"
+                class="mt-2"
+                type="error"
+                :closable="false"
+                show-icon
+                :title="baseInfo.conflict.message || $t('firewall.conflictHelper')"
+            />
+            <el-alert
+                v-if="bootDegraded"
+                class="mt-2"
+                type="warning"
+                :closable="false"
+                show-icon
+                :title="$t('firewall.bootDegraded', [baseInfo.bootStatus])"
+            />
         </div>
         <NoSuchService v-else name="Firewalld / Ufw / iptables" />
 
@@ -116,6 +152,7 @@
             </template>
         </DockerRestart>
         <WhiteList ref="whiteListRef" @search="search" />
+        <SnapshotDrawer ref="snapshotRef" />
     </div>
 </template>
 
@@ -126,9 +163,10 @@ import i18n from '@/lang';
 import NoSuchService from '@/components/layout-content/no-such-service.vue';
 import DockerRestart from '@/components/docker-proxy/docker-restart.vue';
 import WhiteList from '@/views/host/firewall/status/white-list/index.vue';
+import SnapshotDrawer from '@/views/host/firewall/status/snapshot/index.vue';
 import { MsgSuccess } from '@/utils/message';
 import { ElMessageBox } from 'element-plus';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { loadDockerStatus } from '@/api/modules/container';
 
 const props = defineProps({
@@ -141,13 +179,33 @@ const baseInfo = ref<Host.FirewallBase>({
     isInit: false,
     isBind: false,
     name: '',
+    mode: '',
     version: '',
     pingStatus: '',
+    capabilities: {
+        rules: false,
+        forward: false,
+        forwardImpl: '',
+        filter: false,
+        baseline: false,
+        snapshot: '',
+        ipv6Rules: false,
+        defaultDrop: false,
+    },
+    conflict: { hasConflict: false, providers: [], message: '' },
+    bootStatus: '',
+    consistent: true,
+});
+
+const bootDegraded = computed(() => {
+    const s = baseInfo.value.bootStatus || '';
+    return s.startsWith('degraded') || s.startsWith('failed');
 });
 const onPing = ref('Disable');
 const oldStatus = ref();
 const dockerRef = ref();
 const whiteListRef = ref();
+const snapshotRef = ref();
 const operation = ref('restart');
 const dockerStatus = ref();
 const withDockerRestart = ref(false);
@@ -160,9 +218,12 @@ const emit = defineEmits([
     'search',
     'update:is-active',
     'update:is-bind',
+    'update:is-init',
     'update:loading',
     'update:maskShow',
     'update:name',
+    'update:capabilities',
+    'update:mode',
 ]);
 
 const loadBaseInfo = async (search: boolean) => {
@@ -178,6 +239,9 @@ const loadBaseInfo = async (search: boolean) => {
             }
             emit('update:is-active', baseInfo.value.isActive);
             emit('update:is-bind', baseInfo.value.isBind);
+            emit('update:is-init', baseInfo.value.isInit);
+            emit('update:capabilities', baseInfo.value.capabilities);
+            emit('update:mode', baseInfo.value.mode);
 
             if (search) {
                 emit('search');
@@ -199,6 +263,10 @@ const loadDocker = async () => {
 
 const onOpenWhiteList = () => {
     whiteListRef.value.acceptParams();
+};
+
+const onOpenSnapshot = () => {
+    snapshotRef.value.acceptParams();
 };
 
 const loadInitMsg = () => {
@@ -262,7 +330,7 @@ const onUnBind = async () => {
 
 const onOperate = async (op: string) => {
     operation.value = op;
-    if (baseInfo.value.name === 'iptables' || !dockerStatus.value) {
+    if (baseInfo.value.mode === 'managed' || !dockerStatus.value) {
         emit('update:loading', true);
         emit('update:maskShow', true);
         await operateFire(operation.value, false)

@@ -11,6 +11,8 @@
                 v-model:is-active="isActive"
                 v-model:is-bind="isBind"
                 v-model:name="fireName"
+                v-model:capabilities="capabilities"
+                v-model:mode="mode"
                 current-tab="base"
             />
             <div v-if="fireName !== '-'">
@@ -18,12 +20,12 @@
                     <span>{{ $t('firewall.firewallNotStart') }}</span>
                 </el-card>
                 <el-card v-if="!isBind && maskShow" class="mask-prompt">
-                    <span>{{ $t('firewall.basicStatus', ['1PANEL_BASIC']) }}</span>
+                    <span>{{ $t('firewall.basicStatus', ['1PANEL']) }}</span>
                 </el-card>
 
                 <LayoutContent :title="$t('firewall.portRule', 2)" :class="{ mask: !isActive || !isBind }">
                     <template #prompt>
-                        <div class="mb-2" v-if="fireName !== 'iptables'">
+                        <div class="mb-2" v-if="mode === 'external'">
                             <el-alert :closable="false" :title="$t('firewall.iptablesHelper', [fireName])" />
                         </div>
                         <el-alert type="info" :closable="false">
@@ -235,6 +237,8 @@ const maskShow = ref(true);
 const isActive = ref(false);
 const isBind = ref(false);
 const fireName = ref();
+const mode = ref('');
+const capabilities = ref<Host.FirewallCapabilities>({} as Host.FirewallCapabilities);
 const fireStatusRef = ref();
 
 const opRef = ref();
@@ -522,6 +526,7 @@ const onOpenDialog = async (
     let params = {
         title,
         fireName: fireName.value,
+        capabilities: capabilities.value,
         rowData: { ...rowData },
     };
     dialogRef.value!.acceptParams(params);
@@ -576,7 +581,7 @@ const onChangeStatus = async (row: Host.RuleInfo, status: string) => {
 const onChange = async (row: any) => {
     let params = {
         type: 'port',
-        chain: fireName.value === 'iptables' ? '1PANEL_BASIC' : '',
+        chain: '',
         srcIP: row.address,
         dstIP: '',
         srcPort: '',

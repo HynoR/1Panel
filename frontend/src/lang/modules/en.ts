@@ -3756,7 +3756,23 @@ const message = {
         confirmKeep: 'Keep changes',
         revertNow: 'Revert now',
         applyToDocker: 'Also block Docker-published port traffic',
-        applyToDockerHelper: 'Apply this block to container-published ports too (via DOCKER-USER), so it is not bypassed by Docker.',
+        applyToDockerHelper:
+            'Apply this block to container-published ports too (via DOCKER-USER), so it is not bypassed by Docker.',
+        modeManaged: '1Panel managed',
+        modeManagedTip: '1Panel fully manages the iptables rules on this host.',
+        modeExternal: 'Visualized',
+        modeExternalTip:
+            '{0} is managed by the system; 1Panel only operates it and does not change its startup behavior.',
+        conflictHelper: 'Both firewalld and ufw are running. Please disable one of them to avoid conflicts.',
+        bootDegraded: 'Firewall boot self-check: {0}. Some rules may not be active — check the configuration.',
+        snapshot: 'Snapshots',
+        snapshotHelper:
+            'Snapshots back up the full ruleset; restore only rebuilds the 1Panel chains (Docker/other rules are kept) and enters a commit-confirm window.',
+        snapshotTag: 'Tag',
+        snapshotRestoreHelper:
+            'Restoring will rebuild the 1Panel firewall chains and start a confirm window — if you get locked out without confirming, it auto-reverts. Continue?',
+        family: 'IP version',
+        familyBoth: 'IPv4 + IPv6',
         advancedControl: 'Advanced Control',
         advancedControlNotAvailable: 'Currently using {0} firewall, advanced rules only support iptables',
         ccDeny: 'CC Protection',
