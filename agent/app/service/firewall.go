@@ -34,6 +34,7 @@ type IFirewallService interface {
 	UpdateAddrRule(req dto.AddrRuleUpdate) error
 	UpdateDescription(req dto.UpdateFirewallDescription) error
 	BatchOperateRule(req dto.BatchRuleOperate) error
+	CleanOrphanFirewallRecords() error
 }
 
 func NewIFirewallService() IFirewallService {
@@ -56,6 +57,10 @@ func (u *FirewallService) LoadBaseInfo(tab string) (dto.FirewallBaseInfo, error)
 	baseInfo.Mode = string(provider.Mode())
 	baseInfo.Capabilities = toDtoCapabilities(provider.Capabilities())
 	baseInfo.Conflict = toDtoConflict(provider.Conflict())
+	if state, stateErr := hostRepo.GetFirewallState(); stateErr == nil {
+		baseInfo.BootStatus = state.LastBootStatus
+		baseInfo.Consistent = state.Consistent
+	}
 	client := provider.Client()
 
 	var wg sync.WaitGroup
@@ -187,9 +192,44 @@ func (u *FirewallService) SearchWithPage(req dto.RuleSearch) (int64, interface{}
 		}
 	}
 
-	go u.cleanUnUsedData(client)
+	// 补充：对仍缺描述的项，按指纹从 meta 表回填（比元组裸匹配更稳健）。
+	// 注意：不再异步静默删除任何"漂移"记录——这正是 C3 的索引 bug + 描述丢失根源。
+	if req.Type == "port" || req.Type == "address" {
+		metaMap := u.loadFirewallMetaMap()
+		for i := 0; i < len(backDatas); i++ {
+			if backDatas[i].Description != "" {
+				continue
+			}
+			fp := firewall.Fingerprint(firewallRuleKeyFromInfo(req.Type, backDatas[i]))
+			if desc, ok := metaMap[fp]; ok {
+				backDatas[i].Description = desc
+			}
+		}
+	}
 
 	return int64(total), backDatas, nil
+}
+
+func (u *FirewallService) loadFirewallMetaMap() map[string]string {
+	metas, _ := hostRepo.ListFirewallMeta()
+	result := make(map[string]string, len(metas))
+	for _, item := range metas {
+		if item.Description != "" {
+			result[item.Fingerprint] = item.Description
+		}
+	}
+	return result
+}
+
+func firewallRuleKeyFromInfo(ruleType string, info fireClient.FireInfo) firewall.RuleKey {
+	family := info.Family
+	if family == "" {
+		family = "ipv4"
+	}
+	if ruleType == "address" {
+		return firewall.RuleKey{Family: family, Scope: "input", Kind: "address", Action: info.Strategy, SrcIP: info.Address}
+	}
+	return firewall.RuleKey{Family: family, Scope: "input", Kind: "port", Action: info.Strategy, Protocol: info.Protocol, SrcIP: info.Address, DstPort: info.Port}
 }
 
 func (u *FirewallService) OperateFirewall(req dto.FirewallOperation) error {
@@ -493,7 +533,7 @@ func (u *FirewallService) UpdateAddrRule(req dto.AddrRuleUpdate) error {
 }
 
 func (u *FirewallService) UpdateDescription(req dto.UpdateFirewallDescription) error {
-	firewall := model.Firewall{
+	record := model.Firewall{
 		Type:        req.Type,
 		Chain:       req.Chain,
 		SrcIP:       req.SrcIP,
@@ -505,7 +545,26 @@ func (u *FirewallService) UpdateDescription(req dto.UpdateFirewallDescription) e
 		Description: req.Description,
 	}
 
-	return hostRepo.SaveFirewallRecord(&firewall)
+	if err := hostRepo.SaveFirewallRecord(&record); err != nil {
+		return err
+	}
+	saveFirewallMeta(firewallRuleKeyFromDescription(req), req.Description)
+	return nil
+}
+
+func firewallRuleKeyFromDescription(req dto.UpdateFirewallDescription) firewall.RuleKey {
+	switch req.Type {
+	case "address":
+		return firewall.RuleKey{Family: "ipv4", Scope: "input", Kind: "address", Action: req.Strategy, SrcIP: req.SrcIP}
+	case "port":
+		return firewall.RuleKey{Family: "ipv4", Scope: "input", Kind: "port", Action: req.Strategy, Protocol: req.Protocol, SrcIP: req.SrcIP, DstPort: req.DstPort}
+	default:
+		scope := "input"
+		if strings.Contains(strings.ToUpper(req.Chain), "OUTPUT") {
+			scope = "output"
+		}
+		return firewall.RuleKey{Family: "ipv4", Scope: scope, Kind: "filter", Action: req.Strategy, Protocol: req.Protocol, SrcIP: req.SrcIP, SrcPort: req.SrcPort, DstIP: req.DstIP, DstPort: req.DstPort}
+	}
 }
 
 func (u *FirewallService) BatchOperateRule(req dto.BatchRuleOperate) error {
@@ -591,28 +650,35 @@ func (u *FirewallService) loadPortByApp() []portOfApp {
 	return datas
 }
 
-func (u *FirewallService) cleanUnUsedData(client firewall.FirewallClient) {
-	list, _ := client.ListPort()
-	addressList, _ := client.ListAddress()
-	list = append(list, addressList...)
-	if len(list) == 0 {
-		return
+// CleanOrphanFirewallRecords 替代被删除的 cleanUnUsedData 自动行为：
+// 只在用户显式点击"清理失效描述"时执行，且用 keep-set 一次性删除，杜绝原先"遍历中删元素"的索引 bug（修 C3）。
+func (u *FirewallService) CleanOrphanFirewallRecords() error {
+	client, err := firewall.NewFirewallClient()
+	if err != nil {
+		return err
 	}
+	ports, _ := client.ListPort()
+	addresses, _ := client.ListAddress()
+	live := append(ports, addresses...)
+
 	records, _ := hostRepo.ListFirewallRecord()
-	if len(records) == 0 {
-		return
-	}
-	for _, item := range list {
-		for i := 0; i < len(records); i++ {
-			if records[i].DstPort == item.Port && records[i].Protocol == item.Protocol && records[i].Strategy == item.Strategy && records[i].SrcIP == item.Address {
-				records = append(records[:i], records[i+1:]...)
+	keep := make(map[uint]struct{})
+	for _, item := range live {
+		for _, rec := range records {
+			if rec.DstPort == item.Port && rec.Protocol == item.Protocol && rec.Strategy == item.Strategy && rec.SrcIP == item.Address {
+				keep[rec.ID] = struct{}{}
 			}
 		}
 	}
-
-	for _, record := range records {
-		_ = hostRepo.DeleteFirewallRecordByID(record.ID)
+	for _, rec := range records {
+		if _, ok := keep[rec.ID]; ok {
+			continue
+		}
+		if err := hostRepo.DeleteFirewallRecordByID(rec.ID); err != nil {
+			global.LOG.Warnf("clean orphan firewall record %d failed: %v", rec.ID, err)
+		}
 	}
+	return nil
 }
 
 func (u *FirewallService) addPortsBeforeStart(client firewall.FirewallClient) error {
@@ -637,7 +703,9 @@ func (u *FirewallService) addPortsBeforeStart(client firewall.FirewallClient) er
 }
 
 func (u *FirewallService) addPortRecord(req dto.PortRuleOperate) error {
+	portKey := firewall.RuleKey{Family: "ipv4", Scope: "input", Kind: "port", Action: req.Strategy, Protocol: req.Protocol, SrcIP: req.Address, DstPort: req.Port}
 	if req.Operation == "remove" {
+		_ = hostRepo.DeleteFirewallMeta(firewall.Fingerprint(portKey))
 		if req.ID != 0 {
 			return hostRepo.DeleteFirewallRecordByID(req.ID)
 		}
@@ -658,12 +726,15 @@ func (u *FirewallService) addPortRecord(req dto.PortRuleOperate) error {
 	}); err != nil {
 		return fmt.Errorf("add record %s/%s failed (strategy: %s, address: %s), err: %v", req.Port, req.Protocol, req.Strategy, req.Address, err)
 	}
+	saveFirewallMeta(portKey, req.Description)
 
 	return nil
 }
 
 func (u *FirewallService) addAddressRecord(chain string, req dto.AddrRuleOperate) error {
+	addrKey := firewall.RuleKey{Family: "ipv4", Scope: "input", Kind: "address", Action: req.Strategy, SrcIP: req.Address}
 	if req.Operation == "remove" {
+		_ = hostRepo.DeleteFirewallMeta(firewall.Fingerprint(addrKey))
 		if req.ID != 0 {
 			return hostRepo.DeleteFirewallRecordByID(req.ID)
 		}
@@ -679,7 +750,28 @@ func (u *FirewallService) addAddressRecord(chain string, req dto.AddrRuleOperate
 	}); err != nil {
 		return fmt.Errorf("add record failed (strategy: %s, address: %s), err: %v", req.Strategy, req.Address, err)
 	}
+	saveFirewallMeta(addrKey, req.Description)
 	return nil
+}
+
+// saveFirewallMeta 按指纹幂等写入规则描述元数据（best-effort，不阻断主流程）。
+func saveFirewallMeta(key firewall.RuleKey, description string) {
+	if strings.TrimSpace(description) == "" {
+		return
+	}
+	family := key.Family
+	if family == "" {
+		family = "ipv4"
+	}
+	if err := hostRepo.SaveFirewallMeta(&model.FirewallRuleMeta{
+		Fingerprint: firewall.Fingerprint(key),
+		Kind:        key.Kind,
+		Family:      family,
+		Description: description,
+		Source:      "panel",
+	}); err != nil {
+		global.LOG.Warnf("save firewall meta failed: %v", err)
+	}
 }
 
 func checkPortUsed(ports, proto string, apps []portOfApp) string {

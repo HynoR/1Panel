@@ -12,6 +12,9 @@ type FirewallBaseInfo struct {
 
 	Capabilities FirewallCapabilities `json:"capabilities"`
 	Conflict     FirewallConflict     `json:"conflict"`
+
+	BootStatus string `json:"bootStatus"` // ok | degraded:<reason> | failed:<reason>
+	Consistent bool   `json:"consistent"`
 }
 
 type FirewallCapabilities struct {

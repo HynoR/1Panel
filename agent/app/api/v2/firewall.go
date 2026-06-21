@@ -230,6 +230,21 @@ func (b *BaseApi) UpdateAddrRule(c *gin.Context) {
 }
 
 // @Tags Firewall
+// @Summary Clean orphan firewall rule descriptions
+// @Accept json
+// @Success 200
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/clean [post]
+func (b *BaseApi) CleanOrphanFirewallRecords(c *gin.Context) {
+	if err := firewallService.CleanOrphanFirewallRecords(); err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.Success(c)
+}
+
+// @Tags Firewall
 // @Summary search iptables filter rules
 // @Accept json
 // @Param request body dto.SearchPageWithType true "request"
