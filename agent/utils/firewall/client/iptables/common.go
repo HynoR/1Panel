@@ -36,6 +36,10 @@ const (
 	Chain1PanelBaseline = "1PANEL_BASELINE"
 	Chain1PanelAllow    = "1PANEL_ALLOW"
 	Chain1PanelAfter    = "1PANEL_AFTER"
+
+	// Docker 防护（PR-6）：与防火墙模式正交，挂在 Docker 的 DOCKER-USER 链下。
+	Chain1PanelDocker = "1PANEL_DOCKER"
+	ChainDockerUser   = "DOCKER-USER"
 )
 
 // BaseChainOrder 是新布局在 INPUT 中的固定顺序（不含可选的 1PANEL_INPUT 高级链）。

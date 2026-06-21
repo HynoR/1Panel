@@ -24,6 +24,7 @@ const (
 	BaselineFileName = "1panel_baseline.rules"
 	AllowFileName    = "1panel_allow.rules"
 	AfterFileName    = "1panel_after.rules"
+	DockerFileName   = "1panel_docker.rules"
 
 	InputFileName    = "1panel_input.rules"
 	OutputFileName   = "1panel_out.rules"
@@ -45,6 +46,8 @@ func ChainFileName(chain string) string {
 		return AllowFileName
 	case Chain1PanelAfter:
 		return AfterFileName
+	case Chain1PanelDocker:
+		return DockerFileName
 	case Chain1PanelInput:
 		return InputFileName
 	case Chain1PanelOutput:

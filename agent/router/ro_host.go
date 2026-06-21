@@ -48,6 +48,7 @@ func (s *HostRouter) InitRouter(Router *gin.RouterGroup) {
 		hostRouter.POST("/firewall/session/revert", baseApi.RevertFirewallSession)
 		hostRouter.POST("/firewall/snapshot/list", baseApi.ListFirewallSnapshot)
 		hostRouter.POST("/firewall/snapshot/restore", fwEmergency, baseApi.RestoreFirewallSnapshot)
+		hostRouter.POST("/firewall/docker/status", baseApi.LoadFirewallDockerStatus)
 
 		hostRouter.POST("/monitor/search", baseApi.LoadMonitor)
 		hostRouter.POST("/monitor/clean", baseApi.CleanMonitor)

@@ -3755,6 +3755,8 @@ const message = {
         confirmTip: '{count} change(s) applied. Auto-revert in {seconds}s if not confirmed.',
         confirmKeep: 'Keep changes',
         revertNow: 'Revert now',
+        applyToDocker: 'Also block Docker-published port traffic',
+        applyToDockerHelper: 'Apply this block to container-published ports too (via DOCKER-USER), so it is not bypassed by Docker.',
         advancedControl: 'Advanced Control',
         advancedControlNotAvailable: 'Currently using {0} firewall, advanced rules only support iptables',
         ccDeny: 'CC Protection',

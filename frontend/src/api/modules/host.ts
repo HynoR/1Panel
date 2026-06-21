@@ -63,6 +63,9 @@ export const listFireSnapshot = () => {
 export const restoreFireSnapshot = (name: string) => {
     return http.post(`/hosts/firewall/snapshot/restore`, { name: name }, TimeoutEnum.T_60S);
 };
+export const loadFireDockerStatus = () => {
+    return http.post<Host.FirewallDockerStatus>(`/hosts/firewall/docker/status`, {});
+};
 
 // Iptables Filter
 export const searchFilterRules = (params: Host.IptablesFilterRuleSearch) => {

@@ -164,3 +164,15 @@ type FirewallSnapshot struct {
 type FirewallSnapshotRestore struct {
 	Name string `json:"name" validate:"required"`
 }
+
+type FirewallDockerRule struct {
+	Address  string `json:"address"`
+	Port     string `json:"port"`
+	Protocol string `json:"protocol"`
+	Strategy string `json:"strategy"`
+}
+
+type FirewallDockerStatus struct {
+	Available bool                 `json:"available"`
+	Rules     []FirewallDockerRule `json:"rules"`
+}

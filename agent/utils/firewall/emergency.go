@@ -91,8 +91,11 @@ func StartEmergencyJanitor() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
 		CleanExpiredEmergency()
+		EnsureDockerChain()
 		for range ticker.C {
 			CleanExpiredEmergency()
+			// PR-6：Docker 重启会重建 DOCKER-USER 清掉我们的 jump，每分钟巡检重新断言。
+			EnsureDockerChain()
 		}
 	}()
 }

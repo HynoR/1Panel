@@ -41,6 +41,7 @@ type IFirewallService interface {
 	RevertSession() error
 	ListSnapshots() ([]dto.FirewallSnapshot, error)
 	RestoreSnapshot(req dto.FirewallSnapshotRestore) error
+	DockerStatus() dto.FirewallDockerStatus
 }
 
 func NewIFirewallService() IFirewallService {
@@ -314,6 +315,22 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 			return err
 		}
 	}
+	// PR-6：Docker 端口防护与防火墙模式正交，按勾选同步到 1PANEL_DOCKER（用 conntrack 还原原始目的端口）。
+	if req.ApplyToDocker && req.Strategy == "drop" && firewall.DockerProtectionAvailable() {
+		for _, proto := range strings.Split(req.Protocol, "/") {
+			for _, port := range strings.Split(req.Port, ",") {
+				port = strings.TrimSpace(strings.ReplaceAll(port, "-", ":"))
+				if port == "" {
+					continue
+				}
+				for _, addr := range strings.Split(strings.TrimSuffix(req.Address, ","), ",") {
+					if err := firewall.ApplyDockerPortRule(port, proto, strings.TrimSpace(addr), req.Operation); err != nil {
+						global.LOG.Warnf("apply docker port rule %s/%s failed: %v", port, proto, err)
+					}
+				}
+			}
+		}
+	}
 	protos := strings.Split(req.Protocol, "/")
 	itemAddress := strings.Split(strings.TrimSuffix(req.Address, ","), ",")
 
@@ -529,6 +546,12 @@ func (u *FirewallService) OperateAddressRule(req dto.AddrRuleOperate, reload boo
 		if err := u.addAddressRecord(chain, req); err != nil {
 			return err
 		}
+		// PR-6：勾选时把 IP 封禁同步到 Docker（"封掉这个 IP"不应因业务跑在容器里就失效）。
+		if req.ApplyToDocker && req.Strategy == "drop" && firewall.DockerProtectionAvailable() {
+			if err := firewall.ApplyDockerIPRule(addressList[i], req.Operation); err != nil {
+				global.LOG.Warnf("apply docker ip rule %s failed: %v", addressList[i], err)
+			}
+		}
 	}
 	if reload {
 		return client.Reload()
@@ -702,6 +725,20 @@ func (u *FirewallService) ConfirmSession() error {
 
 func (u *FirewallService) RevertSession() error {
 	return firewall.RevertSession()
+}
+
+func (u *FirewallService) DockerStatus() dto.FirewallDockerStatus {
+	available, rules := firewall.DockerStatus()
+	result := dto.FirewallDockerStatus{Available: available}
+	for _, r := range rules {
+		result.Rules = append(result.Rules, dto.FirewallDockerRule{
+			Address:  r.Address,
+			Port:     r.Port,
+			Protocol: r.Protocol,
+			Strategy: r.Strategy,
+		})
+	}
+	return result
 }
 
 func (u *FirewallService) ListSnapshots() ([]dto.FirewallSnapshot, error) {

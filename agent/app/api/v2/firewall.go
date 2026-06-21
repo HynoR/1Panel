@@ -286,6 +286,17 @@ func (b *BaseApi) RevertFirewallSession(c *gin.Context) {
 }
 
 // @Tags Firewall
+// @Summary Docker protection status
+// @Accept json
+// @Success 200 {object} dto.FirewallDockerStatus
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/docker/status [post]
+func (b *BaseApi) LoadFirewallDockerStatus(c *gin.Context) {
+	helper.SuccessWithData(c, firewallService.DockerStatus())
+}
+
+// @Tags Firewall
 // @Summary List firewall snapshots
 // @Accept json
 // @Success 200 {array} dto.FirewallSnapshot

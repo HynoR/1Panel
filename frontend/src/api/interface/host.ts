@@ -150,6 +150,8 @@ export namespace Host {
         protocol: string;
         strategy: string;
         description: string;
+        family?: string;
+        applyToDocker?: boolean;
     }
     export interface RuleForward {
         operation: string;
@@ -164,6 +166,18 @@ export namespace Host {
         address: string;
         strategy: string;
         description: string;
+        family?: string;
+        applyToDocker?: boolean;
+    }
+    export interface FirewallDockerRule {
+        address: string;
+        port: string;
+        protocol: string;
+        strategy: string;
+    }
+    export interface FirewallDockerStatus {
+        available: boolean;
+        rules: FirewallDockerRule[];
     }
     export interface UpdatePortRule {
         oldRule: RulePort;

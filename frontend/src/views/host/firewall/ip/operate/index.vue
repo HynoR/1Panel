@@ -28,6 +28,12 @@
                     <el-radio value="drop">{{ $t('firewall.deny') }}</el-radio>
                 </el-radio-group>
             </el-form-item>
+            <el-form-item v-if="dockerAvailable && dialogData.rowData!.strategy === 'drop'" prop="applyToDocker">
+                <el-checkbox v-model="dialogData.rowData!.applyToDocker">
+                    {{ $t('firewall.applyToDocker') }}
+                </el-checkbox>
+                <span class="input-help">{{ $t('firewall.applyToDockerHelper') }}</span>
+            </el-form-item>
             <el-form-item :label="$t('commons.table.description')" prop="description">
                 <el-input clearable v-model.trim="dialogData.rowData!.description" />
             </el-form-item>
@@ -49,11 +55,12 @@ import i18n from '@/lang';
 import { ElForm } from 'element-plus';
 import { MsgSuccess } from '@/utils/message';
 import { Host } from '@/api/interface/host';
-import { operateIPRule, updateAddrRule } from '@/api/modules/host';
+import { loadFireDockerStatus, operateIPRule, updateAddrRule } from '@/api/modules/host';
 import { checkCidr, checkCidrV6, checkIpV4V6 } from '@/utils/validate';
 import { deepCopy } from '@/utils/misc';
 const loading = ref();
 const oldRule = ref<Host.RuleIP>();
+const dockerAvailable = ref(false);
 
 interface DialogProps {
     title: string;
@@ -74,6 +81,20 @@ const acceptParams = (params: DialogProps): void => {
     }
     title.value = i18n.global.t('firewall.' + dialogData.value.title);
     drawerVisible.value = true;
+    loadDockerStatus();
+};
+const loadDockerStatus = async () => {
+    dockerAvailable.value = false;
+    try {
+        const res = await loadFireDockerStatus();
+        dockerAvailable.value = res.data.available;
+        // 检测到 Docker 时默认勾选——加黑名单的预期就是"封掉这个 IP"，不应因业务跑在容器里就失效。
+        if (dockerAvailable.value && dialogData.value.title === 'create' && dialogData.value.rowData) {
+            dialogData.value.rowData.applyToDocker = true;
+        }
+    } catch (error) {
+        dockerAvailable.value = false;
+    }
 };
 const emit = defineEmits<{ (e: 'search'): void }>();
 

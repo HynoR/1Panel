@@ -39,6 +39,9 @@ func runBootReplay() string {
 	}
 	clientName := provider.Name()
 
+	// PR-6：Docker 防护与防火墙模式正交，开机重放 1PANEL_DOCKER 并断言 DOCKER-USER jump（自带可用性检测）。
+	firewall.LoadDockerRules()
+
 	settingRepo := repo.NewISettingRepo()
 	if clientName == "ufw" || clientName == "iptables" {
 		if err := iptables.LoadRulesFromFile(iptables.FilterTab, iptables.Chain1PanelForward, iptables.ForwardFileName); err != nil {
