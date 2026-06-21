@@ -31,7 +31,6 @@ import (
 	"github.com/1Panel-dev/1Panel/core/utils/common"
 	"github.com/1Panel-dev/1Panel/core/utils/controller"
 	"github.com/1Panel-dev/1Panel/core/utils/encrypt"
-	"github.com/1Panel-dev/1Panel/core/utils/firewall"
 	"github.com/1Panel-dev/1Panel/core/utils/passkey"
 	"github.com/1Panel-dev/1Panel/core/utils/req_helper/proxy_local"
 	"github.com/1Panel-dev/1Panel/core/utils/xpack"
@@ -322,7 +321,13 @@ func (u *SettingService) UpdatePort(port uint) error {
 	if oldPort.Value == fmt.Sprintf("%v", port) {
 		return nil
 	}
-	if err := firewall.UpdatePort(oldPort.Value, fmt.Sprintf("%v", port)); err != nil {
+	// PR-8 单写者：不再由 core 直接 shell 调 ufw/firewall-cmd，改为委托 agent 放行新端口（只增不删），
+	// 消灭"开新失败+删旧成功"的双失联窗口（修 C2）。旧端口的关闭交由用户用新端口登录后处理。
+	body, err := json.Marshal(map[string]string{"port": fmt.Sprintf("%v", port)})
+	if err != nil {
+		return err
+	}
+	if _, err := proxy_local.NewLocalClient("/api/v2/hosts/firewall/panel-port", http.MethodPost, bytes.NewReader(body), nil); err != nil {
 		return err
 	}
 

@@ -35,6 +35,7 @@ type IFirewallService interface {
 	UpdateDescription(req dto.UpdateFirewallDescription) error
 	BatchOperateRule(req dto.BatchRuleOperate) error
 	CleanOrphanFirewallRecords() error
+	UpdatePanelPort(req dto.PanelPortUpdate) error
 
 	SessionStatus() dto.FirewallSessionInfo
 	ConfirmSession() error
@@ -725,6 +726,42 @@ func (u *FirewallService) ConfirmSession() error {
 
 func (u *FirewallService) RevertSession() error {
 	return firewall.RevertSession()
+}
+
+// UpdatePanelPort 单写者入口（PR-8）：core 改面板端口时委托 agent 放行新端口，**只增不删**。
+// 旧端口的关闭交由后续白名单同步/确认流程处理，消灭"开新失败+删旧成功"的双失联窗口（修 C2）。
+func (u *FirewallService) UpdatePanelPort(req dto.PanelPortUpdate) error {
+	port := strings.TrimSpace(req.Port)
+	if port == "" {
+		return fmt.Errorf("panel port is required")
+	}
+	client, err := firewall.NewFirewallClient()
+	if err != nil {
+		return err
+	}
+	if client.Name() == "iptables" {
+		isInit, _ := iptables.LoadInitStatus("iptables", "base")
+		if !isInit {
+			// 未启用 managed 过滤（INPUT 默认 ACCEPT）→ 无需放行。
+			return nil
+		}
+		if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelBaseline, "-p", "tcp", "-m", "tcp", "--dport", port, "-j", "ACCEPT"); err != nil {
+			return err
+		}
+		if err := iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelBaseline, iptables.BaselineFileName); err != nil {
+			return err
+		}
+		if iptables.HasIP6tables() {
+			_ = iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelBaseline, "-p", "tcp", "-m", "tcp", "--dport", port, "-j", "ACCEPT")
+			_ = iptables.SaveRulesToFile6(iptables.FilterTab, iptables.Chain1PanelBaseline, iptables.BaselineFileName)
+		}
+		return nil
+	}
+	// external（ufw/firewalld）：原生放行新端口 + reload，只增不删。
+	if err := client.Port(fireClient.FireInfo{Port: port, Protocol: "tcp", Strategy: "accept"}, "add"); err != nil {
+		return err
+	}
+	return client.Reload()
 }
 
 func (u *FirewallService) DockerStatus() dto.FirewallDockerStatus {

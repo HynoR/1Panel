@@ -176,3 +176,8 @@ type FirewallDockerStatus struct {
 	Available bool                 `json:"available"`
 	Rules     []FirewallDockerRule `json:"rules"`
 }
+
+// PanelPortUpdate 面板端口变更（PR-8 单写者）：core 委托 agent 放行新端口，只增不删（修 C2）。
+type PanelPortUpdate struct {
+	Port string `json:"port" validate:"required"`
+}

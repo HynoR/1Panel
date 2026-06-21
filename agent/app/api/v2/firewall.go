@@ -286,6 +286,26 @@ func (b *BaseApi) RevertFirewallSession(c *gin.Context) {
 }
 
 // @Tags Firewall
+// @Summary Allow the new panel port (core delegates here on port change)
+// @Accept json
+// @Param request body dto.PanelPortUpdate true "request"
+// @Success 200
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/panel-port [post]
+func (b *BaseApi) UpdateFirewallPanelPort(c *gin.Context) {
+	var req dto.PanelPortUpdate
+	if err := helper.CheckBindAndValidate(&req, c); err != nil {
+		return
+	}
+	if err := firewallService.UpdatePanelPort(req); err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.Success(c)
+}
+
+// @Tags Firewall
 // @Summary Docker protection status
 // @Accept json
 // @Success 200 {object} dto.FirewallDockerStatus
