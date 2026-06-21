@@ -415,6 +415,9 @@ func bindBaseChainsInOrder() error {
 }
 
 // unbindBaseChains 解绑 INPUT 上全部新布局基础链（循环删，处理重复绑定）。
+// 同时解绑旧 BASIC 布局残留的 INPUT jump：升级机器上 INPUT 仍可能挂着 BASIC_BEFORE/BASIC/BASIC_AFTER，
+// 不一并解绑则旧严格 DROP 路径在绑定新链后依然生效，且 unbind-base 关闭防火墙时无法真正停用旧路径（评审 P1）。
+// 迁移完成后这些旧链已不在 INPUT，FindChainNum 返回 0，循环立即跳过，对存量机为无害幂等操作。
 func unbindBaseChains() {
 	chains := []string{
 		iptables.Chain1PanelGuard,
@@ -422,6 +425,9 @@ func unbindBaseChains() {
 		iptables.Chain1PanelBaseline,
 		iptables.Chain1PanelAllow,
 		iptables.Chain1PanelAfter,
+		iptables.Chain1PanelBasicBefore,
+		iptables.Chain1PanelBasic,
+		iptables.Chain1PanelBasicAfter,
 	}
 	for _, chain := range chains {
 		for i := 0; i < 16; i++ {
@@ -671,18 +677,39 @@ func syncFirewallPortWhiteListRules(portWhiteList []firewallPortWhitelist, oldCo
 		if _, ok := portWhitelist[firewallPortWhiteListKey(item)]; ok {
 			continue
 		}
-		if !iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelAllow, "-p", item.Protocol, "--dport", item.Port, "-j", "ACCEPT") {
-			continue
+		if iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelAllow, "-p", item.Protocol, "--dport", item.Port, "-j", "ACCEPT") {
+			if err := iptables.DeleteRule(iptables.FilterTab, iptables.Chain1PanelAllow, "-p", item.Protocol, "--dport", item.Port, "-j", "ACCEPT"); err != nil {
+				return err
+			}
 		}
-		if err := iptables.DeleteRule(iptables.FilterTab, iptables.Chain1PanelAllow, "-p", item.Protocol, "--dport", item.Port, "-j", "ACCEPT"); err != nil {
-			return err
+		// 删除时必须同步清掉 v6 镜像：添加白名单端口会镜像写 ip6tables ALLOW，
+		// 仅删 v4 会让端口在 IPv6 上持续放行（且随后又被 SaveRulesToFile6 落盘）（评审 P2）。
+		if iptables.HasIP6tables() && iptables.CheckRuleExist6(iptables.FilterTab, iptables.Chain1PanelAllow, "-p", item.Protocol, "--dport", item.Port, "-j", "ACCEPT") {
+			if err := iptables.DeleteRule6(iptables.FilterTab, iptables.Chain1PanelAllow, "-p", item.Protocol, "--dport", item.Port, "-j", "ACCEPT"); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
 func cleanExtraFirewallPortRules(chain, protocol string, whitelist map[string]struct{}) error {
-	rules, err := iptables.ReadFilterRulesByChain(chain)
+	if err := cleanExtraPortRulesByFamily(chain, protocol, whitelist, iptables.ReadFilterRulesByChain, iptables.DeleteRule); err != nil {
+		return err
+	}
+	// v6 镜像同样清理：保底集（SSH/面板端口）由 applyRequiredFirewallPortWhiteListRules 镜像写入 v6 BASELINE，
+	// 若只清 v4，端口变更后旧端口会在 IPv6 上持续放行并被 SaveRulesToFile6 再次落盘（评审 P2，与 ALLOW 链 v6 删除同源）。
+	// 独立扫一遍 v6 链，可一并自愈本修复前已残留的 v6-only 陈旧项。
+	if !iptables.HasIP6tables() {
+		return nil
+	}
+	return cleanExtraPortRulesByFamily(chain, protocol, whitelist, iptables.ReadFilterRulesByChain6, iptables.DeleteRule6)
+}
+
+// cleanExtraPortRulesByFamily 按指定地址族（由 read/del 决定 v4 或 v6）清掉某链中不在白名单内的多余端口 ACCEPT，
+// 同名端口仅保留首条。沿用本包既有的 reader 函数值传参风格（见 appendPortRules）。
+func cleanExtraPortRulesByFamily(chain, protocol string, whitelist map[string]struct{}, read func(string) ([]iptables.FilterRules, error), del func(string, string, ...string) error) error {
+	rules, err := read(chain)
 	if err != nil {
 		return err
 	}
@@ -697,7 +724,7 @@ func cleanExtraFirewallPortRules(chain, protocol string, whitelist map[string]st
 				continue
 			}
 		}
-		if err := iptables.DeleteRule(iptables.FilterTab, chain, "-p", protocol, "-m", protocol, "--dport", rule.DstPort, "-j", "ACCEPT"); err != nil {
+		if err := del(iptables.FilterTab, chain, "-p", protocol, "-m", protocol, "--dport", rule.DstPort, "-j", "ACCEPT"); err != nil {
 			return err
 		}
 	}

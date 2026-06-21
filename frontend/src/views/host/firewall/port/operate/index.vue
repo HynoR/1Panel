@@ -39,7 +39,7 @@
                 </el-radio-group>
             </el-form-item>
             <el-form-item
-                v-if="dialogData.capabilities && dialogData.capabilities.ipv6Rules"
+                v-if="dialogData.mode === 'managed' && dialogData.capabilities && dialogData.capabilities.ipv6Rules"
                 :label="$t('firewall.family')"
                 prop="family"
             >
@@ -88,6 +88,7 @@ interface DialogProps {
     title: string;
     fireName: string;
     capabilities?: Host.FirewallCapabilities;
+    mode?: string;
     rowData?: Host.RulePort;
     getTableList?: () => Promise<any>;
 }

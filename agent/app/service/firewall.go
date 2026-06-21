@@ -326,7 +326,14 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 					continue
 				}
 				for _, addr := range strings.Split(strings.TrimSuffix(req.Address, ","), ",") {
-					if err := firewall.ApplyDockerPortRule(port, proto, strings.TrimSpace(addr), req.Operation); err != nil {
+					addr = strings.TrimSpace(addr)
+					// ufw 任意源端口行在列表里地址显示为 "Anywhere"/"Anywhere (v6)"，而创建时镜像的
+					// 1PANEL_DOCKER 规则用的是空源；删除若把 "Anywhere" 当 -s 源会匹配不上 →
+					// 残留 Docker DROP 致已发布端口持续被封（评审 P2）。归一化为空源再清理。
+					if strings.HasPrefix(addr, "Anywhere") {
+						addr = ""
+					}
+					if err := firewall.ApplyDockerPortRule(port, proto, addr, req.Operation); err != nil {
 						global.LOG.Warnf("apply docker port rule %s/%s failed: %v", port, proto, err)
 					}
 				}

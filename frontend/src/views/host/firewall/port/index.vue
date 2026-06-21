@@ -527,6 +527,7 @@ const onOpenDialog = async (
         title,
         fireName: fireName.value,
         capabilities: capabilities.value,
+        mode: mode.value,
         rowData: { ...rowData },
     };
     dialogRef.value!.acceptParams(params);

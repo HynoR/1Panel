@@ -124,3 +124,17 @@ func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
 }
+
+// legacyMigrationPending 报告是否存在"尚未迁移的旧 BASIC 布局"。判据与 migrateLegacyChains 顶部一致：
+// 新布局文件已存在 → 已迁移；无任何旧文件 → 全新安装。两者皆否才算待迁移。
+// 用于开机流程：升级首启通常是进程重启（/run 引导标记仍在，needInit 为 false），
+// 据此强制触发一次重放，避免内核停留旧布局而新代码按新链读写（评审 P1）。
+func legacyMigrationPending() bool {
+	dir := global.Dir.FirewallDir
+	if fileExists(path.Join(dir, iptables.GuardFileName)) {
+		return false
+	}
+	return fileExists(path.Join(dir, iptables.BasicFileName)) ||
+		fileExists(path.Join(dir, iptables.BasicBeforeFileName)) ||
+		fileExists(path.Join(dir, iptables.BasicAfterFileName))
+}

@@ -23,7 +23,11 @@ func Init() {
 	firewall.StartEmergencyJanitor()
 	firewall.ReclaimSession()
 
-	if !needInit() {
+	// runBootReplay 默认每个主机引导周期跑一次（/run 引导标记区分"重启进程"与"重启主机"）。
+	// 但升级首启通常是进程重启（标记仍在），若旧 BASIC 布局尚未迁移，必须立即迁移并重放为新布局，
+	// 否则内核停留在旧布局而新代码按 GUARD/DENY/BASELINE/ALLOW/AFTER 读写 → 防火墙搜索/规则失效直到下次重启（评审 P1）。
+	// 注意 needInit 有副作用（创建引导标记），靠 && 短路保证首启时仍会先创建标记。
+	if !needInit() && !legacyMigrationPending() {
 		return
 	}
 	InitPingStatus()
