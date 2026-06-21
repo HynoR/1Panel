@@ -245,6 +245,84 @@ func (b *BaseApi) CleanOrphanFirewallRecords(c *gin.Context) {
 }
 
 // @Tags Firewall
+// @Summary Load commit-confirm session status
+// @Accept json
+// @Success 200 {object} dto.FirewallSessionInfo
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/session/status [post]
+func (b *BaseApi) LoadFirewallSession(c *gin.Context) {
+	helper.SuccessWithData(c, firewallService.SessionStatus())
+}
+
+// @Tags Firewall
+// @Summary Confirm commit-confirm session
+// @Accept json
+// @Success 200
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/session/confirm [post]
+func (b *BaseApi) ConfirmFirewallSession(c *gin.Context) {
+	if err := firewallService.ConfirmSession(); err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.Success(c)
+}
+
+// @Tags Firewall
+// @Summary Revert commit-confirm session
+// @Accept json
+// @Success 200
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/session/revert [post]
+func (b *BaseApi) RevertFirewallSession(c *gin.Context) {
+	if err := firewallService.RevertSession(); err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.Success(c)
+}
+
+// @Tags Firewall
+// @Summary List firewall snapshots
+// @Accept json
+// @Success 200 {array} dto.FirewallSnapshot
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/snapshot/list [post]
+func (b *BaseApi) ListFirewallSnapshot(c *gin.Context) {
+	list, err := firewallService.ListSnapshots()
+	if err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.SuccessWithData(c, list)
+}
+
+// @Tags Firewall
+// @Summary Restore a firewall snapshot
+// @Accept json
+// @Param request body dto.FirewallSnapshotRestore true "request"
+// @Success 200
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/snapshot/restore [post]
+// @x-panel-log {"bodyKeys":["name"],"paramKeys":[],"BeforeFunctions":[],"formatZH":"恢复防火墙快照 [name]","formatEN":"restore firewall snapshot [name]"}
+func (b *BaseApi) RestoreFirewallSnapshot(c *gin.Context) {
+	var req dto.FirewallSnapshotRestore
+	if err := helper.CheckBindAndValidate(&req, c); err != nil {
+		return
+	}
+	if err := firewallService.RestoreSnapshot(req); err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.Success(c)
+}
+
+// @Tags Firewall
 // @Summary search iptables filter rules
 // @Accept json
 // @Param request body dto.SearchPageWithType true "request"

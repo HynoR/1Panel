@@ -35,6 +35,12 @@ type IFirewallService interface {
 	UpdateDescription(req dto.UpdateFirewallDescription) error
 	BatchOperateRule(req dto.BatchRuleOperate) error
 	CleanOrphanFirewallRecords() error
+
+	SessionStatus() dto.FirewallSessionInfo
+	ConfirmSession() error
+	RevertSession() error
+	ListSnapshots() ([]dto.FirewallSnapshot, error)
+	RestoreSnapshot(req dto.FirewallSnapshotRestore) error
 }
 
 func NewIFirewallService() IFirewallService {
@@ -295,6 +301,15 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 	if len(req.Chain) == 0 && client.Name() == "iptables" {
 		req.Chain = iptables.Chain1PanelBasic
 	}
+	// L1 红线预检 + L3 提交-确认会话（设计稿 §3.5）。
+	if err := precheckPortRule(req); err != nil {
+		return err
+	}
+	if lowersReachability(req.Operation, req.Strategy) && isManagedMode() {
+		if err := firewall.BeginSession(fmt.Sprintf("port %s %s/%s %s", req.Operation, req.Port, req.Protocol, req.Strategy)); err != nil {
+			return err
+		}
+	}
 	protos := strings.Split(req.Protocol, "/")
 	itemAddress := strings.Split(strings.TrimSuffix(req.Address, ","), ",")
 
@@ -479,6 +494,15 @@ func (u *FirewallService) OperateAddressRule(req dto.AddrRuleOperate, reload boo
 	if client.Name() == "iptables" {
 		chain = iptables.Chain1PanelBasic
 	}
+	// L1 红线预检 + L3 提交-确认会话（设计稿 §3.5）。
+	if err := precheckAddressRule(req); err != nil {
+		return err
+	}
+	if lowersReachability(req.Operation, req.Strategy) && isManagedMode() {
+		if err := firewall.BeginSession(fmt.Sprintf("ip %s %s %s", req.Operation, req.Address, req.Strategy)); err != nil {
+			return err
+		}
+	}
 	var fireInfo fireClient.FireInfo
 	if err := copier.Copy(&fireInfo, &req); err != nil {
 		return err
@@ -650,6 +674,55 @@ func (u *FirewallService) loadPortByApp() []portOfApp {
 	return datas
 }
 
+func (u *FirewallService) SessionStatus() dto.FirewallSessionInfo {
+	info := firewall.SessionStatus()
+	result := dto.FirewallSessionInfo{
+		Active:        info.Active,
+		RemainSeconds: info.RemainSeconds,
+		Since:         info.Since,
+		Snapshot:      info.Snapshot,
+	}
+	for _, c := range info.Changes {
+		result.Changes = append(result.Changes, dto.FirewallSessionChange{Summary: c.Summary, At: c.At})
+	}
+	return result
+}
+
+func (u *FirewallService) ConfirmSession() error {
+	return firewall.ConfirmSession()
+}
+
+func (u *FirewallService) RevertSession() error {
+	return firewall.RevertSession()
+}
+
+func (u *FirewallService) ListSnapshots() ([]dto.FirewallSnapshot, error) {
+	list, err := firewall.ListSnapshots()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]dto.FirewallSnapshot, 0, len(list))
+	for _, item := range list {
+		result = append(result, dto.FirewallSnapshot{
+			Name:      item.Name,
+			Tag:       item.Tag,
+			CreatedAt: item.CreatedAt,
+			HasV6:     item.HasV6,
+			Size:      item.Size,
+		})
+	}
+	return result, nil
+}
+
+// RestoreSnapshot 高危操作：先 BeginSession（拍下恢复前状态作为还原点）再应用恢复；
+// 若恢复后把自己锁外，确认窗口超时会自动回到恢复前（设计稿 §3.5 L3）。
+func (u *FirewallService) RestoreSnapshot(req dto.FirewallSnapshotRestore) error {
+	if err := firewall.BeginSession("restore snapshot " + req.Name); err != nil {
+		return err
+	}
+	return firewall.RestoreSnapshot(req.Name)
+}
+
 // CleanOrphanFirewallRecords 替代被删除的 cleanUnUsedData 自动行为：
 // 只在用户显式点击"清理失效描述"时执行，且用 keep-set 一次性删除，杜绝原先"遍历中删元素"的索引 bug（修 C3）。
 func (u *FirewallService) CleanOrphanFirewallRecords() error {
@@ -752,6 +825,98 @@ func (u *FirewallService) addAddressRecord(chain string, req dto.AddrRuleOperate
 	}
 	saveFirewallMeta(addrKey, req.Description)
 	return nil
+}
+
+// lowersReachability 判定一笔变更是否"降低可达性"（需走提交-确认事务）。
+// 纯增加可达性（加 accept、删 deny）不进事务，避免确认疲劳（设计稿 §3.5.1 第 2 点）。
+func lowersReachability(operation, strategy string) bool {
+	if operation == "add" && (strategy == "drop" || strategy == "reject") {
+		return true
+	}
+	if operation == "remove" && strategy == "accept" {
+		return true
+	}
+	return false
+}
+
+func isManagedMode() bool {
+	p, err := firewall.Detect()
+	return err == nil && p.Mode() == firewall.ModeManaged
+}
+
+// precheckAddressRule 实现 I1/I2 红线对 IP 规则的部分（设计稿 §3.5.2）。
+func precheckAddressRule(req dto.AddrRuleOperate) error {
+	if req.Operation != "add" || req.Strategy != "drop" {
+		return nil
+	}
+	for _, addr := range strings.Split(req.Address, ",") {
+		if isAnySource(addr) {
+			// I1：1Panel 永不制造无条件 DROP（封所有来源）。
+			return buserr.New("ErrFirewallUnconditionalDrop")
+		}
+	}
+	return nil
+}
+
+// precheckPortRule 实现 I1/I2 红线对端口规则的部分（设计稿 §3.5.2）。
+func precheckPortRule(req dto.PortRuleOperate) error {
+	if req.Operation != "add" || req.Strategy != "drop" {
+		return nil
+	}
+	hasSource := false
+	for _, addr := range strings.Split(req.Address, ",") {
+		if !isAnySource(addr) {
+			hasSource = true
+		}
+	}
+	if hasSource {
+		return nil
+	}
+	// I2：无源限定地封禁 SSH/面板端口会阻断所有人 → 抢救通道红线。
+	if portSpecContains(req.Port, LoadPanelPort()) || portSpecContains(req.Port, loadSSHPort()) {
+		return buserr.New("ErrFirewallBlockRescue")
+	}
+	return nil
+}
+
+func isAnySource(addr string) bool {
+	addr = strings.TrimSpace(addr)
+	return addr == "" || addr == "0.0.0.0/0" || addr == "::/0" || strings.EqualFold(addr, "anywhere")
+}
+
+// portSpecContains 判断端口表达式（单端口/逗号列表/区间 a-b 或 a:b）是否覆盖 target。
+func portSpecContains(spec, target string) bool {
+	spec = strings.TrimSpace(spec)
+	target = strings.TrimSpace(target)
+	if spec == "" || target == "" {
+		return false
+	}
+	t, err := strconv.Atoi(target)
+	if err != nil {
+		return false
+	}
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		sep := ""
+		if strings.Contains(part, "-") {
+			sep = "-"
+		} else if strings.Contains(part, ":") {
+			sep = ":"
+		}
+		if sep == "" {
+			if v, err := strconv.Atoi(part); err == nil && v == t {
+				return true
+			}
+			continue
+		}
+		bounds := strings.SplitN(part, sep, 2)
+		lo, e1 := strconv.Atoi(strings.TrimSpace(bounds[0]))
+		hi, e2 := strconv.Atoi(strings.TrimSpace(bounds[1]))
+		if e1 == nil && e2 == nil && t >= lo && t <= hi {
+			return true
+		}
+	}
+	return false
 }
 
 // saveFirewallMeta 按指纹幂等写入规则描述元数据（best-effort，不阻断主流程）。

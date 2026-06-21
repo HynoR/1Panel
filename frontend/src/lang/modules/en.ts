@@ -3751,6 +3751,10 @@ const message = {
     firewall: {
         create: 'Create rule',
         edit: 'Edit rule',
+        confirmTitle: 'Confirm firewall changes',
+        confirmTip: '{count} change(s) applied. Auto-revert in {seconds}s if not confirmed.',
+        confirmKeep: 'Keep changes',
+        revertNow: 'Revert now',
         advancedControl: 'Advanced Control',
         advancedControlNotAvailable: 'Currently using {0} firewall, advanced rules only support iptables',
         ccDeny: 'CC Protection',

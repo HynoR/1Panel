@@ -66,12 +66,50 @@ export namespace Host {
 
     export interface FirewallBase {
         name: string;
+        mode: string;
         isExist: boolean;
         isActive: boolean;
         isInit: boolean;
         isBind: boolean;
         version: string;
         pingStatus: string;
+        capabilities: FirewallCapabilities;
+        conflict: FirewallConflict;
+        bootStatus: string;
+        consistent: boolean;
+    }
+    export interface FirewallCapabilities {
+        rules: boolean;
+        forward: boolean;
+        forwardImpl: string;
+        filter: boolean;
+        baseline: boolean;
+        snapshot: string;
+        ipv6Rules: boolean;
+        defaultDrop: boolean;
+    }
+    export interface FirewallConflict {
+        hasConflict: boolean;
+        providers: string[];
+        message: string;
+    }
+    export interface FirewallSessionChange {
+        summary: string;
+        at: string;
+    }
+    export interface FirewallSession {
+        active: boolean;
+        changes: FirewallSessionChange[];
+        remainSeconds: number;
+        since: string;
+        snapshot: string;
+    }
+    export interface FirewallSnapshot {
+        name: string;
+        tag: string;
+        createdAt: string;
+        hasV6: boolean;
+        size: number;
     }
     export interface RuleSearch extends ReqPage {
         strategy: string;

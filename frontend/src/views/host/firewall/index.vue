@@ -1,6 +1,7 @@
 <template>
     <div>
         <RouterButton :buttons="buttons" />
+        <SessionConfirm />
         <LayoutContent>
             <router-view></router-view>
         </LayoutContent>
@@ -9,6 +10,7 @@
 
 <script lang="ts" setup>
 import i18n from '@/lang';
+import SessionConfirm from '@/views/host/firewall/session-confirm.vue';
 
 const buttons = [
     {

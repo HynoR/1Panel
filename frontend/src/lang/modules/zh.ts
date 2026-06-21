@@ -3488,6 +3488,10 @@ const message = {
     firewall: {
         create: '创建规则',
         edit: '编辑规则',
+        confirmTitle: '确认防火墙变更',
+        confirmTip: '已应用 {count} 处变更，{seconds} 秒内未确认将自动撤销。',
+        confirmKeep: '确认保留',
+        revertNow: '立即撤销',
         advancedControl: '高级控制',
         advancedControlNotAvailable: '当前使用 {0} 防火墙，高级规则仅支持 iptables',
         ccDeny: 'CC 防护',
