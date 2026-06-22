@@ -245,9 +245,19 @@ func restoreScoped(file, bin string) error {
 	return applyScoped(parseSave(string(data)), bin)
 }
 
+// runScoped 容忍 exit code 1（链/规则已存在或不存在），用于"建链"与尽力而为的解绑/清理。
 func runScoped(bin, tab string, args ...string) error {
 	full := append([]string{"-t", tab, "-w"}, args...)
 	_, err := cmd.NewCommandMgr(cmd.WithTimeout(60*time.Second), cmd.WithIgnoreExist1()).RunWithOptionalSudoAndStdout(bin, full...)
+	return err
+}
+
+// runScopedStrict 不容忍任何错误，用于恢复的关键步骤（清空链、重放规则、重绑 jump）：
+// 这些操作在前序步骤保证链已存在的前提下不应出现"已存在/不存在"的良性 exit 1，
+// 因此失败必须上报，避免快照恢复/会话回滚在只完成部分重放后仍返回成功（评审 P1）。
+func runScopedStrict(bin, tab string, args ...string) error {
+	full := append([]string{"-t", tab, "-w"}, args...)
+	_, err := cmd.NewCommandMgr(cmd.WithTimeout(60 * time.Second)).RunWithOptionalSudoAndStdout(bin, full...)
 	return err
 }
 
@@ -274,9 +284,13 @@ func applyScoped(tables map[string]*savedTable, bin string) error {
 				continue
 			}
 			_ = runScoped(bin, tab, "-N", chain) // 已存在则忽略（WithIgnoreExist1）
-			_ = runScoped(bin, tab, "-F", chain)
+			if err := runScopedStrict(bin, tab, "-F", chain); err != nil {
+				return fmt.Errorf("flush chain %s (%s/%s) failed: %w", chain, bin, tab, err)
+			}
 			for _, rule := range rules {
-				_ = runScoped(bin, tab, append([]string{"-A", chain}, rule...)...)
+				if err := runScopedStrict(bin, tab, append([]string{"-A", chain}, rule...)...); err != nil {
+					return fmt.Errorf("replay rule in chain %s (%s/%s) failed: %w", chain, bin, tab, err)
+				}
 			}
 		}
 		// 3. 删除当前存在但快照里没有的 1PANEL 链。
@@ -290,11 +304,14 @@ func applyScoped(tables map[string]*savedTable, bin string) error {
 				_ = runScoped(bin, tab, "-X", chain)
 			}
 		}
-		// 4. 重新绑定 jump（按快照顺序，递增插入）。
+		// 4. 重新绑定 jump（按快照顺序，递增插入）。绑定失败须上报：链已重建但未挂回基础链，
+		//    等于恢复未生效（可能仍是危险规则集），不能让上层误判回滚成功（评审 P1）。
 		for _, base := range bases {
 			pos := 1
 			for _, target := range tbl.jumps[base] {
-				_ = runScoped(bin, tab, "-I", base, fmt.Sprintf("%d", pos), "-j", target)
+				if err := runScopedStrict(bin, tab, "-I", base, fmt.Sprintf("%d", pos), "-j", target); err != nil {
+					return fmt.Errorf("rebind jump %s -> %s (%s/%s) failed: %w", base, target, bin, tab, err)
+				}
 				pos++
 			}
 		}

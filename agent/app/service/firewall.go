@@ -82,7 +82,11 @@ func (u *FirewallService) LoadBaseInfo(tab string) (dto.FirewallBaseInfo, error)
 		defer wg.Done()
 		baseInfo.IsActive, _ = client.Status()
 		// 修 C4：init/bind 状态只在 managed（iptables 私有链）下才有意义。
-		if provider.Mode() == firewall.ModeManaged {
+		// 例外：ufw 的端口转发用面板 NAT 链实现（forwardImpl=panel-nat），forward tab 仍要按
+		// LoadInitStatus 暴露 init/bind——否则新机上 1PANEL_PREROUTING/1PANEL_FORWARD 尚未建立，
+		// 却误报已初始化、隐藏了初始化入口，导致转发列表/新建失败（评审 P2）。
+		if provider.Mode() == firewall.ModeManaged ||
+			(tab == "forward" && provider.Capabilities().ForwardImpl == "panel-nat") {
 			baseInfo.IsInit, baseInfo.IsBind = iptables.LoadInitStatus(baseInfo.Name, tab)
 		} else {
 			baseInfo.IsInit, baseInfo.IsBind = true, true
@@ -317,8 +321,10 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 		}
 	}
 	// PR-6：Docker 端口防护与防火墙模式正交，按勾选同步到 1PANEL_DOCKER（用 conntrack 还原原始目的端口）。
-	// 删除时不依赖 applyToDocker（列表行不携带该标记），一律尝试清理对应的镜像规则，避免残留（修 stale-rule P2）。
-	if (req.ApplyToDocker || req.Operation == "remove") && req.Strategy == "drop" && firewall.DockerProtectionAvailable() {
+	// 删除时不依赖 applyToDocker（列表行不携带该标记），也不依赖 Docker 当前是否就绪（DOCKER-USER 可能因
+	// Docker 临时停机而缺失）：一律尝试清理镜像规则并重写持久化文件，避免 Docker 恢复后 LoadDockerRules
+	// 重放陈旧 DROP 致已发布端口持续被封（评审 P2）。Apply* 内部对"链不存在"幂等 no-op。
+	if req.Strategy == "drop" && (req.Operation == "remove" || (req.ApplyToDocker && firewall.DockerProtectionAvailable())) {
 		for _, proto := range strings.Split(req.Protocol, "/") {
 			for _, port := range strings.Split(req.Port, ",") {
 				port = strings.TrimSpace(strings.ReplaceAll(port, "-", ":"))
@@ -556,8 +562,9 @@ func (u *FirewallService) OperateAddressRule(req dto.AddrRuleOperate, reload boo
 			return err
 		}
 		// PR-6：勾选时把 IP 封禁同步到 Docker（"封掉这个 IP"不应因业务跑在容器里就失效）。
-		// 删除时不依赖 applyToDocker（列表行不携带该标记），一律尝试清理对应的镜像规则，避免残留（修 stale-rule P2）。
-		if (req.ApplyToDocker || req.Operation == "remove") && req.Strategy == "drop" && firewall.DockerProtectionAvailable() {
+		// 删除时不依赖 applyToDocker（列表行不携带该标记），也不依赖 Docker 当前是否就绪：一律尝试清理
+		// 镜像规则并重写持久化文件，避免 Docker 恢复后重放陈旧 DROP（评审 P2）。内部对"链不存在"幂等 no-op。
+		if req.Strategy == "drop" && (req.Operation == "remove" || (req.ApplyToDocker && firewall.DockerProtectionAvailable())) {
 			if err := firewall.ApplyDockerIPRule(addressList[i], req.Operation); err != nil {
 				global.LOG.Warnf("apply docker ip rule %s failed: %v", addressList[i], err)
 			}
@@ -767,6 +774,11 @@ func (u *FirewallService) UpdatePanelPort(req dto.PanelPortUpdate) error {
 		return nil
 	}
 	// external（ufw/firewalld）：原生放行新端口 + reload，只增不删。
+	// 防火墙已安装但未运行时跳过：没有活动规则集需要放行，且 firewall-cmd --reload 会因服务停止而报错，
+	// 反而阻断面板端口（ServerPort）的更新（评审 P2，与 syncFirewallPortWhiteListAfterUpdate 的处理一致）。
+	if isActive, _ := client.Status(); !isActive {
+		return nil
+	}
 	if err := client.Port(fireClient.FireInfo{Port: port, Protocol: "tcp", Strategy: "accept"}, "add"); err != nil {
 		return err
 	}

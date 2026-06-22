@@ -60,7 +60,10 @@ func EnsureDockerChain() {
 
 // ApplyDockerIPRule 在 1PANEL_DOCKER 中按源 IP 封禁/解封（对应"同时拦截 Docker 端口流量"勾选）。
 func ApplyDockerIPRule(ip, operation string) error {
-	if !DockerProtectionAvailable() {
+	// add 需要 Docker 集成就绪（DOCKER-USER 存在）才能落地；remove 即使 Docker 暂时停机也要继续——
+	// 1PANEL_DOCKER 链内容在 Docker 停机期间仍驻留内核，须删规则并重写持久化文件，否则 Docker 恢复后
+	// LoadDockerRules 会重放陈旧 DROP（评审 P2）。链不存在时下方删除分支幂等 no-op。
+	if operation == "add" && !DockerProtectionAvailable() {
 		return nil
 	}
 	ip = strings.TrimSpace(ip)
@@ -98,7 +101,9 @@ func ApplyDockerIPRule(ip, operation string) error {
 // ApplyDockerPortRule 在 1PANEL_DOCKER 中按"原始目的端口"封禁容器发布端口（用 conntrack 还原 DNAT 前的端口）。
 // srcException 非空时附带源限定（只对该源生效）。
 func ApplyDockerPortRule(port, protocol, srcException, operation string) error {
-	if !DockerProtectionAvailable() {
+	// add 需要 Docker 集成就绪才能落地；remove 即使 Docker 暂时停机也要继续清理内核链与持久化文件，
+	// 避免 Docker 恢复后重放陈旧 DROP（评审 P2）。链不存在时下方删除分支幂等 no-op。
+	if operation == "add" && !DockerProtectionAvailable() {
 		return nil
 	}
 	port = strings.TrimSpace(port)
