@@ -5,10 +5,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/1Panel-dev/1Panel/agent/global"
-	"github.com/1Panel-dev/1Panel/agent/utils/cmd"
 	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client/iptables"
 )
 
@@ -82,7 +80,7 @@ func ApplyDockerIPRule(ip, operation string) error {
 		if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelDocker, args...); err != nil {
 			return err
 		}
-		clearConntrack(ip)
+		iptables.ClearConntrack(ip)
 		return persistDocker()
 	}
 	// 幂等删除：链不存在或规则不存在则视为无事可做（不报错、不建空链）。
@@ -205,14 +203,4 @@ func ReconcileDockerChain() {
 
 func persistDocker() error {
 	return iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelDocker, iptables.DockerFileName)
-}
-
-// clearConntrack 清掉某源的现存连接，使 Docker 封禁立即生效（conntrack 处理双栈）。
-func clearConntrack(ip string) {
-	if !cmd.Which("conntrack") {
-		return
-	}
-	if err := cmd.NewCommandMgr(cmd.WithTimeout(20*time.Second)).RunWithOptionalSudo("conntrack", "-D", "-s", ip); err != nil {
-		global.LOG.Debugf("conntrack -D -s %s returned: %v", ip, err)
-	}
 }

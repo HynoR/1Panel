@@ -164,13 +164,7 @@ func (s *IptablesService) Operate(req dto.IptablesOp) error {
 		if ok := cmd.Which("iptables"); !ok {
 			return fmt.Errorf("failed to find iptables")
 		}
-		for _, chain := range []string{
-			iptables.Chain1PanelGuard,
-			iptables.Chain1PanelDeny,
-			iptables.Chain1PanelBaseline,
-			iptables.Chain1PanelAllow,
-			iptables.Chain1PanelAfter,
-		} {
+		for _, chain := range baseChainOrder {
 			if err := iptables.AddChain(iptables.FilterTab, chain); err != nil {
 				return err
 			}
@@ -398,15 +392,8 @@ func initPreRules() error {
 // bindBaseChainsInOrder 按固定顺序 GUARD(1) DENY(2) BASELINE(3) ALLOW(4) AFTER(5) 绑定到 INPUT，
 // 先全部解绑再按序插入，最后回读断言顺序（根治 #12476 链顺序错乱，修 C9）。
 func bindBaseChainsInOrder() error {
-	order := []string{
-		iptables.Chain1PanelGuard,
-		iptables.Chain1PanelDeny,
-		iptables.Chain1PanelBaseline,
-		iptables.Chain1PanelAllow,
-		iptables.Chain1PanelAfter,
-	}
 	unbindBaseChains()
-	for i, chain := range order {
+	for i, chain := range baseChainOrder {
 		if err := iptables.Run(iptables.FilterTab, "-I", iptables.ChainInput, strconv.Itoa(i+1), "-j", chain); err != nil {
 			return fmt.Errorf("bind base chain %s failed: %w", chain, err)
 		}
@@ -419,16 +406,12 @@ func bindBaseChainsInOrder() error {
 // 不一并解绑则旧严格 DROP 路径在绑定新链后依然生效，且 unbind-base 关闭防火墙时无法真正停用旧路径（评审 P1）。
 // 迁移完成后这些旧链已不在 INPUT，FindChainNum 返回 0，循环立即跳过，对存量机为无害幂等操作。
 func unbindBaseChains() {
-	chains := []string{
-		iptables.Chain1PanelGuard,
-		iptables.Chain1PanelDeny,
-		iptables.Chain1PanelBaseline,
-		iptables.Chain1PanelAllow,
-		iptables.Chain1PanelAfter,
+	chains := append([]string{}, baseChainOrder...)
+	chains = append(chains,
 		iptables.Chain1PanelBasicBefore,
 		iptables.Chain1PanelBasic,
 		iptables.Chain1PanelBasicAfter,
-	}
+	)
 	for _, chain := range chains {
 		for i := 0; i < 16; i++ {
 			num, _ := iptables.FindChainNum(iptables.FilterTab, iptables.ChainInput, chain)
@@ -445,13 +428,7 @@ func unbindBaseChains() {
 // assertBaseOrder 回读 INPUT，断言 GUARD/DENY/BASELINE/ALLOW/AFTER 的相对顺序正确（忽略可选的 1PANEL_INPUT）。
 func assertBaseOrder() error {
 	jumps := orderedPanelJumps()
-	expected := []string{
-		iptables.Chain1PanelGuard,
-		iptables.Chain1PanelDeny,
-		iptables.Chain1PanelBaseline,
-		iptables.Chain1PanelAllow,
-		iptables.Chain1PanelAfter,
-	}
+	expected := baseChainOrder
 	var got []string
 	expectedSet := map[string]struct{}{}
 	for _, c := range expected {
@@ -571,13 +548,7 @@ func saveBaseChains6() error {
 }
 
 func saveBaseChains() error {
-	for _, chain := range []string{
-		iptables.Chain1PanelGuard,
-		iptables.Chain1PanelDeny,
-		iptables.Chain1PanelBaseline,
-		iptables.Chain1PanelAllow,
-		iptables.Chain1PanelAfter,
-	} {
+	for _, chain := range baseChainOrder {
 		if err := iptables.SaveRulesToFile(iptables.FilterTab, chain, iptables.ChainFileName(chain)); err != nil {
 			return err
 		}

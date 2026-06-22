@@ -7,6 +7,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/1Panel-dev/1Panel/agent/global"
@@ -17,9 +18,18 @@ import (
 // inet 族天然双栈是 nftables 的事；iptables 模式只能 v4/v6 双写。
 // v6 持久化文件 = 对应 v4 文件名 + ".v6" 后缀，开机分别重放。
 
-// HasIP6tables 报告系统是否可用 ip6tables。
+var (
+	has6Once   sync.Once
+	has6Cached bool
+)
+
+// HasIP6tables 报告系统是否可用 ip6tables（进程内缓存：ip6tables 是否存在在进程生命周期内不变，
+// 避免每条端口/IP 规则都 LookPath 一次——该函数在热路径上被调用 20 余处）。
 func HasIP6tables() bool {
-	return cmd.Which("ip6tables")
+	has6Once.Do(func() {
+		has6Cached = cmd.Which("ip6tables")
+	})
+	return has6Cached
 }
 
 func run6(tab string, args ...string) (string, error) {

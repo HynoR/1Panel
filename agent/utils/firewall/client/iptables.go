@@ -298,19 +298,9 @@ func (i *Iptables) RichRules(rule FireInfo, operation string) error {
 	}
 	// 黑名单立即生效：清掉该源已建立的连接（conntrack 处理双栈）。
 	if operation == "add" && action == "DROP" && address != "" {
-		clearConntrack(address)
+		iptables.ClearConntrack(address)
 	}
 	return nil
-}
-
-// clearConntrack 在系统存在 conntrack 工具时清掉某源的现存连接，使新加的黑名单立即生效（设计稿 §3.4）。
-func clearConntrack(ip string) {
-	if !cmd.Which("conntrack") {
-		return
-	}
-	if err := cmd.NewCommandMgr(cmd.WithTimeout(20*time.Second)).RunWithOptionalSudo("conntrack", "-D", "-s", ip); err != nil {
-		global.LOG.Debugf("conntrack -D -s %s returned: %v", ip, err)
-	}
 }
 
 func (i *Iptables) PortForward(info Forward, operation string) error {

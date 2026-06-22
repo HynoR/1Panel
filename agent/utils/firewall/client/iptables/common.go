@@ -42,15 +42,6 @@ const (
 	ChainDockerUser   = "DOCKER-USER"
 )
 
-// BaseChainOrder 是新布局在 INPUT 中的固定顺序（不含可选的 1PANEL_INPUT 高级链）。
-// bind 后须按此顺序回读断言（修 C9 的链顺序错乱）。
-var BaseChainOrder = []string{
-	Chain1PanelGuard,
-	Chain1PanelDeny,
-	Chain1PanelBaseline,
-	Chain1PanelAllow,
-}
-
 const (
 	EstablishedRule = "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT -m comment --comment \"ESTABLISHED Whitelist\""
 	IoRuleIn        = "-i lo -j ACCEPT -m comment --comment \"Loopback Whitelist\""
@@ -83,6 +74,16 @@ func runIptables(tab string, ignoreExist1, withWait bool, ruleArgs ...string) (s
 	}
 	args = append(args, ruleArgs...)
 	return cmdMgr.RunWithOptionalSudoAndStdout("iptables", args...)
+}
+
+// ClearConntrack 在系统存在 conntrack 工具时清掉某源的现存连接，使新加的黑名单/封禁立即生效（conntrack 处理双栈，设计稿 §3.4）。
+func ClearConntrack(ip string) {
+	if !cmd.Which("conntrack") {
+		return
+	}
+	if err := cmd.NewCommandMgr(cmd.WithTimeout(20*time.Second)).RunWithOptionalSudo("conntrack", "-D", "-s", ip); err != nil {
+		global.LOG.Debugf("conntrack -D -s %s returned: %v", ip, err)
+	}
 }
 
 func RunWithStd(tab string, args ...string) (string, error) {

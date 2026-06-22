@@ -22,11 +22,7 @@ import (
 
 const sessionMarkerFile = "session.lock"
 
-const (
-	defaultConfirmWindow = 60
-	minConfirmWindow     = 30
-	maxConfirmWindow     = 300
-)
+const defaultConfirmWindow = 60
 
 type SessionChange struct {
 	Summary string `json:"summary"`
@@ -60,19 +56,6 @@ type sessionState struct {
 }
 
 var session = &sessionState{windowSec: defaultConfirmWindow}
-
-// SetConfirmWindow 设置确认窗口秒数（夹在 30-300）。
-func SetConfirmWindow(sec int) {
-	if sec < minConfirmWindow {
-		sec = minConfirmWindow
-	}
-	if sec > maxConfirmWindow {
-		sec = maxConfirmWindow
-	}
-	session.mu.Lock()
-	session.windowSec = sec
-	session.mu.Unlock()
-}
 
 // BeginSession 登记一笔"降低可达性"的变更并武装/刷新确认窗口。
 // 若当前无会话则先拍快照作为还原点；窗口内的后续变更并入同一会话并刷新计时器。
@@ -215,12 +198,6 @@ func ReclaimSession() {
 	}
 	persistManagedChains()
 	_ = os.Remove(markerPath())
-}
-
-// HasPendingSession 报告是否存在未确认会话标记（开机流程据此决定是否先回收）。
-func HasPendingSession() bool {
-	_, err := os.Stat(markerPath())
-	return err == nil
 }
 
 func markerPath() string {
