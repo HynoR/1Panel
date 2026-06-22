@@ -11,7 +11,6 @@
                 v-model:is-active="isActive"
                 v-model:name="fireName"
                 v-model:capabilities="capabilities"
-                v-model:mode="mode"
                 current-tab="advance"
             />
             <div v-if="fireName !== '-' && !capabilities.filter">
@@ -175,7 +174,6 @@ const maskShow = ref(true);
 const isActive = ref(false);
 const isBind = ref(false);
 const fireName = ref();
-const mode = ref('');
 const capabilities = ref<Host.FirewallCapabilities>({} as Host.FirewallCapabilities);
 const fireStatusRef = ref();
 

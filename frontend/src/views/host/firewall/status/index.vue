@@ -218,7 +218,6 @@ const emit = defineEmits([
     'search',
     'update:is-active',
     'update:is-bind',
-    'update:is-init',
     'update:loading',
     'update:maskShow',
     'update:name',
@@ -239,7 +238,6 @@ const loadBaseInfo = async (search: boolean) => {
             }
             emit('update:is-active', baseInfo.value.isActive);
             emit('update:is-bind', baseInfo.value.isBind);
-            emit('update:is-init', baseInfo.value.isInit);
             emit('update:capabilities', baseInfo.value.capabilities);
             emit('update:mode', baseInfo.value.mode);
 

@@ -43,10 +43,6 @@ export const updateFirewallDescription = (params: Host.UpdateDescription) => {
 export const batchOperateRule = (params: Host.BatchRule) => {
     return http.post(`/hosts/firewall/batch`, params, TimeoutEnum.T_60S);
 };
-export const cleanOrphanFireRecords = () => {
-    return http.post(`/hosts/firewall/clean`, {}, TimeoutEnum.T_40S);
-};
-
 // firewall commit-confirm session + snapshots (safety stack L3)
 export const loadFireSession = () => {
     return http.post<Host.FirewallSession>(`/hosts/firewall/session/status`, {});
