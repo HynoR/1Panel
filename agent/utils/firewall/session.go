@@ -123,17 +123,22 @@ func RevertSession() error {
 	if !active {
 		return nil
 	}
-	var err error
 	if snap != "" {
-		err = RestoreSnapshot(snap)
+		if err := RestoreSnapshot(snap); err != nil {
+			// 恢复未完整完成（RestoreSnapshot 现会 fail-fast 上报，评审 P1/P2）：此时绝不能把半还原的
+			// 内核状态写盘——否则会覆盖上次确认的良好持久化文件，并在重启/重放后复活危险规则集；
+			// 也保留会话标记，待下次 ReclaimSession（进程重启时 runBootReplay 会被跳过，这是唯一兜底）重试。
+			global.LOG.Errorf("[firewall-session] revert failed, keeping marker for retry, not persisting partial state: %v", err)
+			return err
+		}
 	}
-	// 还原后重写持久化文件，使确认前不落盘的承诺即便经历崩溃也成立。
+	// 还原成功后才重写持久化文件，使确认前不落盘的承诺即便经历崩溃也成立。
 	persistManagedChains()
 
 	session.mu.Lock()
 	session.clearLocked()
 	session.mu.Unlock()
-	return err
+	return nil
 }
 
 // SessionStatus 返回未确认会话状态供前端确认卡片轮询。
@@ -194,7 +199,10 @@ func ReclaimSession() {
 	}
 	global.LOG.Warnf("[firewall-session] found unconfirmed session on startup, reverting snapshot %s", marker.Snapshot)
 	if err := RestoreSnapshot(marker.Snapshot); err != nil {
-		global.LOG.Errorf("[firewall-session] startup revert failed: %v", err)
+		// 启动还原失败：保留标记、不落盘，下次启动再试（评审 P2）。进程重启时 runBootReplay 会跳过，
+		// ReclaimSession 是唯一兜底；若此处落盘半还原状态并删标记，则危险规则集既被持久化又永失重试。
+		global.LOG.Errorf("[firewall-session] startup revert failed, keeping marker for retry, not persisting partial state: %v", err)
+		return
 	}
 	persistManagedChains()
 	_ = os.Remove(markerPath())
