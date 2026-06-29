@@ -308,8 +308,8 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
                 form.port.indexOf('-') !== -1 && !form.port.startsWith('-')
                     ? form.port.split('-')
                     : form.port.indexOf(',') !== -1 && !form.port.startsWith(',')
-                    ? form.port.split(',')
-                    : [form.port];
+                      ? form.port.split(',')
+                      : [form.port];
             for (const port of ports) {
                 if (checkPort(port)) {
                     MsgError(i18n.global.t('firewall.portFormatError'));

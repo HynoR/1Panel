@@ -12,7 +12,7 @@
 
             <div v-else>
                 <FlowBar
-                    :default-drop="capabilities.defaultDrop"
+                    :default-drop="strictPolicy"
                     :active-level="activeLevel"
                     :counts="levelCounts"
                     @filter="onFilterLevel"
@@ -242,6 +242,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import {
     batchOperateRule,
     getSSHInfo,
+    loadChainStatus,
     searchFireRule,
     updateAddrRule,
     updateFirewallDescription,
@@ -267,6 +268,7 @@ const selects = ref<any>([]);
 const searchName = ref('');
 const searchStrategy = ref('');
 const activeLevel = ref('');
+const strictPolicy = ref(false);
 
 const opRef = ref();
 const dialogRef = ref();
@@ -316,7 +318,7 @@ const levelOrder = (level?: string): number => {
 const canSelect = (row: InboundRow): boolean => row.level !== 'baseline';
 
 const goOverview = () => {
-    routerToName('FirewallOverview');
+    routerToName('FirewallPort');
 };
 
 // ---- rescue port set (panel port + whitelist 80/443 + SSH port) for baseline tagging ----
@@ -887,9 +889,23 @@ const buttons = [
     },
 ];
 
+// 默认入站策略：读实际链状态（与概览一致），而非 capabilities.defaultDrop 能力位。
+const loadDefaultPolicy = async () => {
+    if (mode.value !== 'managed' || !capabilities.value.defaultDrop || !isReady.value) {
+        strictPolicy.value = false;
+        return;
+    }
+    try {
+        const res = await loadChainStatus('1PANEL_INPUT');
+        strictPolicy.value = (res.data.defaultStrategy || 'ACCEPT').toUpperCase() === 'DROP';
+    } catch {
+        strictPolicy.value = false;
+    }
+};
+
 onMounted(async () => {
     await loadBaseInfo('base');
-    await Promise.all([loadRescuePorts(), loadDockerStatus()]);
+    await Promise.all([loadRescuePorts(), loadDockerStatus(), loadDefaultPolicy()]);
     await loadData();
 });
 </script>

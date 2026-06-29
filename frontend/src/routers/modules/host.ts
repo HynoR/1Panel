@@ -56,7 +56,7 @@ const hostRouter = {
         },
         {
             path: '/hosts/firewall/overview',
-            name: 'FirewallOverview',
+            name: 'FirewallPort',
             component: () => import('@/views/host/firewall/overview/index.vue'),
             meta: {
                 icon: 'p-firewalld-menu',
@@ -104,7 +104,7 @@ const hostRouter = {
         },
         {
             path: '/hosts/firewall/port',
-            name: 'FirewallPort',
+            name: 'FirewallPortRedirect',
             redirect: '/hosts/firewall/inbound',
             hidden: true,
             meta: {
