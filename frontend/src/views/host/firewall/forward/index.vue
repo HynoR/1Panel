@@ -83,6 +83,13 @@
                                 :label="$t('commons.table.operate')"
                                 fix
                             />
+                            <template #empty>
+                                <el-empty :image-size="80" :description="$t('firewall.forwardEmpty')">
+                                    <el-button v-permission v-node-admin type="primary" @click="onOpenDialog('create')">
+                                        {{ $t('commons.button.create') }}
+                                    </el-button>
+                                </el-empty>
+                            </template>
                         </ComplexTable>
                     </template>
                 </LayoutContent>

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"net"
 	"sort"
 	"strconv"
 	"strings"
@@ -315,7 +316,7 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 	if err := precheckPortRule(req); err != nil {
 		return err
 	}
-	if lowersReachability(req.Operation, req.Strategy) && isManagedMode() {
+	if isManagedMode() && portChangeNeedsConfirm(req) {
 		if err := firewall.BeginSession(fmt.Sprintf("port %s %s/%s %s", req.Operation, req.Port, req.Protocol, req.Strategy)); err != nil {
 			return err
 		}
@@ -538,7 +539,7 @@ func (u *FirewallService) OperateAddressRule(req dto.AddrRuleOperate, reload boo
 	if err := precheckAddressRule(req); err != nil {
 		return err
 	}
-	if lowersReachability(req.Operation, req.Strategy) && isManagedMode() {
+	if isManagedMode() && addressChangeNeedsConfirm(req) {
 		if err := firewall.BeginSession(fmt.Sprintf("ip %s %s %s", req.Operation, req.Address, req.Strategy)); err != nil {
 			return err
 		}
@@ -947,6 +948,61 @@ func lowersReachability(operation, strategy string) bool {
 		return true
 	}
 	return false
+}
+
+// portChangeNeedsConfirm 判断端口变更是否需要 L3 提交-确认窗口（设计稿 §3.5.1）。
+// 仅当变更降低可达性「且」触及管理通道（SSH/面板/端口白名单等保底端口）时才武装：封禁/删除
+// 普通业务端口不会把管理员锁外（保底链始终放行 SSH/面板，L2 紧急 ACCEPT 另保当前连接），无需
+// 自动回滚，避免打扰以小白用户为主的常用操作。
+func portChangeNeedsConfirm(req dto.PortRuleOperate) bool {
+	if !lowersReachability(req.Operation, req.Strategy) {
+		return false
+	}
+	return touchesRescuePort(req.Port)
+}
+
+// addressChangeNeedsConfirm 判断 IP 变更是否需要 L3 提交-确认窗口。
+// 仅当封禁的是 IP 段（DENY 链先于保底链生效，可能误伤管理员自身所在网段）时才武装：封禁单个
+// 具体 IP（如恶意来源）不会把管理员锁外，无需自动回滚。
+func addressChangeNeedsConfirm(req dto.AddrRuleOperate) bool {
+	if !lowersReachability(req.Operation, req.Strategy) {
+		return false
+	}
+	for _, addr := range strings.Split(req.Address, ",") {
+		if isCIDRRange(addr) {
+			return true
+		}
+	}
+	return false
+}
+
+// touchesRescuePort 判断端口表达式是否覆盖任一管理/保底端口（SSH、面板、已配置端口白名单）。
+func touchesRescuePort(portSpec string) bool {
+	if portSpecContains(portSpec, loadSSHPort()) || portSpecContains(portSpec, LoadPanelPort()) {
+		return true
+	}
+	if list, err := loadFirewallPortWhiteList(); err == nil {
+		for _, item := range list {
+			if portSpecContains(portSpec, item.Port) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isCIDRRange 判断地址是否为覆盖多个主机的 IP 段（带 / 前缀且非 /32、/128 单主机）。
+func isCIDRRange(addr string) bool {
+	addr = strings.TrimSpace(addr)
+	if addr == "" || !strings.Contains(addr, "/") {
+		return false
+	}
+	_, ipNet, err := net.ParseCIDR(addr)
+	if err != nil {
+		return false
+	}
+	ones, bits := ipNet.Mask.Size()
+	return ones < bits
 }
 
 func isManagedMode() bool {

@@ -1,7 +1,16 @@
 <template>
     <DrawerPro v-model="drawerVisible" :header="title" @close="handleClose" size="large">
         <el-form ref="formRef" label-position="top" @submit.prevent :model="form" :rules="rules" v-loading="loading">
-            <el-form-item :label="$t('firewall.strategy')" prop="strategy">
+            <el-alert :title="ruleHint.text" :type="ruleHint.type" :closable="false" show-icon class="mb-4" />
+            <el-form-item prop="strategy">
+                <template #label>
+                    <span class="inline-flex items-center gap-1">
+                        {{ $t('firewall.strategy') }}
+                        <el-tooltip :content="$t('firewall.strategyTip')" placement="top">
+                            <el-icon class="text-gray-400"><QuestionFilled /></el-icon>
+                        </el-tooltip>
+                    </span>
+                </template>
                 <el-radio-group v-model="form.strategy">
                     <el-radio value="accept">{{ $t('firewall.allow') }}</el-radio>
                     <el-radio value="drop">{{ $t('firewall.deny') }}</el-radio>
@@ -17,9 +26,12 @@
                     </el-select>
                 </el-form-item>
                 <el-form-item :label="$t('commons.table.port')" prop="port">
-                    <el-input :disabled="dialogTitle === 'edit'" clearable v-model.trim="form.port" />
-                    <span class="input-help">{{ $t('firewall.portHelper1') }}</span>
-                    <span class="input-help">{{ $t('firewall.portHelper2') }}</span>
+                    <el-input
+                        :disabled="dialogTitle === 'edit'"
+                        clearable
+                        v-model.trim="form.port"
+                        :placeholder="$t('firewall.portHelper1')"
+                    />
                 </el-form-item>
             </template>
 
@@ -30,9 +42,8 @@
                     type="textarea"
                     clearable
                     v-model.trim="form.address"
+                    :placeholder="$t('firewall.addressHelper1')"
                 />
-                <span class="input-help">{{ $t('firewall.addressHelper1') }}</span>
-                <span class="input-help">{{ $t('firewall.addressHelper2') }}</span>
             </el-form-item>
 
             <el-collapse v-model="activeCollapse">
@@ -45,9 +56,12 @@
                     </el-form-item>
 
                     <el-form-item v-if="form.objectType === 'port'" :label="$t('firewall.address')" prop="address">
-                        <el-input :disabled="dialogTitle === 'edit'" clearable v-model.trim="form.address" />
-                        <span class="input-help">{{ $t('firewall.addressHelper1') }}</span>
-                        <span class="input-help">{{ $t('firewall.addressHelper2') }}</span>
+                        <el-input
+                            :disabled="dialogTitle === 'edit'"
+                            clearable
+                            v-model.trim="form.address"
+                            :placeholder="$t('firewall.addressHelper1')"
+                        />
                     </el-form-item>
 
                     <el-form-item
@@ -87,10 +101,11 @@
 </template>
 
 <script lang="ts" setup>
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { Rules } from '@/global/form-rules';
 import i18n from '@/lang';
 import { ElForm } from 'element-plus';
+import { QuestionFilled } from '@element-plus/icons-vue';
 import { MsgError, MsgSuccess } from '@/utils/message';
 import { Host } from '@/api/interface/host';
 import { getSSHInfo, operateIPRule, operatePortRule, updateAddrRule, updatePortRule } from '@/api/modules/host';
@@ -132,6 +147,19 @@ const emptyForm = (): Host.UnifiedRuleForm => ({
 });
 const form = reactive<Host.UnifiedRuleForm>(emptyForm());
 const oldForm = ref<Host.UnifiedRuleForm>(emptyForm());
+
+// 随策略/对象类型实时变化的说明文案，给小白用户讲清这条规则会做什么。
+const ruleHint = computed<{ type: 'info' | 'warning'; text: string }>(() => {
+    const deny = form.strategy === 'drop';
+    if (form.objectType === 'address') {
+        return deny
+            ? { type: 'warning', text: i18n.global.t('firewall.hintDenyAddress') }
+            : { type: 'info', text: i18n.global.t('firewall.hintAllowAddress') };
+    }
+    return deny
+        ? { type: 'warning', text: i18n.global.t('firewall.hintDenyPort') }
+        : { type: 'info', text: i18n.global.t('firewall.hintAllowPort') };
+});
 
 const riskRef = ref<InstanceType<typeof RiskPrecheck>>();
 const emit = defineEmits<{ (e: 'search'): void }>();

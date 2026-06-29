@@ -27,7 +27,10 @@
                 <el-col :xs="24" :sm="24" :md="8" class="mb-3">
                     <el-card class="h-full" shadow="never">
                         <template #header>
-                            <span class="font-medium">{{ $t('firewall.statusCard') }}</span>
+                            <div class="flex flex-col">
+                                <span class="font-medium">{{ $t('firewall.statusCard') }}</span>
+                                <span class="text-xs text-gray-400">{{ $t('firewall.statusCardTip') }}</span>
+                            </div>
                         </template>
                         <div class="flex flex-col gap-3">
                             <div class="flex flex-wrap items-center gap-2">
@@ -122,7 +125,10 @@
                 <el-col :xs="24" :sm="24" :md="8" class="mb-3">
                     <el-card class="h-full" shadow="never">
                         <template #header>
-                            <span class="font-medium">{{ $t('firewall.rescueChannel') }}</span>
+                            <div class="flex flex-col">
+                                <span class="font-medium">{{ $t('firewall.rescueChannel') }}</span>
+                                <span class="text-xs text-gray-400">{{ $t('firewall.rescueChannelTip') }}</span>
+                            </div>
                         </template>
                         <div class="flex flex-col gap-3">
                             <div class="flex items-center justify-between">
@@ -166,7 +172,10 @@
                 <el-col :xs="24" :sm="24" :md="8" class="mb-3">
                     <el-card class="h-full" shadow="never">
                         <template #header>
-                            <span class="font-medium">{{ $t('firewall.snapshot') }}</span>
+                            <div class="flex flex-col">
+                                <span class="font-medium">{{ $t('firewall.snapshot') }}</span>
+                                <span class="text-xs text-gray-400">{{ $t('firewall.snapshotCardTip') }}</span>
+                            </div>
                         </template>
                         <div class="flex flex-col gap-3">
                             <div class="flex items-center gap-2">
@@ -267,12 +276,22 @@ const withDockerRestart = ref(false);
 
 const showDefaultPolicy = computed(() => mode.value === 'managed' && capabilities.value.defaultDrop && isReady.value);
 
+// 后端以 UTC 紧凑格式（20060102150405）存快照时间，new Date() 无法直接解析，需手动转本地时间展示。
+const formatSnapshotTime = (ts: string): string => {
+    const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(ts || '');
+    if (!m) {
+        return ts;
+    }
+    const utc = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    return dateFormat(0, 0, utc);
+};
+
 const latestSnapshot = computed(() => {
     if (!snapshots.value.length) {
         return i18n.global.t('firewall.snapshotEmpty');
     }
     const newest = snapshots.value.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
-    return newest.createdAt ? dateFormat(0, 0, newest.createdAt) : newest.name;
+    return newest.createdAt ? formatSnapshotTime(newest.createdAt) : newest.name;
 });
 
 // 保底端口组：80/443 的开关态从 FirewallPortWhiteList 设置推断（无后端字段）。
