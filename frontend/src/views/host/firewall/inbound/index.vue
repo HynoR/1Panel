@@ -86,26 +86,36 @@
                             </el-table-column>
                             <el-table-column :min-width="80" :label="$t('firewall.strategy')" prop="strategy">
                                 <template #default="{ row }">
-                                    <el-button
-                                        v-if="row.strategy === 'accept'"
-                                        v-permission
-                                        v-node-admin
-                                        @click="onChangeStatus(row, 'drop')"
-                                        link
-                                        type="success"
+                                    <el-tooltip
+                                        :content="$t('firewall.rescueReadOnly')"
+                                        :disabled="row.level !== 'baseline'"
+                                        placement="top"
                                     >
-                                        {{ $t('firewall.allow') }}
-                                    </el-button>
-                                    <el-button
-                                        v-else
-                                        link
-                                        type="danger"
-                                        v-permission
-                                        v-node-admin
-                                        @click="onChangeStatus(row, 'accept')"
-                                    >
-                                        {{ $t('firewall.deny') }}
-                                    </el-button>
+                                        <span>
+                                            <el-button
+                                                v-if="row.strategy === 'accept'"
+                                                v-permission
+                                                v-node-admin
+                                                :disabled="row.level === 'baseline'"
+                                                @click="onChangeStatus(row, 'drop')"
+                                                link
+                                                type="success"
+                                            >
+                                                {{ $t('firewall.allow') }}
+                                            </el-button>
+                                            <el-button
+                                                v-else
+                                                link
+                                                type="danger"
+                                                v-permission
+                                                v-node-admin
+                                                :disabled="row.level === 'baseline'"
+                                                @click="onChangeStatus(row, 'accept')"
+                                            >
+                                                {{ $t('firewall.deny') }}
+                                            </el-button>
+                                        </span>
+                                    </el-tooltip>
                                 </template>
                             </el-table-column>
                             <el-table-column :label="$t('commons.table.protocol')" :min-width="70">
@@ -229,6 +239,7 @@
         <OperateDialog @search="loadData" ref="dialogRef" />
         <ImportDialog @search="loadData" ref="dialogImportRef" />
         <ProcessDetail ref="processDetailRef" />
+        <RiskPrecheck ref="riskRef" @confirm="doChangeStatusSubmit" />
     </div>
 </template>
 
@@ -237,6 +248,7 @@ import FireRouter from '@/views/host/firewall/index.vue';
 import OperateDialog from '@/views/host/firewall/inbound/operate/index.vue';
 import ImportDialog from '@/views/host/firewall/inbound/import/index.vue';
 import FlowBar from '@/views/host/firewall/components/flow-bar.vue';
+import RiskPrecheck from '@/views/host/firewall/components/risk-precheck.vue';
 import ProcessDetail from '@/views/host/process/process/detail/index.vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import {
@@ -259,6 +271,7 @@ import { routerToName } from '@/utils/router';
 import { downloadWithContent } from '@/utils/file';
 import { getCurrentDateFormatted } from '@/utils/date';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
+import { computeFirewallRisk, ensurePortsLoaded } from '@/views/host/firewall/composables/useFirewallRisk';
 
 const { capabilities, mode, name, isReady, strictMode, loadBaseInfo, dockerRules, loadDockerStatus } =
     useFireBaseInfo();
@@ -273,6 +286,10 @@ const opRef = ref();
 const dialogRef = ref();
 const dialogImportRef = ref();
 const processDetailRef = ref();
+const riskRef = ref<InstanceType<typeof RiskPrecheck>>();
+
+// Stashes the toggle that triggered a redline RiskPrecheck so @confirm can finish it.
+const pendingToggle = ref<{ row: InboundRow; status: string } | null>(null);
 
 const listeningProcesses = ref<Process.ListeningProcess[]>([]);
 const rescuePorts = ref<Set<number>>(new Set());
@@ -721,7 +738,77 @@ const onChange = async (row: InboundRow) => {
     MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
 };
 
+const submitChangeStatus = async (row: InboundRow, status: string) => {
+    loading.value = true;
+    const isPort = row.ruleType === 'port';
+    const request = isPort
+        ? updatePortRule({
+              oldRule: {
+                  operation: 'remove',
+                  address: row.address,
+                  port: row.port,
+                  source: '',
+                  protocol: row.protocol,
+                  strategy: row.strategy,
+                  description: row.description,
+              },
+              newRule: {
+                  operation: 'add',
+                  address: row.address,
+                  port: row.port,
+                  source: '',
+                  protocol: row.protocol,
+                  strategy: status,
+                  description: row.description,
+              },
+          })
+        : updateAddrRule({
+              oldRule: {
+                  operation: 'remove',
+                  address: row.address,
+                  strategy: row.strategy,
+                  description: row.description,
+              },
+              newRule: {
+                  operation: 'add',
+                  address: row.address,
+                  strategy: status,
+                  description: row.description,
+              },
+          });
+    await request
+        .then(() => {
+            MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+            loadData();
+        })
+        .finally(() => {
+            loading.value = false;
+        });
+};
+
+// RiskPrecheck only emits @confirm for warn mode (redline has no proceed button,
+// so a redline toggle is effectively blocked). pendingToggle carries the row+status.
+const doChangeStatusSubmit = async () => {
+    const pending = pendingToggle.value;
+    pendingToggle.value = null;
+    if (!pending) return;
+    await submitChangeStatus(pending.row, pending.status);
+};
+
 const onChangeStatus = async (row: InboundRow, status: string) => {
+    // 确保端口就绪后再做红线判定，避免 sshPort/panelPort 未加载导致 redline 失效。
+    await ensurePortsLoaded();
+    const risk = computeFirewallRisk({
+        strategy: status,
+        objectType: row.ruleType,
+        address: row.address,
+        port: row.port,
+    });
+    if (risk.mode === 'redline') {
+        pendingToggle.value = { row, status };
+        riskRef.value?.acceptParams({ mode: risk.mode, message: risk.message, detail: risk.detail });
+        return;
+    }
     const isPort = row.ruleType === 'port';
     let operation: string;
     if (isPort) {
@@ -743,50 +830,7 @@ const onChangeStatus = async (row: InboundRow, status: string) => {
             cancelButtonText: i18n.global.t('commons.button.cancel'),
         },
     ).then(async () => {
-        loading.value = true;
-        const request = isPort
-            ? updatePortRule({
-                  oldRule: {
-                      operation: 'remove',
-                      address: row.address,
-                      port: row.port,
-                      source: '',
-                      protocol: row.protocol,
-                      strategy: row.strategy,
-                      description: row.description,
-                  },
-                  newRule: {
-                      operation: 'add',
-                      address: row.address,
-                      port: row.port,
-                      source: '',
-                      protocol: row.protocol,
-                      strategy: status,
-                      description: row.description,
-                  },
-              })
-            : updateAddrRule({
-                  oldRule: {
-                      operation: 'remove',
-                      address: row.address,
-                      strategy: row.strategy,
-                      description: row.description,
-                  },
-                  newRule: {
-                      operation: 'add',
-                      address: row.address,
-                      strategy: status,
-                      description: row.description,
-                  },
-              });
-        await request
-            .then(() => {
-                MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
-                loadData();
-            })
-            .finally(() => {
-                loading.value = false;
-            });
+        await submitChangeStatus(row, status);
     });
 };
 
@@ -897,7 +941,7 @@ const buttons = [
 
 onMounted(async () => {
     await loadBaseInfo('base');
-    await Promise.all([loadRescuePorts(), loadDockerStatus()]);
+    await Promise.all([loadRescuePorts(), loadDockerStatus(), ensurePortsLoaded()]);
     await loadData();
 });
 </script>

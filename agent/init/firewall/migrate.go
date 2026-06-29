@@ -20,17 +20,17 @@ import (
 //
 // ⚠️ 这是设计标注的"全计划之最"高风险点（数百万异构存量机活体迁移），按要求需人工逐行评审
 // + S6 升级演练，禁止仅凭编译通过就上线。
-func migrateLegacyChains() {
+func migrateLegacyChains() error {
 	dir := global.Dir.FirewallDir
 	// 已迁移（新文件已存在）→ 跳过，幂等。
 	if fileExists(path.Join(dir, iptables.GuardFileName)) {
-		return
+		return nil
 	}
 	// 无任何旧文件 → 全新安装，无需迁移。
 	if !fileExists(path.Join(dir, iptables.BasicFileName)) &&
 		!fileExists(path.Join(dir, iptables.BasicBeforeFileName)) &&
 		!fileExists(path.Join(dir, iptables.BasicAfterFileName)) {
-		return
+		return nil
 	}
 
 	global.LOG.Info("[firewall-migrate] migrating legacy BASIC chains to GUARD/DENY/BASELINE/ALLOW/AFTER layout")
@@ -51,9 +51,21 @@ func migrateLegacyChains() {
 	classifyLegacyFile(dir, iptables.BasicFileName, iptables.Chain1PanelBasic, newRules)
 	classifyLegacyFile(dir, iptables.BasicAfterFileName, iptables.Chain1PanelBasicAfter, newRules)
 
-	for chain, rules := range newRules {
-		if err := writeChainRules(path.Join(dir, iptables.ChainFileName(chain)), rules); err != nil {
+	// 先全部写成功，再统一改名旧文件。GUARD 刻意最后写：GuardFileName 既是 GUARD 链规则文件、
+	// 又是 legacyMigrationPending 判定"迁移完成"的标记，故只有全部链写成功才落盘它——任一链写失败时
+	// 直接返回 err（不改名旧文件、不写后续标记），旧文件原状保留，下次启动 legacyMigrationPending 仍为
+	// true 可重试；否则一旦 GuardFileName 已写而某链缺失，下次启动不再重试，该链规则永久丢失。
+	order := []string{
+		iptables.Chain1PanelDeny,
+		iptables.Chain1PanelBaseline,
+		iptables.Chain1PanelAllow,
+		iptables.Chain1PanelAfter,
+		iptables.Chain1PanelGuard,
+	}
+	for _, chain := range order {
+		if err := writeChainRules(path.Join(dir, iptables.ChainFileName(chain)), newRules[chain]); err != nil {
 			global.LOG.Errorf("[firewall-migrate] write %s failed: %v", chain, err)
+			return err
 		}
 	}
 
@@ -65,6 +77,7 @@ func migrateLegacyChains() {
 		}
 	}
 	global.LOG.Info("[firewall-migrate] legacy chain files converted; boot replay will apply and verify the new layout")
+	return nil
 }
 
 // classifyLegacyFile 读取旧链文件的每条 `-A <oldChain> ...` 规则，按设计 §3.4 step 2 归类到新链。

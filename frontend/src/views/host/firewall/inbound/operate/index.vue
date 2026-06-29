@@ -108,11 +108,11 @@ import { ElForm } from 'element-plus';
 import { QuestionFilled } from '@element-plus/icons-vue';
 import { MsgError, MsgSuccess } from '@/utils/message';
 import { Host } from '@/api/interface/host';
-import { getSSHInfo, operateIPRule, operatePortRule, updateAddrRule, updatePortRule } from '@/api/modules/host';
-import { getSettingInfo } from '@/api/modules/setting';
+import { operateIPRule, operatePortRule, updateAddrRule, updatePortRule } from '@/api/modules/host';
 import { checkCidr, checkCidrV6, checkIpV4V6, checkPort } from '@/utils/validate';
 import { deepCopy } from '@/utils/misc';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
+import { computeFirewallRisk, ensurePortsLoaded } from '@/views/host/firewall/composables/useFirewallRisk';
 import RiskPrecheck from '@/views/host/firewall/components/risk-precheck.vue';
 
 const { dockerAvailable, loadDockerStatus } = useFireBaseInfo();
@@ -132,10 +132,6 @@ const dialogTitle = ref<'create' | 'edit'>('create');
 const dialogMode = ref('');
 const capabilities = ref<Host.FirewallCapabilities>();
 const activeCollapse = ref<string[]>([]);
-
-const sshPort = ref('22');
-// 面板端口取核心设置，而非 window.location.port（开发/反代下不等于真实面板端口），保证封禁风险预检准确。
-const panelPort = ref('');
 
 const emptyForm = (): Host.UnifiedRuleForm => ({
     objectType: 'port',
@@ -181,27 +177,8 @@ const acceptParams = (params: DialogProps): void => {
     }
     title.value = i18n.global.t('firewall.' + params.title);
     drawerVisible.value = true;
-    loadSSHPort();
-    loadPanelPort();
+    ensurePortsLoaded();
     loadDocker();
-};
-
-const loadSSHPort = async () => {
-    try {
-        const res = await getSSHInfo();
-        sshPort.value = res.data.port || '22';
-    } catch {
-        sshPort.value = '22';
-    }
-};
-
-const loadPanelPort = async () => {
-    try {
-        const res = await getSettingInfo();
-        panelPort.value = String(res.data.serverPort || '');
-    } catch {
-        panelPort.value = '';
-    }
 };
 
 const loadDocker = async () => {
@@ -261,60 +238,6 @@ function checkAddress(rule: any, value: any, callback: any) {
     callback();
 }
 
-const isBroadSource = (): boolean => {
-    const addr = (form.address || '').trim();
-    return addr === '' || addr === '0.0.0.0/0' || addr === '::/0';
-};
-
-const isAllPorts = (port: string): boolean => {
-    const p = (port || '').trim();
-    return p === '' || p === '0';
-};
-
-const portsInclude = (port: string, target: string): boolean => {
-    if (!target) return false;
-    const t = Number(target);
-    const segs = (port || '').split(',');
-    for (const seg of segs) {
-        const s = seg.trim();
-        if (!s) continue;
-        if (s.indexOf('-') !== -1 && !s.startsWith('-')) {
-            const [from, to] = s.split('-').map((n) => Number(n.trim()));
-            if (t >= from && t <= to) return true;
-        } else if (Number(s) === t) {
-            return true;
-        }
-    }
-    return false;
-};
-
-// 纯客户端启发式：不依赖后端 risk 字段，最终安全网仍是提交后的会话确认自动撤销。
-const computeRisk = (): Host.RiskInfo => {
-    if (form.strategy !== 'drop') {
-        return { mode: 'none', message: '' };
-    }
-    if (form.objectType === 'address') {
-        // 纯 IP 黑名单：仅当来源宽泛（可能把所有人含自己挡掉）时提示。
-        return isBroadSource()
-            ? { mode: 'warn', message: i18n.global.t('firewall.riskBlockSelf') }
-            : { mode: 'none', message: '' };
-    }
-    // 指定来源的端口拒绝只影响该来源，自锁风险低。
-    if (!isBroadSource()) {
-        return { mode: 'none', message: '' };
-    }
-    const coversAll = isAllPorts(form.port);
-    const coversSSH = coversAll || portsInclude(form.port, sshPort.value);
-    const coversPanel = coversAll || portsInclude(form.port, panelPort.value);
-    if (coversAll || (coversSSH && coversPanel)) {
-        return { mode: 'redline', message: i18n.global.t('firewall.redlineBlockBoth') };
-    }
-    if (coversSSH || coversPanel) {
-        return { mode: 'warn', message: i18n.global.t('firewall.riskBlockSelf') };
-    }
-    return { mode: 'none', message: '' };
-};
-
 const toRulePort = (data: Host.UnifiedRuleForm, operation: string): Host.RulePort => ({
     operation,
     port: data.port,
@@ -357,7 +280,14 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
                 }
             }
         }
-        const risk = computeRisk();
+        // 确保端口就绪后再做红线判定，避免 sshPort/panelPort 未加载导致 redline 失效。
+        await ensurePortsLoaded();
+        const risk = computeFirewallRisk({
+            strategy: form.strategy,
+            objectType: form.objectType,
+            address: form.address,
+            port: form.port,
+        });
         if (risk.mode === 'none') {
             doSubmit();
         } else {

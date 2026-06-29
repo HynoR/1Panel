@@ -162,10 +162,15 @@ func RestoreSnapshot(name string) error {
 	if err := restoreScoped(v4Path, "iptables"); err != nil {
 		return err
 	}
+	// v6 镜像恢复：仅在主机具备 ip6tables（HasIP6tables 为 false → 无 IPv6/无 ip6tables，可忽略跳过）
+	// 且存在 .v6 快照文件时才执行。真正的 v6 还原执行失败必须上抛——否则上层 persistManagedChains()
+	// 会把危险的 v6 内核状态写盘并删 marker，永失重试（与 v4 侧 runScopedStrict 的 fail-fast 对齐）。
 	v6Path := path.Join(dir, name+".v6")
-	if _, err := os.Stat(v6Path); err == nil && cmd.Which("ip6tables") {
-		if err := restoreScoped(v6Path, "ip6tables"); err != nil {
-			global.LOG.Warnf("[firewall-snapshot] restore v6 failed: %v", err)
+	if iptables.HasIP6tables() {
+		if _, err := os.Stat(v6Path); err == nil {
+			if err := restoreScoped(v6Path, "ip6tables"); err != nil {
+				return fmt.Errorf("restore ip6tables scoped failed: %w", err)
+			}
 		}
 	}
 	global.LOG.Infof("[firewall-snapshot] restored 1PANEL chains from %s", name)
@@ -257,7 +262,7 @@ func runScoped(bin, tab string, args ...string) error {
 // 因此失败必须上报，避免快照恢复/会话回滚在只完成部分重放后仍返回成功（评审 P1）。
 func runScopedStrict(bin, tab string, args ...string) error {
 	full := append([]string{"-t", tab, "-w"}, args...)
-	_, err := cmd.NewCommandMgr(cmd.WithTimeout(60 * time.Second)).RunWithOptionalSudoAndStdout(bin, full...)
+	_, err := cmd.NewCommandMgr(cmd.WithTimeout(60*time.Second)).RunWithOptionalSudoAndStdout(bin, full...)
 	return err
 }
 

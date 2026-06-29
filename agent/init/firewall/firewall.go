@@ -76,7 +76,12 @@ func runBootReplay() string {
 	}
 
 	// PR-3：把旧 BASIC 布局文件一次性迁移为新的 GUARD/DENY/BASELINE/ALLOW/AFTER 布局文件（幂等）。
-	migrateLegacyChains()
+	// 迁移失败直接中止本次重放：旧文件未改名、GuardFileName 未写，下次启动 legacyMigrationPending 仍为 true 会重试，
+	// 避免在半迁移状态下继续重放导致部分链规则永久丢失。
+	if err := migrateLegacyChains(); err != nil {
+		global.LOG.Errorf("[firewall-boot] migrate legacy chains failed, err: %v", err)
+		return "failed:migrate legacy chains"
+	}
 
 	// L4 ①：在任何重放/绑定前，先确保 INPUT 默认策略不是 DROP；若是，直接注入 SSH/面板紧急 ACCEPT。
 	firewall.EnsureInputPolicySafe(service.LoadBaselinePorts())

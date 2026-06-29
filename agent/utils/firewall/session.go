@@ -24,6 +24,12 @@ const sessionMarkerFile = "session.lock"
 
 const defaultConfirmWindow = 60
 
+// 自动回滚失败后的缩短重试窗口与最大重试次数：避免 RestoreSnapshot 失败后会话卡死 active、
+// 定时器不再 armed；同时防止无限重试。超过上限后保留 marker 停止自动重试，留待进程重启时
+// ReclaimSession 兜底（或人工介入）。
+const revertRetryWindowSec = 15
+const maxRevertRetries = 3
+
 type SessionChange struct {
 	Summary string `json:"summary"`
 	At      string `json:"at"`
@@ -45,14 +51,15 @@ type sessionMarker struct {
 }
 
 type sessionState struct {
-	mu        sync.Mutex
-	active    bool
-	snapshot  string
-	changes   []SessionChange
-	since     time.Time
-	deadline  time.Time
-	windowSec int
-	timer     *time.Timer
+	mu          sync.Mutex
+	active      bool
+	snapshot    string
+	changes     []SessionChange
+	since       time.Time
+	deadline    time.Time
+	windowSec   int
+	timer       *time.Timer
+	revertFails int
 }
 
 var session = &sessionState{windowSec: defaultConfirmWindow}
@@ -115,29 +122,39 @@ func ConfirmSession() error {
 }
 
 // RevertSession 立即撤销：限定恢复会话前的 1PANEL 链快照，并重写持久化文件。
+// 全程持锁（与 ConfirmSession 一致）：还原窗口内并发 BeginSession 只会追加到当前会话而非拍新快照，
+// 否则可能出现"SSH accept 已删但新会话被 clearLocked 一并清掉、再无自动回滚"的永久锁外竞态。
+// RestoreSnapshot/persistManagedChains 的调用链均不获取 session.mu，持锁执行不会自死锁。
 func RevertSession() error {
 	session.mu.Lock()
-	snap := session.snapshot
-	active := session.active
-	session.mu.Unlock()
-	if !active {
+	defer session.mu.Unlock()
+	if !session.active {
 		return nil
 	}
+	snap := session.snapshot
 	if snap != "" {
 		if err := RestoreSnapshot(snap); err != nil {
-			// 恢复未完整完成（RestoreSnapshot 现会 fail-fast 上报，评审 P1/P2）：此时绝不能把半还原的
-			// 内核状态写盘——否则会覆盖上次确认的良好持久化文件，并在重启/重放后复活危险规则集；
-			// 也保留会话标记，待下次 ReclaimSession（进程重启时 runBootReplay 会被跳过，这是唯一兜底）重试。
+			// 恢复未完整完成（RestoreSnapshot 现会 fail-fast 上报）：此时绝不能把半还原的内核状态写盘，
+			// 否则会覆盖上次确认的良好持久化文件并在重启/重放后复活危险规则集；也保留会话标记。
+			// 重装一个缩短的重试窗口做有限次自动重试，避免会话卡死 active、定时器不再 armed；
+			// 超过上限后保留 marker 停止自动重试，留待进程重启时 ReclaimSession 兜底（或人工介入）。
 			global.LOG.Errorf("[firewall-session] revert failed, keeping marker for retry, not persisting partial state: %v", err)
+			session.revertFails++
+			if session.revertFails >= maxRevertRetries {
+				global.LOG.Errorf("[firewall-session] revert failed %d times, stop auto-retry; keep marker for manual intervention / ReclaimSession on restart", session.revertFails)
+				return err
+			}
+			session.deadline = time.Now().Add(time.Duration(revertRetryWindowSec) * time.Second)
+			session.persistMarkerLocked()
+			session.armTimerLocked()
+			global.LOG.Warnf("[firewall-session] revert failed %d/%d, re-armed retry window %ds", session.revertFails, maxRevertRetries, revertRetryWindowSec)
 			return err
 		}
 	}
 	// 还原成功后才重写持久化文件，使确认前不落盘的承诺即便经历崩溃也成立。
 	persistManagedChains()
-
-	session.mu.Lock()
+	global.LOG.Infof("[firewall-session] reverted %d change(s)", len(session.changes))
 	session.clearLocked()
-	session.mu.Unlock()
 	return nil
 }
 
@@ -167,6 +184,7 @@ func (s *sessionState) clearLocked() {
 	s.changes = nil
 	s.deadline = time.Time{}
 	s.since = time.Time{}
+	s.revertFails = 0
 	_ = os.Remove(markerPath())
 }
 
