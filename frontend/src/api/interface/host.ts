@@ -192,6 +192,40 @@ export namespace Host {
         rules: Array<RulePort>;
     }
 
+    // ---- FRONTEND-ONLY view types for the unified inbound rules (no backend DTO change) ----
+    export type InboundRuleType = 'port' | 'address';
+    export type InboundRuleLevel = 'deny' | 'baseline' | 'allow';
+    // A RuleInfo row tagged for the merged inbound table; level is derived client-side.
+    export interface InboundRule extends RuleInfo {
+        ruleType: InboundRuleType;
+        level?: InboundRuleLevel;
+        dockerPublished?: boolean;
+    }
+    // Unified create/edit form model; objectType routes to operatePortRule / operateIPRule.
+    export interface UnifiedRuleForm {
+        objectType: InboundRuleType;
+        port: string;
+        address: string;
+        protocol: string;
+        strategy: string;
+        family: string;
+        applyToDocker: boolean;
+        description: string;
+    }
+    // Client-side risk heuristic result (no backend risk field / precheck endpoint).
+    export interface RiskInfo {
+        mode: 'warn' | 'redline' | 'none';
+        message: string;
+        detail?: string;
+    }
+    // A rescue channel shown on the overview (SSH / panel / 80 / 443).
+    export interface RescueChannel {
+        name: string;
+        port: string;
+        status: 'allowed' | 'closable' | 'readonly';
+        readonly: boolean;
+    }
+
     export interface MonitorSetting {
         defaultNetwork: string;
         defaultIO: string;

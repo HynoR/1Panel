@@ -35,6 +35,25 @@
                             <Status :status="row.status" />
                         </template>
                     </el-table-column>
+                    <el-table-column :label="$t('commons.table.type')" :min-width="90">
+                        <template #default="{ row }">
+                            {{
+                                row.ruleType === 'address'
+                                    ? $t('firewall.ruleObjectAddress')
+                                    : $t('firewall.ruleObjectPort')
+                            }}
+                        </template>
+                    </el-table-column>
+                    <el-table-column :label="$t('commons.table.protocol')" :min-width="70">
+                        <template #default="{ row }">
+                            <span>{{ row.protocol || '-' }}</span>
+                        </template>
+                    </el-table-column>
+                    <el-table-column :label="$t('commons.table.port')" :min-width="70">
+                        <template #default="{ row }">
+                            <span>{{ row.port || '-' }}</span>
+                        </template>
+                    </el-table-column>
                     <el-table-column :label="$t('firewall.address')" :min-width="100">
                         <template #default="{ row }">
                             <span v-if="row.address && row.address !== 'Anywhere'">{{ row.address }}</span>
@@ -69,11 +88,11 @@
 </template>
 
 <script lang="ts" setup>
-import { ref } from 'vue';
+import { reactive, ref } from 'vue';
 import { genFileId, UploadFile, UploadFiles, UploadProps, UploadRawFile } from 'element-plus';
 import { MsgError, MsgSuccess } from '@/utils/message';
 import i18n from '@/lang';
-import { operateIPRule, searchFireRule } from '@/api/modules/host';
+import { operateIPRule, operatePortRule, searchFireRule } from '@/api/modules/host';
 import { Host } from '@/api/interface/host';
 
 const emit = defineEmits<{ (e: 'search'): void }>();
@@ -82,7 +101,9 @@ const visible = ref(false);
 const loading = ref(false);
 const selects = ref<any>([]);
 const displayData = ref<any>([]);
-const currentRules = ref<Host.RuleInfo[]>([]);
+// 端口/来源 IP 两类既有规则分别缓存，导入对比时各自比对
+const currentPortRules = ref<Host.RuleInfo[]>([]);
+const currentAddrRules = ref<Host.RuleInfo[]>([]);
 
 const uploadRef = ref();
 const uploaderFiles = ref();
@@ -101,14 +122,12 @@ const acceptParams = async (): Promise<void> => {
 };
 
 const loadCurrentData = async () => {
-    const res = await searchFireRule({
-        type: 'address',
-        strategy: '',
-        info: '',
-        page: 1,
-        pageSize: 10000,
-    });
-    currentRules.value = res.data.items || [];
+    const [portRes, addrRes] = await Promise.all([
+        searchFireRule({ type: 'port', strategy: '', info: '', page: 1, pageSize: 10000 }),
+        searchFireRule({ type: 'address', strategy: '', info: '', page: 1, pageSize: 10000 }),
+    ]);
+    currentPortRules.value = portRes.data.items || [];
+    currentAddrRules.value = addrRes.data.items || [];
 };
 
 const search = () => {
@@ -134,15 +153,18 @@ const fileOnChange = (_uploadFile: UploadFile, uploadFiles: UploadFiles) => {
                 return;
             }
 
+            const normalized: any[] = [];
             for (const item of parsed) {
-                if (!checkDataFormat(item)) {
+                const row = normalizeRule(item);
+                if (!row) {
                     MsgError(i18n.global.t('commons.msg.errImportFormat'));
                     loading.value = false;
                     return;
                 }
+                normalized.push(row);
             }
 
-            compareRules(parsed);
+            compareRules(normalized);
             loading.value = false;
         } catch (error) {
             MsgError(i18n.global.t('commons.msg.errImport') + error.message);
@@ -159,14 +181,21 @@ const handleExceed: UploadProps['onExceed'] = (files) => {
     uploadRef.value!.handleStart(file);
 };
 
-const checkDataFormat = (item: any): boolean => {
-    if (!item.address || !item.strategy) {
-        return false;
+// 按形状识别规则类型：含端口 → 端口规则；仅含地址 → 来源 IP 规则
+const normalizeRule = (item: any): any | null => {
+    if (!item || !['accept', 'drop'].includes(item.strategy)) {
+        return null;
     }
-    if (!['accept', 'drop'].includes(item.strategy)) {
-        return false;
+    if (item.port) {
+        if (!item.protocol || !['tcp', 'udp', 'tcp/udp'].includes(item.protocol)) {
+            return null;
+        }
+        return { ...item, ruleType: 'port' };
     }
-    return true;
+    if (item.address) {
+        return { ...item, protocol: '', port: '', ruleType: 'address' };
+    }
+    return null;
 };
 
 const compareRules = (importedRules: any[]) => {
@@ -175,10 +204,16 @@ const compareRules = (importedRules: any[]) => {
     const duplicateRules: any[] = [];
 
     for (const importedRule of importedRules) {
-        const key = `${importedRule.address || 'Anywhere'}`;
+        const isPort = importedRule.ruleType === 'port';
+        const key = isPort
+            ? `${importedRule.address || 'Anywhere'}:${importedRule.port}:${importedRule.protocol}`
+            : `${importedRule.address || 'Anywhere'}`;
+        const source = isPort ? currentPortRules.value : currentAddrRules.value;
 
-        const existingRule = currentRules.value.find((rule) => {
-            const existingKey = `${rule.address || 'Anywhere'}`;
+        const existingRule = source.find((rule) => {
+            const existingKey = isPort
+                ? `${rule.address || 'Anywhere'}:${rule.port}:${rule.protocol}`
+                : `${rule.address || 'Anywhere'}`;
             return existingKey === key;
         });
 
@@ -207,14 +242,26 @@ const onImport = async () => {
 
     for (const rule of selects.value) {
         try {
-            const params: Host.RuleIP = {
-                operation: 'add',
-                address: rule.address || 'Anywhere',
-                strategy: rule.strategy,
-                description: rule.description || '',
-            };
-
-            await operateIPRule(params);
+            if (rule.ruleType === 'address') {
+                const params: Host.RuleIP = {
+                    operation: 'add',
+                    address: rule.address || 'Anywhere',
+                    strategy: rule.strategy,
+                    description: rule.description || '',
+                };
+                await operateIPRule(params);
+            } else {
+                const params: Host.RulePort = {
+                    operation: 'add',
+                    address: rule.address || 'Anywhere',
+                    port: rule.port,
+                    source: '',
+                    protocol: rule.protocol,
+                    strategy: rule.strategy,
+                    description: rule.description || '',
+                };
+                await operatePortRule(params);
+            }
             successCount++;
         } catch (error) {
             errorCount++;

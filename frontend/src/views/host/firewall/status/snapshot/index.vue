@@ -49,12 +49,22 @@ const search = async () => {
 };
 
 const onRestore = (row: Host.FirewallSnapshot) => {
-    // 恢复走提交-确认事务：恢复后若锁外，60 秒未确认会自动回到恢复前（设计稿 §3.5）。
-    ElMessageBox.confirm(i18n.global.t('firewall.snapshotRestoreHelper'), i18n.global.t('commons.button.recover'), {
-        confirmButtonText: i18n.global.t('commons.button.confirm'),
-        cancelButtonText: i18n.global.t('commons.button.cancel'),
-        type: 'warning',
-    }).then(async () => {
+    // 无后端 preview 接口：用文案把后果讲清楚——恢复会用此快照覆盖当前 1Panel 链，
+    // 当前未保存到快照的规则变更会被移除；恢复走提交-确认事务，若锁外 60 秒未确认会自动回退（设计稿 §3.5）。
+    const label = row.tag ? `${row.name}（${row.tag}）` : row.name;
+    ElMessageBox.confirm(
+        `<div class="leading-6">
+            <p>${i18n.global.t('firewall.snapshotRestoreTarget', [label])}</p>
+            <p>${i18n.global.t('firewall.snapshotRestoreHelper')}</p>
+        </div>`,
+        i18n.global.t('commons.button.recover'),
+        {
+            confirmButtonText: i18n.global.t('commons.button.confirm'),
+            cancelButtonText: i18n.global.t('commons.button.cancel'),
+            dangerouslyUseHTMLString: true,
+            type: 'warning',
+        },
+    ).then(async () => {
         await restoreFireSnapshot(row.name);
         MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
         drawerVisible.value = false;

@@ -3,22 +3,28 @@
         <FireRouter />
 
         <div v-loading="loading">
-            <FireStatus
-                ref="fireStatusRef"
-                @search="search"
-                v-model:loading="loading"
-                v-model:mask-show="maskShow"
-                v-model:is-active="isActive"
-                v-model:name="fireName"
-                v-model:capabilities="capabilities"
-                current-tab="advance"
-            />
-            <div v-if="fireName !== '-' && !capabilities.filter">
+            <LayoutContent :divider="true" v-if="!isReady">
+                <template #main>
+                    <div class="app-warn">
+                        <div class="flex flex-col gap-2 items-center justify-center w-full sm:flex-row">
+                            <span>{{ $t('firewall.goOverviewInit') }}</span>
+                            <el-button type="primary" link @click="goOverview">
+                                {{ $t('firewall.overview') }}
+                            </el-button>
+                        </div>
+                        <div>
+                            <img src="@/assets/images/no_app.svg" />
+                        </div>
+                    </div>
+                </template>
+            </LayoutContent>
+
+            <div v-else-if="!capabilities.filter">
                 <LayoutContent :divider="true">
                     <template #main>
                         <div class="app-warn">
                             <div class="flex flex-col gap-2 items-center justify-center w-full sm:flex-row">
-                                <span>{{ $t('firewall.advancedControlNotAvailable', [fireName]) }}</span>
+                                <span>{{ $t('firewall.advancedControlNotAvailable', [name]) }}</span>
                             </div>
                             <div>
                                 <img src="@/assets/images/no_app.svg" />
@@ -28,8 +34,8 @@
                 </LayoutContent>
             </div>
 
-            <div v-if="capabilities.filter">
-                <el-card v-if="!isActive && maskShow" class="mask-prompt">
+            <div v-else>
+                <el-card v-if="!isActive" class="mask-prompt">
                     <span>{{ $t('firewall.firewallNotStart') }}</span>
                 </el-card>
                 <LayoutContent :title="$t('firewall.filterRule')" :class="{ mask: !isActive }">
@@ -41,10 +47,10 @@
                             {{ $t('firewall.create') }}
                         </el-button>
                         <el-button v-if="isBind" v-permission v-node-admin plain @click="onUnBind">
-                            {{ $t('commons.button.unbind') }}
+                            {{ $t('firewall.disableManaged') }}
                         </el-button>
                         <el-button v-if="!isBind" v-permission v-node-admin plain @click="onBind">
-                            {{ $t('commons.button.bind') }}
+                            {{ $t('firewall.enableManaged') }}
                         </el-button>
                         <el-button
                             v-permission
@@ -58,11 +64,13 @@
                     </template>
 
                     <template #rightToolBar>
-                        <el-select v-model="selectedChain" @change="search()" clearable class="p-w-200">
-                            <template #prefix>{{ $t('firewall.chain') }}</template>
-                            <el-option :label="$t('firewall.inboundDirection')" value="1PANEL_INPUT"></el-option>
-                            <el-option :label="$t('firewall.outboundDirection')" value="1PANEL_OUTPUT"></el-option>
-                        </el-select>
+                        <el-tooltip :content="selectedChain" placement="top">
+                            <el-select v-model="selectedChain" @change="search()" clearable class="p-w-200">
+                                <template #prefix>{{ $t('firewall.chain') }}</template>
+                                <el-option :label="$t('firewall.inboundDirection')" value="1PANEL_INPUT"></el-option>
+                                <el-option :label="$t('firewall.outboundDirection')" value="1PANEL_OUTPUT"></el-option>
+                            </el-select>
+                        </el-tooltip>
                         <TableRefresh @search="search()" />
                         <TableSetting title="firewall-filter-refresh" @search="search()" />
                     </template>
@@ -151,9 +159,9 @@
 
 <script lang="ts" setup>
 import FireRouter from '@/views/host/firewall/index.vue';
-import FireStatus from '@/views/host/firewall/status/index.vue';
 import OperateDialog from '@/views/host/firewall/advance/operate/index.vue';
 import { onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import {
     searchFilterRules,
     batchOperateFilterRule,
@@ -164,18 +172,17 @@ import {
 import { Host } from '@/api/interface/host';
 import i18n from '@/lang';
 import { MsgSuccess } from '@/utils/message';
+import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
 
+const { capabilities, isActive, isReady, name, loadBaseInfo } = useFireBaseInfo();
+
+const router = useRouter();
 const loading = ref();
 const selects = ref<any>([]);
 const selectedChain = ref('1PANEL_INPUT');
 const defaultStrategy = ref('ACCEPT');
 
-const maskShow = ref(true);
-const isActive = ref(false);
 const isBind = ref(false);
-const fireName = ref();
-const capabilities = ref<Host.FirewallCapabilities>({} as Host.FirewallCapabilities);
-const fireStatusRef = ref();
 
 const opRef = ref();
 
@@ -204,6 +211,16 @@ const paginationConfig = reactive({
     total: 0,
 });
 
+const goOverview = () => {
+    router.push({ path: '/hosts/firewall/overview' });
+};
+
+const chainLabel = () => {
+    return selectedChain.value === '1PANEL_OUTPUT'
+        ? i18n.global.t('firewall.outboundDirection')
+        : i18n.global.t('firewall.inboundDirection');
+};
+
 const search = async () => {
     if (!isActive.value) {
         loading.value = false;
@@ -231,9 +248,9 @@ const search = async () => {
 
 const loadPrompt = () => {
     if (isBind.value) {
-        return i18n.global.t('firewall.defaultStrategy', [selectedChain.value, defaultStrategy.value]);
+        return i18n.global.t('firewall.defaultStrategy', [chainLabel(), defaultStrategy.value]);
     }
-    return i18n.global.t('firewall.defaultStrategy2', [selectedChain.value, defaultStrategy.value]);
+    return i18n.global.t('firewall.defaultStrategy2', [chainLabel(), defaultStrategy.value]);
 };
 
 const loadStatus = async () => {
@@ -243,7 +260,7 @@ const loadStatus = async () => {
     });
 };
 const onBind = async () => {
-    ElMessageBox.confirm(i18n.global.t('firewall.bindHelper'), i18n.global.t('commons.button.bind'), {
+    ElMessageBox.confirm(i18n.global.t('firewall.bindHelper'), i18n.global.t('firewall.enableManaged'), {
         confirmButtonText: i18n.global.t('commons.button.confirm'),
         cancelButtonText: i18n.global.t('commons.button.cancel'),
     }).then(async () => {
@@ -254,7 +271,7 @@ const onBind = async () => {
     });
 };
 const onUnBind = async () => {
-    ElMessageBox.confirm(i18n.global.t('firewall.unbindHelper'), i18n.global.t('commons.button.unbind'), {
+    ElMessageBox.confirm(i18n.global.t('firewall.unbindHelper'), i18n.global.t('firewall.disableManaged'), {
         confirmButtonText: i18n.global.t('commons.button.confirm'),
         cancelButtonText: i18n.global.t('commons.button.cancel'),
     }).then(async () => {
@@ -355,11 +372,13 @@ const buttons = [
     },
 ];
 
-onMounted(() => {
-    if (fireName.value !== '-') {
-        loading.value = true;
-        fireStatusRef.value.acceptParams();
+onMounted(async () => {
+    loading.value = true;
+    await loadBaseInfo('advance');
+    if (isReady.value && capabilities.value.filter) {
+        await search();
     }
+    loading.value = false;
 });
 </script>
 

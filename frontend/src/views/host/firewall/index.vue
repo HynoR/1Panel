@@ -11,23 +11,37 @@
 <script lang="ts" setup>
 import i18n from '@/lang';
 import SessionConfirm from '@/views/host/firewall/session-confirm.vue';
+import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
+import { computed, onMounted } from 'vue';
 
-const buttons = [
-    {
-        label: i18n.global.t('firewall.portRule', 2),
-        path: '/hosts/firewall/port',
-    },
-    {
-        label: i18n.global.t('firewall.forwardRule', 2),
-        path: '/hosts/firewall/forward',
-    },
-    {
-        label: i18n.global.t('firewall.ipRule', 2),
-        path: '/hosts/firewall/ip',
-    },
-    {
-        label: 'iptables ' + i18n.global.t('firewall.advancedControl'),
-        path: '/hosts/firewall/advance',
-    },
-];
+const { capabilities, hasAdvancedRules, loadBaseInfo, probeAdvancedRules } = useFireBaseInfo();
+
+const buttons = computed(() => {
+    const list = [
+        {
+            label: i18n.global.t('firewall.overview'),
+            path: '/hosts/firewall/overview',
+        },
+        {
+            label: i18n.global.t('firewall.inboundRule', 2),
+            path: '/hosts/firewall/inbound',
+        },
+        {
+            label: i18n.global.t('firewall.forwardRule', 2),
+            path: '/hosts/firewall/forward',
+        },
+    ];
+    if (capabilities.value.filter && hasAdvancedRules.value) {
+        list.push({
+            label: 'iptables ' + i18n.global.t('firewall.advancedControl'),
+            path: '/hosts/firewall/advance',
+        });
+    }
+    return list;
+});
+
+onMounted(() => {
+    loadBaseInfo('base');
+    probeAdvancedRules();
+});
 </script>

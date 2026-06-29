@@ -4,6 +4,12 @@
             <el-alert :closable="false" :title="$t('firewall.ipv4Limit')" />
         </div>
         <el-form ref="formRef" label-position="top" :model="dialogData.rowData" :rules="rules" v-loading="loading">
+            <el-form-item :label="$t('firewall.chain')">
+                <el-tooltip :content="dialogData.rowData?.chain" placement="top">
+                    <el-tag type="info">{{ directionLabel }}</el-tag>
+                </el-tooltip>
+            </el-form-item>
+
             <el-form-item :label="$t('commons.table.protocol')" prop="protocol">
                 <el-select class="w-full" v-model="dialogData.rowData!.protocol" @change="changeProtocol">
                     <el-option value="all" label="all" />
@@ -65,7 +71,7 @@
 </template>
 
 <script lang="ts" setup>
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { Rules } from '@/global/form-rules';
 import i18n from '@/lang';
 import { ElForm } from 'element-plus';
@@ -96,6 +102,12 @@ const acceptParams = (params: DialogProps): void => {
     drawerVisible.value = true;
 };
 const emit = defineEmits<{ (e: 'search'): void }>();
+
+const directionLabel = computed(() =>
+    dialogData.value.rowData?.chain === '1PANEL_OUTPUT'
+        ? i18n.global.t('firewall.outboundDirection')
+        : i18n.global.t('firewall.inboundDirection'),
+);
 
 const handleClose = () => {
     drawerVisible.value = false;

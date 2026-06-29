@@ -3,20 +3,24 @@
         <FireRouter />
 
         <div v-loading="loading">
-            <FireStatus
-                ref="fireStatusRef"
-                @search="search"
-                v-model:loading="loading"
-                v-model:mask-show="maskShow"
-                v-model:is-active="isActive"
-                v-model:name="fireName"
-                v-model:capabilities="capabilities"
-                current-tab="forward"
-            />
-            <div v-if="fireName !== '-'">
-                <el-card v-if="!isActive && maskShow" class="mask-prompt">
-                    <span>{{ $t('firewall.firewallNotStart') }}</span>
-                </el-card>
+            <el-card v-if="!isReady">
+                <div class="flex flex-col items-center justify-center gap-3 py-8">
+                    <span>{{ $t('firewall.goOverviewInit') }}</span>
+                    <div>
+                        <el-button type="primary" @click="goOverview">
+                            {{ $t('firewall.overview') }}
+                        </el-button>
+                        <el-button v-if="isExist && isActive" v-permission v-node-admin plain @click="onInitForward">
+                            {{ $t('commons.button.init') }}
+                        </el-button>
+                    </div>
+                </div>
+            </el-card>
+
+            <div v-else>
+                <el-alert v-if="!isActive" class="mb-2" type="warning" :closable="false" show-icon>
+                    {{ $t('firewall.firewallNotStart') }}
+                </el-alert>
 
                 <LayoutContent :title="$t('firewall.forwardRule', 2)" :class="{ mask: !isActive }">
                     <template #leftToolBar>
@@ -106,25 +110,24 @@
 import FireRouter from '@/views/host/firewall/index.vue';
 import OperateDialog from './operate/index.vue';
 import ImportDialog from './import/index.vue';
-import FireStatus from '@/views/host/firewall/status/index.vue';
 import { onMounted, reactive, ref } from 'vue';
-import { operateForwardRule, searchFireRule } from '@/api/modules/host';
+import { useRouter } from 'vue-router';
+import { operateForwardRule, operateFilterChain, searchFireRule } from '@/api/modules/host';
 import { Host } from '@/api/interface/host';
+import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
 import i18n from '@/lang';
 import { MsgSuccess } from '@/utils/message';
 import { downloadWithContent } from '@/utils/file';
 import { getCurrentDateFormatted } from '@/utils/date';
+
+const router = useRouter();
+const { isExist, isActive, isReady, capabilities, name, loadBaseInfo } = useFireBaseInfo();
+
 const loading = ref();
 const activeTag = ref('forward');
 const selects = ref<any>([]);
 const searchName = ref();
 const searchStrategy = ref('');
-
-const maskShow = ref(true);
-const isActive = ref(false);
-const fireName = ref();
-const capabilities = ref<Host.FirewallCapabilities>({} as Host.FirewallCapabilities);
-const fireStatusRef = ref();
 
 const opRef = ref();
 const dialogImportRef = ref();
@@ -139,8 +142,33 @@ const paginationConfig = reactive({
     total: 0,
 });
 
+const reload = async () => {
+    await loadBaseInfo('forward');
+    search();
+};
+
+const goOverview = () => {
+    router.push({ path: '/hosts/firewall/overview' });
+};
+
+const onInitForward = () => {
+    ElMessageBox.confirm(
+        i18n.global.t('firewall.initMsg', [i18n.global.t('firewall.forwardIptables')]),
+        i18n.global.t('commons.button.init'),
+        {
+            confirmButtonText: i18n.global.t('commons.button.confirm'),
+            cancelButtonText: i18n.global.t('commons.button.cancel'),
+        },
+    ).then(async () => {
+        await operateFilterChain('1PANEL_FORWARD', 'init-forward').then(() => {
+            MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+            reload();
+        });
+    });
+};
+
 const search = async () => {
-    if (!isActive.value) {
+    if (!isReady.value || !isActive.value) {
         loading.value = false;
         data.value = [];
         paginationConfig.total = 0;
@@ -185,7 +213,6 @@ const onOpenDialog = async (
     let params = {
         title,
         rowData: { ...rowData },
-        fireName: fireName.value,
         capabilities: capabilities.value,
     };
     dialogRef.value!.acceptParams(params);
@@ -234,7 +261,7 @@ const onSubmitDelete = async () => {
 };
 
 const onImport = () => {
-    dialogImportRef.value.acceptParams(fireName.value, capabilities.value.forwardImpl);
+    dialogImportRef.value.acceptParams(name.value, capabilities.value.forwardImpl);
 };
 
 const onExport = () => {
@@ -279,12 +306,10 @@ const buttons = [
     },
 ];
 
-onMounted(() => {
+onMounted(async () => {
     forceDelete.value = false;
-    if (fireName.value !== '-') {
-        loading.value = true;
-        fireStatusRef.value.acceptParams();
-    }
+    loading.value = true;
+    await reload();
 });
 </script>
 

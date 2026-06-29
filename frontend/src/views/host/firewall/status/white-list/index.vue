@@ -3,7 +3,17 @@
         <template #content>
             <el-alert type="info" :closable="false" :title="$t('firewall.portWhiteListAlter')" />
 
-            <el-button class="mt-5" type="primary" @click="openCreate">
+            <div class="mt-4">
+                <p class="font-medium">{{ $t('firewall.requiredPorts') }}</p>
+                <div class="flex flex-wrap gap-2 mt-2">
+                    <el-tag v-for="item in requiredPorts" :key="item.port" type="info">
+                        {{ item.name }} · {{ item.port }}
+                    </el-tag>
+                </div>
+            </div>
+
+            <p class="font-medium mt-4">{{ $t('firewall.editablePorts') }}</p>
+            <el-button class="mt-2" type="primary" @click="openCreate">
                 {{ $t('commons.button.add') }}
             </el-button>
             <ComplexTable :data="data" v-loading="loading">
@@ -43,7 +53,8 @@
 
 <script lang="ts" setup>
 import { ref } from 'vue';
-import { getAgentSettingInfo, updateAgentSetting } from '@/api/modules/setting';
+import { getAgentSettingInfo, getSettingInfo, updateAgentSetting } from '@/api/modules/setting';
+import { getSSHInfo } from '@/api/modules/host';
 import i18n from '@/lang';
 import { MsgError, MsgSuccess } from '@/utils/message';
 import { checkPort } from '@/utils/validate';
@@ -59,11 +70,13 @@ const emit = defineEmits<{ (e: 'search'): void }>();
 const drawerVisible = ref(false);
 const loading = ref(false);
 const data = ref<WhiteListItem[]>([]);
+const requiredPorts = ref<{ name: string; port: string }[]>([]);
 const defaultWhiteList = '80/tcp,443/tcp,443/udp';
 
 const acceptParams = async (): Promise<void> => {
     drawerVisible.value = true;
     loading.value = true;
+    loadRequiredPorts();
     await getAgentSettingInfo()
         .then((res) => {
             data.value = parseWhiteList(res.data.firewallPortWhiteList ?? defaultWhiteList);
@@ -71,6 +84,26 @@ const acceptParams = async (): Promise<void> => {
         .finally(() => {
             loading.value = false;
         });
+};
+
+// 保底端口（SSH / 面板）由防火墙自动放行，此处仅只读展示，不可编辑/删除。
+const loadRequiredPorts = async () => {
+    const result: { name: string; port: string }[] = [];
+    try {
+        const ssh = await getSSHInfo();
+        result.push({ name: 'SSH', port: `${ssh.data.port || '22'}/tcp` });
+    } catch {
+        result.push({ name: 'SSH', port: '22/tcp' });
+    }
+    try {
+        const setting = await getSettingInfo();
+        if (setting.data.serverPort) {
+            result.push({ name: '1Panel', port: `${setting.data.serverPort}/tcp` });
+        }
+    } catch {
+        // 面板端口获取失败时跳过展示，保底通道仍由后端自动放行。
+    }
+    requiredPorts.value = result;
 };
 
 const parseWhiteList = (value: string): WhiteListItem[] => {
@@ -128,7 +161,27 @@ const cancelEdit = (row: WhiteListItem, index: number) => {
     row.edit = false;
 };
 
+const isRescuePort = (value: string): boolean => {
+    const port = value.split('/')[0];
+    return port === '80' || port === '443';
+};
+
 const removeRow = (index: number) => {
+    const row = data.value[index];
+    if (row && !row.isNew && isRescuePort(row.port)) {
+        ElMessageBox.confirm(
+            i18n.global.t('firewall.deleteRescuePortHelper', [row.port]),
+            i18n.global.t('commons.button.delete'),
+            {
+                confirmButtonText: i18n.global.t('commons.button.confirm'),
+                cancelButtonText: i18n.global.t('commons.button.cancel'),
+                type: 'warning',
+            },
+        ).then(() => {
+            data.value.splice(index, 1);
+        });
+        return;
+    }
     data.value.splice(index, 1);
 };
 

@@ -72,7 +72,6 @@ const interfaceOptions = ref<Array<{ label: string; value: string }>>([]);
 interface DialogProps {
     title: string;
     rowData?: Host.RuleForward;
-    fireName?: string;
     capabilities?: Host.FirewallCapabilities;
     getTableList?: () => Promise<any>;
 }
