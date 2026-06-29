@@ -15,6 +15,8 @@ type FirewallBaseInfo struct {
 
 	BootStatus string `json:"bootStatus"` // ok | degraded:<reason> | failed:<reason>
 	Consistent bool   `json:"consistent"`
+
+	StrictMode bool `json:"strictMode"` // 白名单（严格）模式：未列出端口默认拒绝（AFTER 链已注入 DROP）
 }
 
 type FirewallCapabilities struct {
@@ -115,7 +117,7 @@ type BatchRuleOperate struct {
 
 type IptablesOp struct {
 	Name    string `json:"name" validate:"required,oneof=1PANEL_INPUT 1PANEL_OUTPUT 1PANEL_BASIC"`
-	Operate string `json:"operate" validate:"required,oneof=init-base init-forward init-advance bind-base unbind-base bind unbind"`
+	Operate string `json:"operate" validate:"required,oneof=init-base init-forward init-advance bind-base unbind-base bind unbind enable-strict disable-strict"`
 }
 
 type IptablesRuleOp struct {

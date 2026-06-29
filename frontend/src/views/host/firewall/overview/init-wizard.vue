@@ -101,6 +101,10 @@ const onApply = async () => {
     loading.value = true;
     try {
         await operateFilterChain(name, op);
+        // 基础初始化后，按所选默认策略决定是否开启白名单（严格）模式（向 AFTER 链注入 DROP）。
+        if (tab.value === 'base' && policy.value === 'strict') {
+            await operateFilterChain('1PANEL_INPUT', 'enable-strict');
+        }
         await loadBaseInfo(tab.value);
         checkPassed.value = isReady.value;
         if (checkPassed.value) {

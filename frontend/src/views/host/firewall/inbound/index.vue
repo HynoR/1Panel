@@ -12,7 +12,7 @@
 
             <div v-else>
                 <FlowBar
-                    :default-drop="strictPolicy"
+                    :default-drop="strictMode"
                     :active-level="activeLevel"
                     :counts="levelCounts"
                     @filter="onFilterLevel"
@@ -242,13 +242,12 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import {
     batchOperateRule,
     getSSHInfo,
-    loadChainStatus,
     searchFireRule,
     updateAddrRule,
     updateFirewallDescription,
     updatePortRule,
 } from '@/api/modules/host';
-import { getAgentSettingInfo } from '@/api/modules/setting';
+import { getAgentSettingInfo, getSettingInfo } from '@/api/modules/setting';
 import { getListeningProcess } from '@/api/modules/process';
 import { Host } from '@/api/interface/host';
 import { Process } from '@/api/interface/process';
@@ -261,14 +260,14 @@ import { downloadWithContent } from '@/utils/file';
 import { getCurrentDateFormatted } from '@/utils/date';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
 
-const { capabilities, mode, name, isReady, loadBaseInfo, dockerRules, loadDockerStatus } = useFireBaseInfo();
+const { capabilities, mode, name, isReady, strictMode, loadBaseInfo, dockerRules, loadDockerStatus } =
+    useFireBaseInfo();
 
 const loading = ref(false);
 const selects = ref<any>([]);
 const searchName = ref('');
 const searchStrategy = ref('');
 const activeLevel = ref('');
-const strictPolicy = ref(false);
 
 const opRef = ref();
 const dialogRef = ref();
@@ -324,10 +323,17 @@ const goOverview = () => {
 // ---- rescue port set (panel port + whitelist 80/443 + SSH port) for baseline tagging ----
 const loadRescuePorts = async () => {
     const set = new Set<number>();
+    // 面板端口取核心设置（与概览保底通道一致）：agent 设置无 serverPort 字段，
+    // 之前用 getAgentSettingInfo().serverPort 恒为 undefined → 面板端口从未进保底集，导致面板规则被误判为可删的「放行」。
     try {
-        const res = await getAgentSettingInfo();
+        const res = await getSettingInfo();
         const panelPort = Number(res.data.serverPort);
         if (!isNaN(panelPort)) set.add(panelPort);
+    } catch (error) {
+        console.error('Failed to load panel port:', error);
+    }
+    try {
+        const res = await getAgentSettingInfo();
         const whiteList = res.data.firewallPortWhiteList || '';
         whiteList
             .split(/[\s,;]+/)
@@ -335,7 +341,7 @@ const loadRescuePorts = async () => {
             .filter((port) => !isNaN(port))
             .forEach((port) => set.add(port));
     } catch (error) {
-        console.error('Failed to load panel settings:', error);
+        console.error('Failed to load firewall whitelist:', error);
     }
     try {
         const ssh = await getSSHInfo();
@@ -889,23 +895,9 @@ const buttons = [
     },
 ];
 
-// 默认入站策略：读实际链状态（与概览一致），而非 capabilities.defaultDrop 能力位。
-const loadDefaultPolicy = async () => {
-    if (mode.value !== 'managed' || !capabilities.value.defaultDrop || !isReady.value) {
-        strictPolicy.value = false;
-        return;
-    }
-    try {
-        const res = await loadChainStatus('1PANEL_INPUT');
-        strictPolicy.value = (res.data.defaultStrategy || 'ACCEPT').toUpperCase() === 'DROP';
-    } catch {
-        strictPolicy.value = false;
-    }
-};
-
 onMounted(async () => {
     await loadBaseInfo('base');
-    await Promise.all([loadRescuePorts(), loadDockerStatus(), loadDefaultPolicy()]);
+    await Promise.all([loadRescuePorts(), loadDockerStatus()]);
     await loadData();
 });
 </script>

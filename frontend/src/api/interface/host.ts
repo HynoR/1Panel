@@ -77,6 +77,7 @@ export namespace Host {
         conflict: FirewallConflict;
         bootStatus: string;
         consistent: boolean;
+        strictMode: boolean;
     }
     export interface FirewallCapabilities {
         rules: boolean;

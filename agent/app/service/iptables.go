@@ -12,6 +12,7 @@ import (
 	"github.com/1Panel-dev/1Panel/agent/constant"
 	"github.com/1Panel-dev/1Panel/agent/global"
 	"github.com/1Panel-dev/1Panel/agent/utils/cmd"
+	"github.com/1Panel-dev/1Panel/agent/utils/firewall"
 	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client"
 	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client/iptables"
 )
@@ -276,8 +277,64 @@ func (s *IptablesService) Operate(req dto.IptablesOp) error {
 			_ = settingRepo.Update("IptablesOutputStatus", constant.StatusDisable)
 		}
 		return nil
+	case "enable-strict":
+		return enableStrictMode()
+	case "disable-strict":
+		return disableStrictMode()
 	}
 	return nil
+}
+
+// enableStrictMode 开启白名单（严格）模式：向已绑定的 AFTER 链注入 DROP all tcp/udp（v4+v6），
+// 未列出端口将被拒绝。高危（可能锁外）→ 先 BeginSession 武装提交-确认窗口（60s 未确认自动还原）。
+func enableStrictMode() error {
+	// 先武装提交-确认会话（拍快照=空 AFTER），再注入 DROP；不在此落盘——遵守"确认前不落盘"：
+	// 用户点「确认保留」时 ConfirmSession 会 persistManagedChains（含 AFTER），超时/崩溃则 RevertSession
+	// 还原为空 AFTER 并落盘，自动回到宽松，杜绝误开严格把人锁外。
+	if err := firewall.BeginSession("enable strict (whitelist) mode"); err != nil {
+		return err
+	}
+	if err := ensureAfterDropRules(); err != nil {
+		return err
+	}
+	_ = settingRepo.Update("IptablesStrictMode", constant.StatusEnable)
+	return nil
+}
+
+// disableStrictMode 关闭白名单模式：清空 AFTER 链（v4+v6），未列出端口落回 INPUT(ACCEPT) 即宽松放行。
+func disableStrictMode() error {
+	if err := iptables.ClearChain(iptables.FilterTab, iptables.Chain1PanelAfter); err != nil {
+		return err
+	}
+	if err := iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelAfter, iptables.AfterFileName); err != nil {
+		return err
+	}
+	if iptables.HasIP6tables() {
+		_ = iptables.ClearChain6(iptables.FilterTab, iptables.Chain1PanelAfter)
+		_ = iptables.SaveRulesToFile6(iptables.FilterTab, iptables.Chain1PanelAfter, iptables.AfterFileName)
+	}
+	_ = settingRepo.Update("IptablesStrictMode", constant.StatusDisable)
+	return nil
+}
+
+// ensureAfterDropRules 幂等地向 AFTER 链（v4+v6）注入 DROP all tcp/udp。
+func ensureAfterDropRules() error {
+	for _, proto := range []string{"tcp", "udp"} {
+		if !iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP") {
+			if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP"); err != nil {
+				return err
+			}
+		}
+		if iptables.HasIP6tables() && !iptables.CheckRuleExist6(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP") {
+			_ = iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP")
+		}
+	}
+	return nil
+}
+
+// isStrictMode 判断当前是否白名单模式：AFTER 链是否含 DROP all tcp（注入时 tcp/udp 成对，检 tcp 即可）。
+func isStrictMode() bool {
+	return iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", "tcp", "-j", "DROP")
 }
 
 func (s *IptablesService) LoadChainStatus(req dto.OperationWithName) dto.IptablesChainStatus {
@@ -379,13 +436,8 @@ func initPreRules() error {
 	if err := syncIptablesFirewallPortWhiteList(false); err != nil {
 		return err
 	}
-	// AFTER：严格模式 DROP all（保留旧 init=strict 语义，链可解绑/被 rescue 清除，绝不改 INPUT policy）。
-	if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", "tcp", "-j", "DROP"); err != nil {
-		return err
-	}
-	if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", "udp", "-j", "DROP"); err != nil {
-		return err
-	}
+	// AFTER 默认留空（宽松模式：未列出端口落回 INPUT(ACCEPT)，面向小白默认放行）。
+	// 白名单（严格）模式由用户通过 enable-strict 显式开启，届时再向 AFTER 注入 DROP all。
 	return nil
 }
 
@@ -502,13 +554,8 @@ func renderGuardAfter6() error {
 	if err := iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelGuard, "-p", "ipv6-icmp", "-j", "ACCEPT"); err != nil {
 		return err
 	}
-	if err := iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelGuard, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"); err != nil {
-		return err
-	}
-	if err := iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", "tcp", "-j", "DROP"); err != nil {
-		return err
-	}
-	return iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", "udp", "-j", "DROP")
+	// AFTER6 默认留空（宽松模式）；严格模式由 enable-strict 注入 DROP（与 v4 对称）。
+	return iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelGuard, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT")
 }
 
 func bindBaseChainsInOrder6() error {

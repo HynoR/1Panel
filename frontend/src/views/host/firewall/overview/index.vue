@@ -65,9 +65,20 @@
 
                             <div v-if="showDefaultPolicy" class="flex flex-wrap items-center gap-2">
                                 <span class="text-sm">{{ $t('firewall.defaultPolicy') }}:</span>
-                                <el-tag :type="strictPolicy ? 'danger' : 'success'" size="small">
-                                    {{ strictPolicy ? $t('firewall.policyStrict') : $t('firewall.policyLoose') }}
+                                <el-tag :type="strictMode ? 'warning' : 'success'" size="small">
+                                    {{ strictMode ? $t('firewall.policyStrict') : $t('firewall.policyLoose') }}
                                 </el-tag>
+                                <el-switch
+                                    v-permission
+                                    v-node-admin
+                                    size="small"
+                                    :model-value="strictMode"
+                                    :active-text="$t('firewall.whitelistMode')"
+                                    @change="onToggleStrict"
+                                />
+                                <el-tooltip :content="$t('firewall.whitelistModeTip')" placement="top">
+                                    <el-icon class="text-gray-400"><QuestionFilled /></el-icon>
+                                </el-tooltip>
                             </div>
 
                             <div class="flex flex-wrap items-center gap-2">
@@ -224,7 +235,8 @@ import { computed, onMounted, ref } from 'vue';
 import i18n from '@/lang';
 import { Host } from '@/api/interface/host';
 import { dateFormat } from '@/utils/date';
-import { operateFire, loadChainStatus, listFireSnapshot, getSSHInfo } from '@/api/modules/host';
+import { operateFire, operateFilterChain, listFireSnapshot, getSSHInfo } from '@/api/modules/host';
+import { QuestionFilled } from '@element-plus/icons-vue';
 import { getAgentSettingInfo, getSettingInfo, updateAgentSetting } from '@/api/modules/setting';
 import { MsgSuccess } from '@/utils/message';
 import { ElMessageBox } from 'element-plus';
@@ -250,6 +262,7 @@ const {
     pingStatus,
     conflict,
     bootDegraded,
+    strictMode,
     dockerAvailable,
     loadDockerStatus,
 } = useFireBaseInfo();
@@ -264,7 +277,6 @@ const http80 = ref(false);
 const https443 = ref(false);
 const whiteListRaw = ref('');
 
-const strictPolicy = ref(false);
 const snapshots = ref<Host.FirewallSnapshot[]>([]);
 
 const dockerRef = ref();
@@ -312,7 +324,7 @@ const load = async () => {
         await loadBaseInfo('base');
         onPing.value = pingStatus.value || 'Disable';
         oldPing.value = onPing.value;
-        await Promise.all([loadDockerStatus(), loadRescue(), loadSnapshots(), loadDefaultPolicy()]);
+        await Promise.all([loadDockerStatus(), loadRescue(), loadSnapshots()]);
     } finally {
         loading.value = false;
     }
@@ -351,16 +363,33 @@ const loadSnapshots = async () => {
     }
 };
 
-const loadDefaultPolicy = async () => {
-    if (mode.value !== 'managed' || !capabilities.value.defaultDrop || !isReady.value) {
-        strictPolicy.value = false;
+// 白名单（严格）模式开关：开启=向 AFTER 链注入 DROP（未列出端口拒绝），关闭=清空 AFTER（默认放行）。
+// 开启高危（可能锁外），后端用 60s 提交-确认窗口兜底。:model-value 单向绑定，取消时开关不会误翻。
+const onToggleStrict = async (val: boolean) => {
+    const title = val
+        ? i18n.global.t('firewall.enableWhitelistTitle')
+        : i18n.global.t('firewall.disableWhitelistTitle');
+    const helper = val
+        ? i18n.global.t('firewall.enableWhitelistHelper')
+        : i18n.global.t('firewall.disableWhitelistHelper');
+    try {
+        await ElMessageBox.confirm(helper, title, {
+            confirmButtonText: i18n.global.t('commons.button.confirm'),
+            cancelButtonText: i18n.global.t('commons.button.cancel'),
+            type: 'warning',
+        });
+    } catch {
         return;
     }
+    loading.value = true;
     try {
-        const res = await loadChainStatus('1PANEL_INPUT');
-        strictPolicy.value = (res.data.defaultStrategy || 'ACCEPT').toUpperCase() === 'DROP';
+        await operateFilterChain('1PANEL_INPUT', val ? 'enable-strict' : 'disable-strict');
+        MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+        await load();
     } catch {
-        strictPolicy.value = false;
+        await load();
+    } finally {
+        loading.value = false;
     }
 };
 

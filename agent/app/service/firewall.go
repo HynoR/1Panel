@@ -92,6 +92,10 @@ func (u *FirewallService) LoadBaseInfo(tab string) (dto.FirewallBaseInfo, error)
 		} else {
 			baseInfo.IsInit, baseInfo.IsBind = true, true
 		}
+		// 白名单（严格）模式：仅 managed 下读 AFTER 链是否已注入 DROP（真实状态，替代旧的读 1PANEL_INPUT）。
+		if provider.Mode() == firewall.ModeManaged {
+			baseInfo.StrictMode = isStrictMode()
+		}
 	}()
 	wg.Wait()
 	return baseInfo, nil

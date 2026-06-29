@@ -3618,6 +3618,14 @@ const message = {
         defaultPolicy: '默认入站策略',
         policyLoose: '宽松（未列出端口默认放行）',
         policyStrict: '严格（未列出端口默认拒绝）',
+        whitelistMode: '白名单模式',
+        whitelistModeTip:
+            '白名单模式：仅放行已列出的端口，其余入站一律拒绝。开启前请确认 SSH、面板及业务端口都已放行。',
+        enableWhitelistTitle: '开启白名单模式',
+        enableWhitelistHelper:
+            '开启后，未在「入站规则」中放行的端口将全部被拒绝（SSH、面板等保底端口除外）。若放行规则不全可能导致服务无法访问；60 秒内未在面板点「确认保留」将自动撤销。是否继续？',
+        disableWhitelistTitle: '关闭白名单模式',
+        disableWhitelistHelper: '关闭后恢复宽松模式：未列出的端口默认放行。是否继续？',
         flowInbound: '入站',
         flowRescue: '自救通道',
         flowDeny: '黑名单',

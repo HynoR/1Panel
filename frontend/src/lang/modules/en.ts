@@ -3898,6 +3898,14 @@ const message = {
         defaultPolicy: 'Default inbound policy',
         policyLoose: 'Loose (unlisted ports allowed)',
         policyStrict: 'Strict (unlisted ports denied)',
+        whitelistMode: 'Whitelist mode',
+        whitelistModeTip:
+            'Whitelist mode: only listed ports are allowed; all other inbound traffic is denied. Make sure SSH, the panel and your service ports are allowed before enabling.',
+        enableWhitelistTitle: 'Enable whitelist mode',
+        enableWhitelistHelper:
+            'Once enabled, every port not allowed in Inbound Rules will be denied (except rescue ports like SSH and the panel). Incomplete allow rules may make services unreachable; if you do not click “Keep” in the panel within 60 seconds it auto-reverts. Continue?',
+        disableWhitelistTitle: 'Disable whitelist mode',
+        disableWhitelistHelper: 'Returns to loose mode: unlisted ports are allowed by default. Continue?',
         flowInbound: 'Inbound',
         flowRescue: 'Rescue',
         flowDeny: 'Denylist',

@@ -109,6 +109,7 @@ import { QuestionFilled } from '@element-plus/icons-vue';
 import { MsgError, MsgSuccess } from '@/utils/message';
 import { Host } from '@/api/interface/host';
 import { getSSHInfo, operateIPRule, operatePortRule, updateAddrRule, updatePortRule } from '@/api/modules/host';
+import { getSettingInfo } from '@/api/modules/setting';
 import { checkCidr, checkCidrV6, checkIpV4V6, checkPort } from '@/utils/validate';
 import { deepCopy } from '@/utils/misc';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
@@ -133,7 +134,8 @@ const capabilities = ref<Host.FirewallCapabilities>();
 const activeCollapse = ref<string[]>([]);
 
 const sshPort = ref('22');
-const panelPort = ref(window.location.port);
+// 面板端口取核心设置，而非 window.location.port（开发/反代下不等于真实面板端口），保证封禁风险预检准确。
+const panelPort = ref('');
 
 const emptyForm = (): Host.UnifiedRuleForm => ({
     objectType: 'port',
@@ -180,6 +182,7 @@ const acceptParams = (params: DialogProps): void => {
     title.value = i18n.global.t('firewall.' + params.title);
     drawerVisible.value = true;
     loadSSHPort();
+    loadPanelPort();
     loadDocker();
 };
 
@@ -189,6 +192,15 @@ const loadSSHPort = async () => {
         sshPort.value = res.data.port || '22';
     } catch {
         sshPort.value = '22';
+    }
+};
+
+const loadPanelPort = async () => {
+    try {
+        const res = await getSettingInfo();
+        panelPort.value = String(res.data.serverPort || '');
+    } catch {
+        panelPort.value = '';
     }
 };
 

@@ -26,6 +26,7 @@ const defaultBase = (): Host.FirewallBase => ({
     conflict: { hasConflict: false, providers: [], message: '' },
     bootStatus: '',
     consistent: true,
+    strictMode: false,
 });
 
 // MODULE-LEVEL shared singleton state: /firewall/base is fetched once and shared by the
@@ -52,6 +53,7 @@ const name = computed(() => baseInfo.value.name);
 const version = computed(() => baseInfo.value.version);
 const pingStatus = computed(() => baseInfo.value.pingStatus);
 const conflict = computed(() => baseInfo.value.conflict);
+const strictMode = computed(() => baseInfo.value.strictMode);
 const bootDegraded = computed(() => {
     const s = baseInfo.value.bootStatus || '';
     return s.startsWith('degraded') || s.startsWith('failed');
@@ -119,6 +121,7 @@ export function useFireBaseInfo() {
         version,
         pingStatus,
         conflict,
+        strictMode,
         bootDegraded,
         hasAdvancedRules,
         probeAdvancedRules,
