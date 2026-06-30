@@ -99,6 +99,7 @@ type AddrRuleOperate struct {
 
 	Description   string `json:"description"`
 	ApplyToDocker bool   `json:"applyToDocker"` // PR-6：同时拦截 Docker 端口流量
+	CallerIP      string `json:"-"`             // HTTP RemoteAddr，仅用于自锁风险判定；不接受前端传入
 }
 
 type PortRuleUpdate struct {
@@ -112,8 +113,9 @@ type AddrRuleUpdate struct {
 }
 
 type BatchRuleOperate struct {
-	Type  string            `json:"type" validate:"required"`
-	Rules []PortRuleOperate `json:"rules"`
+	Type     string            `json:"type" validate:"required"`
+	Rules    []PortRuleOperate `json:"rules"`
+	CallerIP string            `json:"-"`
 }
 
 type IptablesOp struct {

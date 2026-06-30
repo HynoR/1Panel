@@ -338,11 +338,12 @@ func (u *FirewallService) OperateFirewall(req dto.FirewallOperation) error {
 	return nil
 }
 
-func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) error {
+func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) (retErr error) {
 	client, err := firewall.NewFirewallClient()
 	if err != nil {
 		return err
 	}
+	mode := firewallMode()
 	if len(req.Chain) == 0 && client.Name() == "iptables" {
 		// accept → ALLOW；drop → DENY（黑名单先于放行，修 C6/#12897）。
 		req.Chain = iptables.Chain1PanelAllow
@@ -354,10 +355,24 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 	if err := precheckPortRule(req); err != nil {
 		return err
 	}
-	if isManagedMode() && portChangeNeedsConfirm(req) {
+	needsConfirm := portChangeNeedsConfirm(req)
+	if mode == firewall.ModeExternal && needsConfirm {
+		return buserr.New("ErrFirewallBlockRescue")
+	}
+	sessionWasActive := false
+	sessionArmed := false
+	applied := false
+	if mode == firewall.ModeManaged && needsConfirm {
+		sessionWasActive = firewall.SessionStatus().Active
 		if err := firewall.BeginSession(fmt.Sprintf("port %s %s/%s %s", req.Operation, req.Port, req.Protocol, req.Strategy)); err != nil {
 			return err
 		}
+		sessionArmed = true
+		defer func() {
+			if retErr != nil && sessionArmed && !sessionWasActive && !applied {
+				firewall.CancelSession(fmt.Sprintf("port %s %s/%s failed before any rule was applied: %v", req.Operation, req.Port, req.Protocol, retErr))
+			}
+		}()
 	}
 	// PR-6：Docker 端口防护与防火墙模式正交，按勾选同步到 1PANEL_DOCKER（用 conntrack 还原原始目的端口）。
 	// 删除时不依赖 applyToDocker（列表行不携带该标记），也不依赖 Docker 当前是否就绪（DOCKER-USER 可能因
@@ -380,6 +395,8 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 					}
 					if err := firewall.ApplyDockerPortRule(port, proto, addr, req.Operation); err != nil {
 						global.LOG.Warnf("apply docker port rule %s/%s failed: %v", port, proto, err)
+					} else {
+						applied = true
 					}
 				}
 			}
@@ -401,6 +418,7 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 					if err := u.operatePort(client, req); err != nil {
 						return err
 					}
+					applied = true
 					req.Port = strings.ReplaceAll(req.Port, ":", "-")
 					if err := u.addPortRecord(client.Name(), req); err != nil {
 						return err
@@ -420,6 +438,7 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 			if err := u.operatePort(client, req); err != nil {
 				return err
 			}
+			applied = true
 			if len(req.Protocol) == 0 {
 				req.Protocol = "tcp/udp"
 			}
@@ -439,6 +458,7 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 				if err := u.operatePort(client, req); err != nil {
 					return err
 				}
+				applied = true
 				if err := u.addPortRecord(client.Name(), req); err != nil {
 					return err
 				}
@@ -456,6 +476,7 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 					if err := u.operatePort(client, req); err != nil {
 						return err
 					}
+					applied = true
 					if err := u.addPortRecord(client.Name(), req); err != nil {
 						return err
 					}
@@ -570,11 +591,12 @@ func (u *FirewallService) OperateForwardRule(req dto.ForwardRuleOperate) error {
 	return nil
 }
 
-func (u *FirewallService) OperateAddressRule(req dto.AddrRuleOperate, reload bool) error {
+func (u *FirewallService) OperateAddressRule(req dto.AddrRuleOperate, reload bool) (retErr error) {
 	client, err := firewall.NewFirewallClient()
 	if err != nil {
 		return err
 	}
+	mode := firewallMode()
 	chain := ""
 	if client.Name() == "iptables" {
 		// accept → ALLOW；drop → DENY（黑名单先于放行，修 C6/#12897）。
@@ -587,10 +609,24 @@ func (u *FirewallService) OperateAddressRule(req dto.AddrRuleOperate, reload boo
 	if err := precheckAddressRule(req); err != nil {
 		return err
 	}
-	if isManagedMode() && addressChangeNeedsConfirm(req) {
+	needsConfirm := addressChangeNeedsConfirm(req)
+	if mode == firewall.ModeExternal && needsConfirm {
+		return buserr.New("ErrFirewallBlockSelf")
+	}
+	sessionWasActive := false
+	sessionArmed := false
+	applied := false
+	if mode == firewall.ModeManaged && needsConfirm {
+		sessionWasActive = firewall.SessionStatus().Active
 		if err := firewall.BeginSession(fmt.Sprintf("ip %s %s %s", req.Operation, req.Address, req.Strategy)); err != nil {
 			return err
 		}
+		sessionArmed = true
+		defer func() {
+			if retErr != nil && sessionArmed && !sessionWasActive && !applied {
+				firewall.CancelSession(fmt.Sprintf("ip %s %s failed before any rule was applied: %v", req.Operation, req.Address, retErr))
+			}
+		}()
 	}
 	var fireInfo fireClient.FireInfo
 	if err := copier.Copy(&fireInfo, &req); err != nil {
@@ -606,6 +642,7 @@ func (u *FirewallService) OperateAddressRule(req dto.AddrRuleOperate, reload boo
 		if err := client.RichRules(fireInfo, req.Operation); err != nil {
 			return err
 		}
+		applied = true
 		req.Address = addressList[i]
 		if err := u.addAddressRecord(client.Name(), chain, req); err != nil {
 			return err
@@ -616,6 +653,8 @@ func (u *FirewallService) OperateAddressRule(req dto.AddrRuleOperate, reload boo
 		if req.Strategy == "drop" && (req.Operation == "remove" || (req.ApplyToDocker && firewall.DockerProtectionAvailable())) {
 			if err := firewall.ApplyDockerIPRule(addressList[i], req.Operation); err != nil {
 				global.LOG.Warnf("apply docker ip rule %s failed: %v", addressList[i], err)
+			} else {
+				applied = true
 			}
 		}
 	}
@@ -700,7 +739,7 @@ func (u *FirewallService) BatchOperateRule(req dto.BatchRuleOperate) error {
 		return client.Reload()
 	}
 	for _, rule := range req.Rules {
-		itemRule := dto.AddrRuleOperate{Operation: rule.Operation, Address: rule.Address, Strategy: rule.Strategy, Family: rule.Family, ApplyToDocker: rule.ApplyToDocker}
+		itemRule := dto.AddrRuleOperate{Operation: rule.Operation, Address: rule.Address, Strategy: rule.Strategy, Family: rule.Family, ApplyToDocker: rule.ApplyToDocker, CallerIP: req.CallerIP}
 		_ = u.OperateAddressRule(itemRule, false)
 	}
 	return client.Reload()
@@ -1010,14 +1049,13 @@ func portChangeNeedsConfirm(req dto.PortRuleOperate) bool {
 }
 
 // addressChangeNeedsConfirm 判断 IP 变更是否需要 L3 提交-确认窗口。
-// 仅当封禁的是 IP 段（DENY 链先于保底链生效，可能误伤管理员自身所在网段）时才武装：封禁单个
-// 具体 IP（如恶意来源）不会把管理员锁外，无需自动回滚。
+// CIDR 段可能误伤管理员来源；单 IP 若正好命中当前请求来源，也必须武装，避免把自己封掉。
 func addressChangeNeedsConfirm(req dto.AddrRuleOperate) bool {
 	if !lowersReachability(req.Operation, req.Strategy) {
 		return false
 	}
 	for _, addr := range strings.Split(req.Address, ",") {
-		if isCIDRRange(addr) {
+		if isCIDRRange(addr) || addressCoversCallerIP(addr, req.CallerIP) {
 			return true
 		}
 	}
@@ -1053,9 +1091,29 @@ func isCIDRRange(addr string) bool {
 	return ones < bits
 }
 
-func isManagedMode() bool {
+func addressCoversCallerIP(addr, callerIP string) bool {
+	addr = strings.TrimSpace(addr)
+	if isAnySource(addr) {
+		return true
+	}
+	caller := net.ParseIP(strings.TrimSpace(callerIP))
+	if caller == nil {
+		return false
+	}
+	if strings.Contains(addr, "/") {
+		_, ipNet, err := net.ParseCIDR(addr)
+		return err == nil && ipNet.Contains(caller)
+	}
+	ip := net.ParseIP(addr)
+	return ip != nil && ip.Equal(caller)
+}
+
+func firewallMode() firewall.Mode {
 	p, err := firewall.Detect()
-	return err == nil && p.Mode() == firewall.ModeManaged
+	if err != nil {
+		return ""
+	}
+	return p.Mode()
 }
 
 // precheckAddressRule 实现 I1/I2 红线对 IP 规则的部分（设计稿 §3.5.2）。
@@ -1095,7 +1153,11 @@ func precheckPortRule(req dto.PortRuleOperate) error {
 
 func isAnySource(addr string) bool {
 	addr = strings.TrimSpace(addr)
-	return addr == "" || addr == "0.0.0.0/0" || addr == "::/0" || strings.EqualFold(addr, "anywhere")
+	return addr == "" ||
+		addr == "0.0.0.0/0" ||
+		addr == "::/0" ||
+		strings.EqualFold(addr, "anywhere") ||
+		strings.EqualFold(addr, "anywhere (v6)")
 }
 
 // portSpecContains 判断端口表达式（单端口/逗号列表/区间 a-b 或 a:b）是否覆盖 target。

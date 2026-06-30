@@ -1,10 +1,23 @@
 package v2
 
 import (
+	"net"
+
 	"github.com/1Panel-dev/1Panel/agent/app/api/v2/helper"
 	"github.com/1Panel-dev/1Panel/agent/app/dto"
 	"github.com/gin-gonic/gin"
 )
+
+func firewallCallerIP(c *gin.Context) string {
+	host, _, err := net.SplitHostPort(c.Request.RemoteAddr)
+	if err != nil {
+		host = c.Request.RemoteAddr
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String()
+	}
+	return ""
+}
 
 // @Tags Firewall
 // @Summary Load firewall base info
@@ -137,6 +150,7 @@ func (b *BaseApi) OperateIPRule(c *gin.Context) {
 	if err := helper.CheckBindAndValidate(&req, c); err != nil {
 		return
 	}
+	req.CallerIP = firewallCallerIP(c)
 
 	if err := firewallService.OperateAddressRule(req, true); err != nil {
 		helper.InternalServer(c, err)
@@ -158,6 +172,7 @@ func (b *BaseApi) BatchOperateRule(c *gin.Context) {
 	if err := helper.CheckBindAndValidate(&req, c); err != nil {
 		return
 	}
+	req.CallerIP = firewallCallerIP(c)
 
 	if err := firewallService.BatchOperateRule(req); err != nil {
 		helper.InternalServer(c, err)
@@ -221,6 +236,9 @@ func (b *BaseApi) UpdateAddrRule(c *gin.Context) {
 	if err := helper.CheckBindAndValidate(&req, c); err != nil {
 		return
 	}
+	callerIP := firewallCallerIP(c)
+	req.OldRule.CallerIP = callerIP
+	req.NewRule.CallerIP = callerIP
 
 	if err := firewallService.UpdateAddrRule(req); err != nil {
 		helper.InternalServer(c, err)

@@ -303,6 +303,11 @@ func enableStrictMode() error {
 
 // disableStrictMode 关闭白名单模式：清空 AFTER 链（v4+v6），未列出端口落回 INPUT(ACCEPT) 即宽松放行。
 func disableStrictMode() error {
+	if firewall.SessionStatus().Active {
+		if err := firewall.RevertSession(); err != nil {
+			return err
+		}
+	}
 	if err := iptables.ClearChain(iptables.FilterTab, iptables.Chain1PanelAfter); err != nil {
 		return err
 	}

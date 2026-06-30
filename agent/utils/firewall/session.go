@@ -121,6 +121,18 @@ func ConfirmSession() error {
 	return nil
 }
 
+// CancelSession 丢弃尚未发生实际规则写入的新会话，用于写规则前置检查或首次写入失败后的清理。
+// 只应在调用方确认本次会话没有任何内核规则变更时使用；已有待确认会话不应被失败的后续请求取消。
+func CancelSession(reason string) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if !session.active {
+		return
+	}
+	global.LOG.Warnf("[firewall-session] cancel pending session: %s", reason)
+	session.clearLocked()
+}
+
 // RevertSession 立即撤销：限定恢复会话前的 1PANEL 链快照，并重写持久化文件。
 // 全程持锁（与 ConfirmSession 一致）：还原窗口内并发 BeginSession 只会追加到当前会话而非拍新快照，
 // 否则可能出现"SSH accept 已删但新会话被 clearLocked 一并清掉、再无自动回滚"的永久锁外竞态。
