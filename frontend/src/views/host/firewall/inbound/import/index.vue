@@ -99,15 +99,15 @@ const emit = defineEmits<{ (e: 'search'): void }>();
 
 const visible = ref(false);
 const loading = ref(false);
-const selects = ref<any>([]);
-const displayData = ref<any>([]);
+const selects = ref<Host.RuleInfo[]>([]);
+const displayData = ref<Host.RuleInfo[]>([]);
 // 端口/来源 IP 两类既有规则分别缓存，导入对比时各自比对
 const currentPortRules = ref<Host.RuleInfo[]>([]);
 const currentAddrRules = ref<Host.RuleInfo[]>([]);
 
 const uploadRef = ref();
 const uploaderFiles = ref();
-const pageData = ref([]);
+const pageData = ref<Host.RuleInfo[]>([]);
 const paginationConfig = reactive({
     currentPage: 1,
     pageSize: 10,
@@ -247,6 +247,8 @@ const onImport = async () => {
                     operation: 'add',
                     address: rule.address || 'Anywhere',
                     strategy: rule.strategy,
+                    family: rule.family || 'both',
+                    applyToDocker: !!rule.applyToDocker,
                     description: rule.description || '',
                 };
                 await operateIPRule(params);
@@ -258,6 +260,8 @@ const onImport = async () => {
                     source: '',
                     protocol: rule.protocol,
                     strategy: rule.strategy,
+                    family: rule.family || 'both',
+                    applyToDocker: !!rule.applyToDocker,
                     description: rule.description || '',
                 };
                 await operatePortRule(params);

@@ -85,6 +85,7 @@ type UpdateFirewallDescription struct {
 	DstPort  string `json:"dstPort"`
 	Protocol string `json:"protocol"`
 	Strategy string `json:"strategy" validate:"required,oneof=accept drop"`
+	Family   string `json:"family"` // item1：保留真实 family，避免描述指纹错位（空=ipv4）
 
 	Description string `json:"description"`
 }
@@ -116,7 +117,7 @@ type BatchRuleOperate struct {
 }
 
 type IptablesOp struct {
-	Name    string `json:"name" validate:"required,oneof=1PANEL_INPUT 1PANEL_OUTPUT 1PANEL_BASIC"`
+	Name    string `json:"name" validate:"required,oneof=1PANEL_INPUT 1PANEL_OUTPUT 1PANEL_BASIC 1PANEL_FORWARD"`
 	Operate string `json:"operate" validate:"required,oneof=init-base init-forward init-advance bind-base unbind-base bind unbind enable-strict disable-strict"`
 }
 

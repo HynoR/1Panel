@@ -39,7 +39,10 @@ import { Host } from '@/api/interface/host';
 import { confirmFireSession, loadFireSession, revertFireSession } from '@/api/modules/host';
 import i18n from '@/lang';
 import { MsgSuccess, MsgWarning } from '@/utils/message';
+import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
+import { registerFireApplying } from '@/views/host/firewall/composables/useFireSession';
 
+const { loadBaseInfo } = useFireBaseInfo();
 const session = ref<Host.FirewallSession>({ active: false, changes: [], remainSeconds: 0, since: '', snapshot: '' });
 const remain = ref(0);
 const loading = ref(false);
@@ -82,6 +85,7 @@ const enterApplying = () => {
 // 倒计时归 0：后端会自动撤销，前端主动刷新并据结果提示。
 const onCountdownZero = async () => {
     await refresh();
+    await loadBaseInfo('base');
     if (!session.value.active) {
         MsgWarning(i18n.global.t('firewall.autoReverted'));
     }
@@ -93,6 +97,7 @@ const onConfirm = async () => {
         await confirmFireSession();
         MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
         await refresh();
+        await loadBaseInfo('base');
     } finally {
         loading.value = false;
     }
@@ -104,12 +109,15 @@ const onRevert = async () => {
         await revertFireSession();
         MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
         await refresh();
+        await loadBaseInfo('base');
     } finally {
         loading.value = false;
     }
 };
 
 onMounted(() => {
+    // 把自身的 enterApplying 注册到单例，供各会话型保存成功方即时触发应用中过渡态。
+    registerFireApplying(enterApplying);
     refresh();
     pollTimer = setInterval(refresh, 3000);
     tickTimer = setInterval(() => {
@@ -123,6 +131,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    registerFireApplying(null);
     if (pollTimer) clearInterval(pollTimer);
     if (tickTimer) clearInterval(tickTimer);
     if (applyTimer) clearTimeout(applyTimer);

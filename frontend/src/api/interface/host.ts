@@ -129,6 +129,7 @@ export namespace Host {
 
         usedStatus: string;
         description: string;
+        applyToDocker?: boolean;
 
         [key: string]: any;
     }
@@ -141,6 +142,7 @@ export namespace Host {
         dstPort: string;
         protocol: string;
         strategy: string;
+        family?: string;
         description: string;
     }
     export interface RulePort {
@@ -217,7 +219,6 @@ export namespace Host {
     export interface RiskInfo {
         mode: 'warn' | 'redline' | 'none';
         message: string;
-        detail?: string;
     }
     // A rescue channel shown on the overview (SSH / panel / 80 / 443).
     export interface RescueChannel {

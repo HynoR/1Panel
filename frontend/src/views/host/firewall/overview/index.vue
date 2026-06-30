@@ -152,23 +152,27 @@
                             </div>
                             <div class="flex items-center justify-between">
                                 <span>HTTP: 80</span>
-                                <el-switch
-                                    v-permission
-                                    v-node-admin
-                                    size="small"
-                                    v-model="http80"
-                                    @change="onToggleRescue('80', $event)"
-                                />
+                                <el-tooltip :content="$t('firewall.portWhiteListAlter')" placement="top">
+                                    <el-switch
+                                        v-permission
+                                        v-node-admin
+                                        size="small"
+                                        v-model="http80"
+                                        @change="onToggleRescue('80', $event)"
+                                    />
+                                </el-tooltip>
                             </div>
                             <div class="flex items-center justify-between">
                                 <span>HTTPS: 443</span>
-                                <el-switch
-                                    v-permission
-                                    v-node-admin
-                                    size="small"
-                                    v-model="https443"
-                                    @change="onToggleRescue('443', $event)"
-                                />
+                                <el-tooltip :content="$t('firewall.portWhiteListAlter')" placement="top">
+                                    <el-switch
+                                        v-permission
+                                        v-node-admin
+                                        size="small"
+                                        v-model="https443"
+                                        @change="onToggleRescue('443', $event)"
+                                    />
+                                </el-tooltip>
                             </div>
                             <div>
                                 <el-button v-permission v-node-admin type="primary" link @click="onOpenWhiteList">
@@ -238,16 +242,17 @@ import { dateFormat } from '@/utils/date';
 import { operateFire, operateFilterChain, listFireSnapshot, getSSHInfo } from '@/api/modules/host';
 import { QuestionFilled } from '@element-plus/icons-vue';
 import { getAgentSettingInfo, getSettingInfo, updateAgentSetting } from '@/api/modules/setting';
-import { MsgSuccess } from '@/utils/message';
+import { MsgSuccess, MsgWarning } from '@/utils/message';
 import { ElMessageBox } from 'element-plus';
 import FireRouter from '@/views/host/firewall/index.vue';
 import NoSuchService from '@/components/layout-content/no-such-service.vue';
 import Status from '@/components/status/index.vue';
 import DockerRestart from '@/components/docker-proxy/docker-restart.vue';
-import WhiteList from '@/views/host/firewall/status/white-list/index.vue';
-import SnapshotDrawer from '@/views/host/firewall/status/snapshot/index.vue';
+import WhiteList from '@/views/host/firewall/components/white-list.vue';
+import SnapshotDrawer from '@/views/host/firewall/components/snapshot-drawer.vue';
 import InitWizard from '@/views/host/firewall/overview/init-wizard.vue';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
+import { enterFireApplying } from '@/views/host/firewall/composables/useFireSession';
 
 const {
     baseInfo,
@@ -384,7 +389,14 @@ const onToggleStrict = async (val: boolean) => {
     loading.value = true;
     try {
         await operateFilterChain('1PANEL_INPUT', val ? 'enable-strict' : 'disable-strict');
-        MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+        if (val) {
+            MsgWarning(i18n.global.t('firewall.applying'));
+            // 开启严格=会话型（后端 BeginSession 武装 60s 确认窗口）：即时进入应用中过渡态，
+            // 不必等 3s 轮询拉起确认卡。
+            enterFireApplying();
+        } else {
+            MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+        }
         await load();
     } catch {
         await load();
@@ -489,7 +501,6 @@ const onOpenSnapshot = () => {
 };
 const onOpenWizard = () => {
     wizardRef.value.acceptParams({
-        tab: 'base',
         rescuePorts: [
             { name: 'SSH', port: sshPort.value },
             { name: i18n.global.t('firewall.rescuePanel'), port: panelPort.value },

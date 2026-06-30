@@ -222,6 +222,11 @@ func (u *FirewallService) SearchWithPage(req dto.RuleSearch) (int64, interface{}
 				backDatas[i].Description = desc
 			}
 		}
+		// item1：回显 applyToDocker——复用 1PANEL_DOCKER 的匹配逻辑（port: port+protocol+strategy+归一化地址；address: address+strategy）。
+		_, dockerRules := firewall.DockerStatus()
+		for i := 0; i < len(backDatas); i++ {
+			backDatas[i].ApplyToDocker = firewall.IsDockerProtected(req.Type, backDatas[i].Port, backDatas[i].Protocol, backDatas[i].Strategy, backDatas[i].Address, dockerRules)
+		}
 	}
 
 	return int64(total), backDatas, nil
@@ -247,6 +252,35 @@ func firewallRuleKeyFromInfo(ruleType string, info fireClient.FireInfo) firewall
 		return firewall.RuleKey{Family: family, Scope: "input", Kind: "address", Action: info.Strategy, SrcIP: info.Address}
 	}
 	return firewall.RuleKey{Family: family, Scope: "input", Kind: "port", Action: info.Strategy, Protocol: info.Protocol, SrcIP: info.Address, DstPort: info.Port}
+}
+
+// fingerprintFamily 计算写入指纹用的 family，须与列表回读（firewallRuleKeyFromInfo 用 info.Family）一致。
+// iptables managed 模式下端口规则按用户选择的 family（默认 both）落盘并双栈镜像写；地址规则族由地址本身决定（RichRules 按地址覆写）。
+// 外部模式（ufw/firewalld）列表回读 family 固定 ipv4，故写指纹亦用 ipv4，避免读写错位致描述丢失（item1）。
+func fingerprintFamily(clientName, kind, reqFamily, address string) string {
+	if clientName == "iptables" {
+		if kind == "address" {
+			if strings.Contains(address, ":") {
+				return "ipv6"
+			}
+			return "ipv4"
+		}
+		f := strings.ToLower(strings.TrimSpace(reqFamily))
+		if f == "ipv4" || f == "ipv6" || f == "both" {
+			return f
+		}
+		return "both"
+	}
+	return "ipv4"
+}
+
+// familyOrDefault 用于描述更新指纹：前端传入的即列表行真实 family（= info.Family），空则回退 ipv4。
+func familyOrDefault(f string) string {
+	f = strings.ToLower(strings.TrimSpace(f))
+	if f == "ipv4" || f == "ipv6" || f == "both" {
+		return f
+	}
+	return "ipv4"
 }
 
 func (u *FirewallService) OperateFirewall(req dto.FirewallOperation) error {
@@ -368,7 +402,7 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 						return err
 					}
 					req.Port = strings.ReplaceAll(req.Port, ":", "-")
-					if err := u.addPortRecord(req); err != nil {
+					if err := u.addPortRecord(client.Name(), req); err != nil {
 						return err
 					}
 				}
@@ -389,7 +423,7 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 			if len(req.Protocol) == 0 {
 				req.Protocol = "tcp/udp"
 			}
-			if err := u.addPortRecord(req); err != nil {
+			if err := u.addPortRecord(client.Name(), req); err != nil {
 				return err
 			}
 		}
@@ -405,7 +439,7 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 				if err := u.operatePort(client, req); err != nil {
 					return err
 				}
-				if err := u.addPortRecord(req); err != nil {
+				if err := u.addPortRecord(client.Name(), req); err != nil {
 					return err
 				}
 			}
@@ -422,7 +456,7 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 					if err := u.operatePort(client, req); err != nil {
 						return err
 					}
-					if err := u.addPortRecord(req); err != nil {
+					if err := u.addPortRecord(client.Name(), req); err != nil {
 						return err
 					}
 				}
@@ -434,6 +468,16 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 		return client.Reload()
 	}
 	return nil
+}
+
+// normalizeForwardInterface 规整转发规则的入站接口："*" 与空串语义相同（均表示"所有接口"）。
+// iptables -nvL 对未指定 -i 的规则回显 "*"，而前端/请求侧用空串表示"所有接口"；
+// 判重与删除比对前统一映射为空串，避免同一"所有接口"规则因取值不一致而漏判。
+func normalizeForwardInterface(iface string) string {
+	if iface == "*" {
+		return ""
+	}
+	return iface
 }
 
 func (u *FirewallService) OperateForwardRule(req dto.ForwardRuleOperate) error {
@@ -458,7 +502,7 @@ func (u *FirewallService) OperateForwardRule(req dto.ForwardRuleOperate) error {
 						reqRule.TargetPort == rule.TargetPort &&
 						reqRule.TargetIP == rule.TargetIP &&
 						proto == rule.Protocol &&
-						reqRule.Interface == rule.Interface {
+						normalizeForwardInterface(reqRule.Interface) == normalizeForwardInterface(rule.Interface) {
 						shouldKeep = false
 						break
 					}
@@ -483,7 +527,7 @@ func (u *FirewallService) OperateForwardRule(req dto.ForwardRuleOperate) error {
 					reqRule.TargetPort == rule.TargetPort &&
 					reqRule.TargetIP == rule.TargetIP &&
 					proto == rule.Protocol &&
-					reqRule.Interface == rule.Interface {
+					normalizeForwardInterface(reqRule.Interface) == normalizeForwardInterface(rule.Interface) {
 					return buserr.New("ErrRecordExist")
 				}
 			}
@@ -563,7 +607,7 @@ func (u *FirewallService) OperateAddressRule(req dto.AddrRuleOperate, reload boo
 			return err
 		}
 		req.Address = addressList[i]
-		if err := u.addAddressRecord(chain, req); err != nil {
+		if err := u.addAddressRecord(client.Name(), chain, req); err != nil {
 			return err
 		}
 		// PR-6：勾选时把 IP 封禁同步到 Docker（"封掉这个 IP"不应因业务跑在容器里就失效）。
@@ -632,9 +676,9 @@ func (u *FirewallService) UpdateDescription(req dto.UpdateFirewallDescription) e
 func firewallRuleKeyFromDescription(req dto.UpdateFirewallDescription) firewall.RuleKey {
 	switch req.Type {
 	case "address":
-		return firewall.RuleKey{Family: "ipv4", Scope: "input", Kind: "address", Action: req.Strategy, SrcIP: req.SrcIP}
+		return firewall.RuleKey{Family: familyOrDefault(req.Family), Scope: "input", Kind: "address", Action: req.Strategy, SrcIP: req.SrcIP}
 	case "port":
-		return firewall.RuleKey{Family: "ipv4", Scope: "input", Kind: "port", Action: req.Strategy, Protocol: req.Protocol, SrcIP: req.SrcIP, DstPort: req.DstPort}
+		return firewall.RuleKey{Family: familyOrDefault(req.Family), Scope: "input", Kind: "port", Action: req.Strategy, Protocol: req.Protocol, SrcIP: req.SrcIP, DstPort: req.DstPort}
 	default:
 		scope := "input"
 		if strings.Contains(strings.ToUpper(req.Chain), "OUTPUT") {
@@ -656,7 +700,7 @@ func (u *FirewallService) BatchOperateRule(req dto.BatchRuleOperate) error {
 		return client.Reload()
 	}
 	for _, rule := range req.Rules {
-		itemRule := dto.AddrRuleOperate{Operation: rule.Operation, Address: rule.Address, Strategy: rule.Strategy}
+		itemRule := dto.AddrRuleOperate{Operation: rule.Operation, Address: rule.Address, Strategy: rule.Strategy, Family: rule.Family, ApplyToDocker: rule.ApplyToDocker}
 		_ = u.OperateAddressRule(itemRule, false)
 	}
 	return client.Reload()
@@ -888,8 +932,8 @@ func (u *FirewallService) addPortsBeforeStart(client firewall.FirewallClient) er
 	return client.Reload()
 }
 
-func (u *FirewallService) addPortRecord(req dto.PortRuleOperate) error {
-	portKey := firewall.RuleKey{Family: "ipv4", Scope: "input", Kind: "port", Action: req.Strategy, Protocol: req.Protocol, SrcIP: req.Address, DstPort: req.Port}
+func (u *FirewallService) addPortRecord(clientName string, req dto.PortRuleOperate) error {
+	portKey := firewall.RuleKey{Family: fingerprintFamily(clientName, "port", req.Family, req.Address), Scope: "input", Kind: "port", Action: req.Strategy, Protocol: req.Protocol, SrcIP: req.Address, DstPort: req.Port}
 	if req.Operation == "remove" {
 		_ = hostRepo.DeleteFirewallMeta(firewall.Fingerprint(portKey))
 		if req.ID != 0 {
@@ -918,8 +962,8 @@ func (u *FirewallService) addPortRecord(req dto.PortRuleOperate) error {
 	return nil
 }
 
-func (u *FirewallService) addAddressRecord(chain string, req dto.AddrRuleOperate) error {
-	addrKey := firewall.RuleKey{Family: "ipv4", Scope: "input", Kind: "address", Action: req.Strategy, SrcIP: req.Address}
+func (u *FirewallService) addAddressRecord(clientName, chain string, req dto.AddrRuleOperate) error {
+	addrKey := firewall.RuleKey{Family: fingerprintFamily(clientName, "address", req.Family, req.Address), Scope: "input", Kind: "address", Action: req.Strategy, SrcIP: req.Address}
 	if req.Operation == "remove" {
 		_ = hostRepo.DeleteFirewallMeta(firewall.Fingerprint(addrKey))
 		if req.ID != 0 {

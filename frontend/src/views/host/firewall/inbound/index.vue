@@ -11,14 +11,19 @@
             </el-card>
 
             <div v-else>
+                <el-alert v-if="!isActive" class="mb-2" type="warning" :closable="false" show-icon>
+                    {{ $t('firewall.firewallNotStart') }}
+                </el-alert>
+
                 <FlowBar
+                    v-if="isActive"
                     :default-drop="strictMode"
                     :active-level="activeLevel"
                     :counts="levelCounts"
                     @filter="onFilterLevel"
                 />
 
-                <LayoutContent :title="$t('firewall.inboundRule', 2)">
+                <LayoutContent :title="$t('firewall.inboundRule', 2)" :class="{ mask: !isActive }">
                     <template #prompt>
                         <div class="mb-2" v-if="mode === 'external'">
                             <el-alert :closable="false" :title="$t('firewall.iptablesHelper', [name])" />
@@ -264,7 +269,7 @@ import { getListeningProcess } from '@/api/modules/process';
 import { Host } from '@/api/interface/host';
 import { Process } from '@/api/interface/process';
 import i18n from '@/lang';
-import { MsgSuccess } from '@/utils/message';
+import { MsgSuccess, MsgWarning } from '@/utils/message';
 import { ElMessageBox } from 'element-plus';
 import { Expand, Lock } from '@element-plus/icons-vue';
 import { routerToName } from '@/utils/router';
@@ -272,20 +277,21 @@ import { downloadWithContent } from '@/utils/file';
 import { getCurrentDateFormatted } from '@/utils/date';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
 import { computeFirewallRisk, ensurePortsLoaded } from '@/views/host/firewall/composables/useFirewallRisk';
+import { enterFireApplying } from '@/views/host/firewall/composables/useFireSession';
 
-const { capabilities, mode, name, isReady, strictMode, loadBaseInfo, dockerRules, loadDockerStatus } =
+const { capabilities, mode, name, isReady, isActive, strictMode, loadBaseInfo, dockerRules, loadDockerStatus } =
     useFireBaseInfo();
 
 const loading = ref(false);
-const selects = ref<any>([]);
+const selects = ref<InboundRow[]>([]);
 const searchName = ref('');
 const searchStrategy = ref('');
 const activeLevel = ref('');
 
 const opRef = ref();
-const dialogRef = ref();
-const dialogImportRef = ref();
-const processDetailRef = ref();
+const dialogRef = ref<InstanceType<typeof OperateDialog>>();
+const dialogImportRef = ref<InstanceType<typeof ImportDialog>>();
+const processDetailRef = ref<InstanceType<typeof ProcessDetail>>();
 const riskRef = ref<InstanceType<typeof RiskPrecheck>>();
 
 // Stashes the toggle that triggered a redline RiskPrecheck so @confirm can finish it.
@@ -334,7 +340,7 @@ const levelOrder = (level?: string): number => {
 const canSelect = (row: InboundRow): boolean => row.level !== 'baseline';
 
 const goOverview = () => {
-    routerToName('FirewallPort');
+    routerToName('FirewallOverview');
 };
 
 // ---- rescue port set (panel port + whitelist 80/443 + SSH port) for baseline tagging ----
@@ -383,15 +389,41 @@ const deriveLevel = (row: InboundRow): Host.InboundRuleLevel => {
     return 'allow';
 };
 
-// ---- docker badge (single source: useFireBaseInfo.dockerRules) ----
+// ---- docker badge（优先用后端回显的 applyToDocker；matchDocker 为兜底，修正为支持 address 规则 + strategy + 归一化地址）----
+const normDockerAddr = (v: string): string => {
+    const s = (v || '').trim().toLowerCase();
+    if (s === '' || s === '0.0.0.0/0') return '';
+    if (s === '::/0' || s.startsWith('anywhere (v6)')) return 'v6-anywhere';
+    if (s.startsWith('anywhere')) return '';
+    return s;
+};
+
 const matchDocker = (row: InboundRow): boolean => {
-    if (row.ruleType !== 'port') return false;
-    return dockerRules.value.some(
-        (rule) =>
-            rule.port === row.port &&
-            (rule.protocol === row.protocol ||
-                row.protocol?.includes(rule.protocol) ||
-                rule.protocol?.includes(row.protocol)),
+    if (row.strategy !== 'drop') return false;
+    const addr = normDockerAddr(row.address);
+    if (row.ruleType === 'address') {
+        return dockerRules.value.some(
+            (rule) =>
+                !rule.port &&
+                !rule.protocol &&
+                (rule.strategy || '').toLowerCase() === 'drop' &&
+                normDockerAddr(rule.address) === addr,
+        );
+    }
+    const protos = (row.protocol || '')
+        .toLowerCase()
+        .split('/')
+        .filter((p) => p === 'tcp' || p === 'udp');
+    const port = (row.port || '').replace(/:/g, '-');
+    if (protos.length === 0 || !port) return false;
+    return protos.every((proto) =>
+        dockerRules.value.some(
+            (rule) =>
+                (rule.strategy || '').toLowerCase() === 'drop' &&
+                (rule.port || '').replace(/:/g, '-') === port &&
+                (rule.protocol || '').toLowerCase() === proto &&
+                normDockerAddr(rule.address) === addr,
+        ),
     );
 };
 
@@ -620,7 +652,7 @@ const loadListeningProcesses = async () => {
 
 // ---- data load: merge port + address (client-side), tag, level, docker, process ----
 const loadData = async () => {
-    if (!isReady.value) {
+    if (!isReady.value || !isActive.value) {
         allRows.value = [];
         pageData.value = [];
         paginationConfig.total = 0;
@@ -645,7 +677,7 @@ const loadData = async () => {
         await loadListeningProcesses();
         for (const row of allRows.value) {
             row.level = deriveLevel(row);
-            row.dockerPublished = matchDocker(row);
+            row.dockerPublished = row.applyToDocker ?? matchDocker(row);
         }
         applyAndSlice();
     } finally {
@@ -722,20 +754,30 @@ const onEdit = (row: InboundRow) => {
     });
 };
 
+// fu-input-rw-switch 的 @enter 会随即触发 @blur，两次都会调 onChange；
+// 用 in-flight 标志忽略第二次触发，避免描述行内编辑重复提交。
+let descChangeInFlight = false;
 const onChange = async (row: InboundRow) => {
-    const params: Host.UpdateDescription = {
-        type: row.ruleType,
-        chain: '',
-        srcIP: row.address,
-        dstIP: '',
-        srcPort: '',
-        dstPort: row.ruleType === 'port' ? row.port : '',
-        protocol: row.ruleType === 'port' ? row.protocol : '',
-        strategy: row.strategy,
-        description: row.description,
-    };
-    await updateFirewallDescription(params);
-    MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+    if (descChangeInFlight) return;
+    descChangeInFlight = true;
+    try {
+        const params: Host.UpdateDescription = {
+            type: row.ruleType,
+            chain: '',
+            srcIP: row.address,
+            dstIP: '',
+            srcPort: '',
+            dstPort: row.ruleType === 'port' ? row.port : '',
+            protocol: row.ruleType === 'port' ? row.protocol : '',
+            strategy: row.strategy,
+            family: row.family,
+            description: row.description,
+        };
+        await updateFirewallDescription(params);
+        MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+    } finally {
+        descChangeInFlight = false;
+    }
 };
 
 const submitChangeStatus = async (row: InboundRow, status: string) => {
@@ -750,6 +792,8 @@ const submitChangeStatus = async (row: InboundRow, status: string) => {
                   source: '',
                   protocol: row.protocol,
                   strategy: row.strategy,
+                  family: row.family,
+                  applyToDocker: row.dockerPublished,
                   description: row.description,
               },
               newRule: {
@@ -759,6 +803,8 @@ const submitChangeStatus = async (row: InboundRow, status: string) => {
                   source: '',
                   protocol: row.protocol,
                   strategy: status,
+                  family: row.family,
+                  applyToDocker: row.dockerPublished,
                   description: row.description,
               },
           })
@@ -767,18 +813,29 @@ const submitChangeStatus = async (row: InboundRow, status: string) => {
                   operation: 'remove',
                   address: row.address,
                   strategy: row.strategy,
+                  family: row.family,
+                  applyToDocker: row.dockerPublished,
                   description: row.description,
               },
               newRule: {
                   operation: 'add',
                   address: row.address,
                   strategy: status,
+                  family: row.family,
+                  applyToDocker: row.dockerPublished,
                   description: row.description,
               },
           });
     await request
         .then(() => {
-            MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+            if (status === 'drop') {
+                // 翻转为 drop=会话型候选（后端对触及保底端口的 drop 武装确认窗口）：
+                // 即时进入应用中过渡态，不在确认前显示最终成功。
+                MsgWarning(i18n.global.t('firewall.applying'));
+                enterFireApplying();
+            } else {
+                MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+            }
             loadData();
         })
         .finally(() => {
@@ -806,7 +863,7 @@ const onChangeStatus = async (row: InboundRow, status: string) => {
     });
     if (risk.mode === 'redline') {
         pendingToggle.value = { row, status };
-        riskRef.value?.acceptParams({ mode: risk.mode, message: risk.message, detail: risk.detail });
+        riskRef.value?.acceptParams({ mode: risk.mode, message: risk.message });
         return;
     }
     const isPort = row.ruleType === 'port';
@@ -829,9 +886,11 @@ const onChangeStatus = async (row: InboundRow, status: string) => {
             confirmButtonText: i18n.global.t('commons.button.confirm'),
             cancelButtonText: i18n.global.t('commons.button.cancel'),
         },
-    ).then(async () => {
-        await submitChangeStatus(row, status);
-    });
+    )
+        .then(async () => {
+            await submitChangeStatus(row, status);
+        })
+        .catch(() => {});
 };
 
 // ---- delete (group selection by ruleType → two endpoints, single confirm) ----
@@ -843,6 +902,8 @@ const buildDeleteRule = (row: InboundRow) => ({
     source: '',
     protocol: row.ruleType === 'port' ? row.protocol : '',
     strategy: row.strategy,
+    family: row.family,
+    applyToDocker: row.dockerPublished,
 });
 
 const ruleName = (row: InboundRow): string => {
@@ -856,14 +917,24 @@ const onDelete = (row: InboundRow | null) => {
     const names = targets.map(ruleName);
 
     const deleteApi = (params: { portRules: any[]; addrRules: any[] }) => {
-        const tasks = [];
+        const tasks: Promise<unknown>[] = [];
         if (params.portRules.length) {
             tasks.push(batchOperateRule({ type: 'port', rules: params.portRules }));
         }
         if (params.addrRules.length) {
             tasks.push(batchOperateRule({ type: 'address', rules: params.addrRules }));
         }
-        return Promise.all(tasks);
+        if (tasks.length === 0) {
+            return Promise.resolve();
+        }
+        // allSettled：address 批失败不得掩盖已成功的 port 批。每批失败由全局 axios 拦截器自带
+        // MsgError 提示；这里始终 resolve → OpDialog emit('search') → loadData 总刷新，避免
+        // 出现「已删除的规则仍显示在列表」的脏数据。仅全成功时补一条 deleteSuccess。
+        return Promise.allSettled(tasks).then((results) => {
+            if (results.every((r) => r.status === 'fulfilled')) {
+                MsgSuccess(i18n.global.t('commons.msg.deleteSuccess'));
+            }
+        });
     };
 
     opRef.value.acceptParams({
@@ -875,6 +946,7 @@ const onDelete = (row: InboundRow | null) => {
         ]),
         api: deleteApi,
         params: { portRules, addrRules },
+        noMsg: true,
     });
 };
 
@@ -890,29 +962,35 @@ const onExport = () => {
             confirmButtonText: i18n.global.t('commons.button.confirm'),
             cancelButtonText: i18n.global.t('commons.button.cancel'),
         },
-    ).then(async () => {
-        const exportData = (selects.value as InboundRow[]).map((item) => {
-            if (item.ruleType === 'port') {
+    )
+        .then(async () => {
+            const exportData = (selects.value as InboundRow[]).map((item) => {
+                if (item.ruleType === 'port') {
+                    return {
+                        ruleType: 'port',
+                        family: item.family,
+                        address: item.address,
+                        port: item.port,
+                        protocol: item.protocol,
+                        strategy: item.strategy,
+                        applyToDocker: item.dockerPublished,
+                        description: item.description,
+                    };
+                }
                 return {
+                    ruleType: 'address',
                     family: item.family,
                     address: item.address,
-                    port: item.port,
-                    protocol: item.protocol,
                     strategy: item.strategy,
+                    applyToDocker: item.dockerPublished,
                     description: item.description,
                 };
-            }
-            return {
-                family: item.family,
-                address: item.address,
-                strategy: item.strategy,
-                description: item.description,
-            };
-        });
-        const content = JSON.stringify(exportData, null, 2);
-        const fileName = `1panel-firewall-inbound-${getCurrentDateFormatted()}.json`;
-        downloadWithContent(content, fileName);
-    });
+            });
+            const content = JSON.stringify(exportData, null, 2);
+            const fileName = `1panel-firewall-inbound-${getCurrentDateFormatted()}.json`;
+            downloadWithContent(content, fileName);
+        })
+        .catch(() => {});
 };
 
 const showProcessDetail = (pid: number) => {

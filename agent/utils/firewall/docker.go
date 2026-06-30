@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -152,29 +153,168 @@ type DockerRule struct {
 	Strategy string `json:"strategy"`
 }
 
-// DockerStatus 返回 Docker 防护可用性与已纳管规则（供 /firewall/docker/status）。
+// DockerStatus 返回 Docker 防护可用性与已纳管规则（供 /firewall/docker/status 与列表 applyToDocker 回显）。
+// 用 `iptables -S 1PANEL_DOCKER` 解析规则规格：端口规则走 conntrack `--ctorigdstport`，`iptables -nL` 的 dpt:
+// 解析拿不到该字段（loadPort 只认 dpt:/spt:），会导致端口规则的 Port 恒为空、前端永远匹配不上（item1）。
 func DockerStatus() (bool, []DockerRule) {
 	if !DockerProtectionAvailable() {
 		return false, nil
 	}
-	rules, err := iptables.ReadFilterRulesByChain(iptables.Chain1PanelDocker)
+	out, err := iptables.RunWithStd(iptables.FilterTab, "-S", iptables.Chain1PanelDocker)
 	if err != nil {
 		return true, nil
 	}
-	var out []DockerRule
-	for _, item := range rules {
-		strategy := item.Strategy
-		if strategy == "reject" {
-			strategy = "drop"
+	prefix := "-A " + iptables.Chain1PanelDocker + " "
+	var rules []DockerRule
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, prefix) {
+			continue
 		}
-		out = append(out, DockerRule{
-			Address:  item.SrcIP,
-			Port:     item.DstPort,
-			Protocol: item.Protocol,
-			Strategy: strategy,
-		})
+		r := parseDockerRuleSpec(strings.TrimPrefix(line, prefix))
+		if r.Strategy == "" {
+			continue
+		}
+		rules = append(rules, r)
 	}
-	return true, out
+	return true, rules
+}
+
+// parseDockerRuleSpec 从 `iptables -S` 的规则规格中提取 -s/-p/--ctorigdstport/-j。
+func parseDockerRuleSpec(spec string) DockerRule {
+	var r DockerRule
+	tokens := strings.Fields(spec)
+	for i := 0; i < len(tokens); i++ {
+		switch tokens[i] {
+		case "-s":
+			if i+1 < len(tokens) {
+				r.Address = tokens[i+1]
+				i++
+			}
+		case "-p":
+			if i+1 < len(tokens) {
+				r.Protocol = strings.ToLower(tokens[i+1])
+				i++
+			}
+		case "--ctorigdstport":
+			if i+1 < len(tokens) {
+				r.Port = strings.ReplaceAll(tokens[i+1], ":", "-")
+				i++
+			}
+		case "-j":
+			if i+1 < len(tokens) {
+				strategy := strings.ToLower(tokens[i+1])
+				if strategy == "reject" {
+					strategy = "drop"
+				}
+				r.Strategy = strategy
+				i++
+			}
+		}
+	}
+	return r
+}
+
+// IsDockerProtected 判断一条 port/address 规则是否已落地到 1PANEL_DOCKER（供列表回显 applyToDocker）。
+// port 规则按 port+protocol+strategy+归一化地址 匹配；address 规则按 address+strategy 匹配（仅匹配端口为空的纯地址 docker 规则）。
+// 归一化 Anywhere/空源/0.0.0.0/0 为同一 v4 任意源；v6 任意源/地址不匹配（Docker 防护仅 v4）。
+func IsDockerProtected(ruleType, port, protocol, strategy, address string, dockerRules []DockerRule) bool {
+	if len(dockerRules) == 0 {
+		return false
+	}
+	strategy = strings.ToLower(strings.TrimSpace(strategy))
+	if strategy != "drop" && strategy != "reject" {
+		return false
+	}
+	strategy = "drop"
+	normAddr := normDockerAddr(address)
+	if ruleType == "address" {
+		for _, r := range dockerRules {
+			if r.Port != "" || r.Protocol != "" {
+				continue
+			}
+			if strings.EqualFold(r.Strategy, strategy) && normDockerAddr(r.Address) == normAddr {
+				return true
+			}
+		}
+		return false
+	}
+	protos := dockerPortProtocols(protocol)
+	portNorm := normDockerPort(port)
+	if len(protos) == 0 || portNorm == "" {
+		return false
+	}
+	for _, proto := range protos {
+		found := false
+		for _, r := range dockerRules {
+			if !strings.EqualFold(r.Strategy, strategy) {
+				continue
+			}
+			if normDockerPort(r.Port) != portNorm {
+				continue
+			}
+			if !strings.EqualFold(r.Protocol, proto) {
+				continue
+			}
+			if normDockerAddr(r.Address) != normAddr {
+				continue
+			}
+			found = true
+			break
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+// dockerPortProtocols 把端口规则的 protocol 字段展开为需要逐一命中 docker 链的协议集合（tcp/udp → [tcp,udp]）。
+func dockerPortProtocols(protocol string) []string {
+	protocol = strings.ToLower(strings.TrimSpace(protocol))
+	if protocol == "" {
+		return nil
+	}
+	var protos []string
+	for _, p := range strings.Split(protocol, "/") {
+		p = strings.TrimSpace(p)
+		if p == "tcp" || p == "udp" {
+			protos = append(protos, p)
+		}
+	}
+	return protos
+}
+
+func normDockerPort(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
+	}
+	return strings.ReplaceAll(v, ":", "-")
+}
+
+// normDockerAddr 归一化源地址用于 docker 匹配：v4 任意源(空/Anywhere/0.0.0.0/0)→""；v6 任意源→独立标记不匹配 v4；CIDR/IP 标准化。
+func normDockerAddr(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if v == "" || v == "0.0.0.0/0" {
+		return ""
+	}
+	if v == "::/0" || strings.HasPrefix(v, "anywhere (v6)") {
+		return "v6-anywhere"
+	}
+	if strings.HasPrefix(v, "anywhere") {
+		return ""
+	}
+	if strings.Contains(v, "/") {
+		if _, ipNet, err := net.ParseCIDR(v); err == nil {
+			return ipNet.String()
+		}
+		return v
+	}
+	if ip := net.ParseIP(v); ip != nil {
+		return ip.String()
+	}
+	return v
 }
 
 // LoadDockerRules 开机重放 1PANEL_DOCKER 规则并重新断言 DOCKER-USER jump。

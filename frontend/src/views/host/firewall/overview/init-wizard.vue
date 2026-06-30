@@ -58,10 +58,8 @@
 import { ref } from 'vue';
 import i18n from '@/lang';
 import { operateFilterChain } from '@/api/modules/host';
-import { MsgSuccess } from '@/utils/message';
+import { MsgError, MsgSuccess } from '@/utils/message';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
-
-type WizardTab = 'base' | 'forward' | 'advance';
 
 const emit = defineEmits(['done']);
 
@@ -72,23 +70,12 @@ const loading = ref(false);
 const active = ref(0);
 const policy = ref('loose');
 const checkPassed = ref<boolean | null>(null);
-const tab = ref<WizardTab>('base');
 
 const rescuePorts = ref<{ name: string; port: string }[]>([]);
 
-// 显式分支映射 tab -> chain / operate，杜绝原 status/index.vue switch 缺 break 的穿透 bug。
-const chainOf = (t: WizardTab): { name: string; op: string } => {
-    if (t === 'forward') {
-        return { name: '1PANEL_FORWARD', op: 'init-forward' };
-    }
-    if (t === 'advance') {
-        return { name: '1PANEL_INPUT', op: 'init-advance' };
-    }
-    return { name: '1PANEL_BASIC', op: 'init-base' };
-};
-
-const acceptParams = (params?: { tab?: WizardTab; rescuePorts?: { name: string; port: string }[] }): void => {
-    tab.value = params?.tab || 'base';
+// 初始化向导只服务于 base（保底链）。forward/advance 的初始化入口在各自列表页内，
+// 原 wizard 的 forward/advance 分支不可达（onOpenWizard 仅以 base 唤起），已移除。
+const acceptParams = (params?: { rescuePorts?: { name: string; port: string }[] }): void => {
     rescuePorts.value = params?.rescuePorts || [];
     active.value = 0;
     policy.value = 'loose';
@@ -97,21 +84,23 @@ const acceptParams = (params?: { tab?: WizardTab; rescuePorts?: { name: string; 
 };
 
 const onApply = async () => {
-    const { name, op } = chainOf(tab.value);
     loading.value = true;
     try {
-        await operateFilterChain(name, op);
+        await operateFilterChain('1PANEL_BASIC', 'init-base');
         // 基础初始化后，按所选默认策略决定是否开启白名单（严格）模式（向 AFTER 链注入 DROP）。
-        if (tab.value === 'base' && policy.value === 'strict') {
+        if (policy.value === 'strict') {
             await operateFilterChain('1PANEL_INPUT', 'enable-strict');
         }
-        await loadBaseInfo(tab.value);
+        await loadBaseInfo('base');
         checkPassed.value = isReady.value;
         if (checkPassed.value) {
             MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
         }
-    } catch {
+    } catch (error: any) {
+        // 业务错误已被全局 axios 拦截器弹 MsgError；此处补一条兜底（网络错误等无 message 时用通用文案），
+        // 避免 apply 失败时 wizard 仅显示"未就绪"而无任何错误详情。
         checkPassed.value = false;
+        MsgError(String(error?.message || i18n.global.t('commons.res.commonError')));
     } finally {
         loading.value = false;
     }

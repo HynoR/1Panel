@@ -13,12 +13,10 @@
             show-icon
         >
             <div>{{ data.message }}</div>
-            <div v-if="data.detail" class="mt-2 text-xs">{{ data.detail }}</div>
         </el-alert>
         <template v-else>
             <el-alert :title="$t('firewall.riskTitle')" type="warning" :closable="false" show-icon>
                 <div>{{ data.message }}</div>
-                <div v-if="data.detail" class="mt-2 text-xs">{{ data.detail }}</div>
             </el-alert>
             <el-checkbox class="mt-3" v-model="ack">{{ $t('firewall.riskAck') }}</el-checkbox>
         </template>
@@ -39,7 +37,6 @@ import { ref } from 'vue';
 interface RiskParams {
     mode: 'warn' | 'redline';
     message: string;
-    detail?: string;
 }
 
 const visible = ref(false);

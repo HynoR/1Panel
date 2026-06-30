@@ -178,7 +178,7 @@ const { capabilities, isActive, isReady, name, loadBaseInfo } = useFireBaseInfo(
 
 const router = useRouter();
 const loading = ref();
-const selects = ref<any>([]);
+const selects = ref<Host.IptablesRules[]>([]);
 const selectedChain = ref('1PANEL_INPUT');
 const defaultStrategy = ref('ACCEPT');
 
@@ -186,7 +186,7 @@ const isBind = ref(false);
 
 const opRef = ref();
 
-const data = ref();
+const data = ref<Host.IptablesRules[]>([]);
 
 const formatPort = (port?: number | null | string) => {
     if (port === '' || port === 0 || port === '0') {
@@ -234,7 +234,9 @@ const search = async () => {
         pageSize: paginationConfig.pageSize,
     };
     loading.value = true;
-    loadStatus();
+    // 先 await 链状态，保证 loadPrompt() 首屏读到的是当前 chain 的真实 isBind/defaultStrategy，
+    // 而不是上一次 search 残留的旧值（fire-and-forget 会让 prompt 短暂错显）。
+    await loadStatus();
     await searchFilterRules(params)
         .then((res) => {
             loading.value = false;
@@ -263,25 +265,31 @@ const onBind = async () => {
     ElMessageBox.confirm(i18n.global.t('firewall.bindHelper'), i18n.global.t('firewall.enableManaged'), {
         confirmButtonText: i18n.global.t('commons.button.confirm'),
         cancelButtonText: i18n.global.t('commons.button.cancel'),
-    }).then(async () => {
-        await operateFilterChain(selectedChain.value, 'bind').then(() => {
-            MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
-            loadStatus();
-        });
-    });
+    })
+        .then(async () => {
+            await operateFilterChain(selectedChain.value, 'bind').then(() => {
+                MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+                loadStatus();
+            });
+        })
+        .catch(() => {});
 };
 const onUnBind = async () => {
     ElMessageBox.confirm(i18n.global.t('firewall.unbindHelper'), i18n.global.t('firewall.disableManaged'), {
         confirmButtonText: i18n.global.t('commons.button.confirm'),
         cancelButtonText: i18n.global.t('commons.button.cancel'),
-    }).then(async () => {
-        await operateFilterChain(selectedChain.value, 'unbind').then(() => {
-            MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
-            loadStatus();
-        });
-    });
+    })
+        .then(async () => {
+            await operateFilterChain(selectedChain.value, 'unbind').then(() => {
+                MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+                loadStatus();
+            });
+        })
+        .catch(() => {});
 };
 
+// dialogRef 保持未类型化：operate 对话框的 DialogProps.rowData 声明为 Host.IptablesFilterRuleOp（operation 必填），
+// 而本页 onOpenDialog 的默认值缺 operation，强类型化会在 vue-tsc 下暴露该既有签名不匹配。
 const dialogRef = ref();
 const onOpenDialog = async (title: string, rowData?: Host.IptablesFilterRuleOp) => {
     const params = {
@@ -344,21 +352,30 @@ const onDelete = async (row: Host.IptablesRules | null) => {
     });
 };
 
-const onChange = async (row: any) => {
-    let params = {
-        type: 'advance',
-        chain: selectedChain.value,
-        srcIP: row.srcIP,
-        dstIP: row.dstIP,
-        srcPort: row.srcPort,
-        dstPort: row.dstPort,
-        protocol: row.protocol,
-        strategy: row.strategy,
+// fu-input-rw-switch 的 @enter 会随即触发 @blur，两次都会调 onChange；
+// 用 in-flight 标志忽略第二次触发，避免描述行内编辑重复提交。
+let descChangeInFlight = false;
+const onChange = async (row: Host.IptablesRules) => {
+    if (descChangeInFlight) return;
+    descChangeInFlight = true;
+    try {
+        let params = {
+            type: 'advance',
+            chain: selectedChain.value,
+            srcIP: row.srcIP,
+            dstIP: row.dstIP,
+            srcPort: row.srcPort,
+            dstPort: row.dstPort,
+            protocol: row.protocol,
+            strategy: row.strategy,
 
-        description: row.description,
-    };
-    await updateFirewallDescription(params);
-    MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+            description: row.description,
+        };
+        await updateFirewallDescription(params);
+        MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+    } finally {
+        descChangeInFlight = false;
+    }
 };
 
 const buttons = [

@@ -132,16 +132,16 @@ const { isExist, isActive, isReady, capabilities, name, loadBaseInfo } = useFire
 
 const loading = ref();
 const activeTag = ref('forward');
-const selects = ref<any>([]);
+const selects = ref<Host.RuleInfo[]>([]);
 const searchName = ref();
 const searchStrategy = ref('');
 
 const opRef = ref();
-const dialogImportRef = ref();
+const dialogImportRef = ref<InstanceType<typeof ImportDialog>>();
 const forceDelete = ref(false);
-const operateRules = ref();
+const operateRules = ref<Host.RuleForward[]>([]);
 
-const data = ref();
+const data = ref<Host.RuleInfo[]>([]);
 const paginationConfig = reactive({
     cacheSizeKey: 'firewall-forward-page-size',
     currentPage: 1,
@@ -166,12 +166,14 @@ const onInitForward = () => {
             confirmButtonText: i18n.global.t('commons.button.confirm'),
             cancelButtonText: i18n.global.t('commons.button.cancel'),
         },
-    ).then(async () => {
-        await operateFilterChain('1PANEL_FORWARD', 'init-forward').then(() => {
-            MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
-            reload();
-        });
-    });
+    )
+        .then(async () => {
+            await operateFilterChain('1PANEL_FORWARD', 'init-forward').then(() => {
+                MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+                reload();
+            });
+        })
+        .catch(() => {});
 };
 
 const search = async () => {
@@ -206,6 +208,8 @@ const search = async () => {
         });
 };
 
+// dialogRef 保持未类型化：operate 对话框的 DialogProps.rowData 声明为 Host.RuleForward（非 Partial），
+// 而本页 onOpenDialog 传的是 Partial<Host.RuleForward>，强类型化会在 vue-tsc 下暴露该既有签名不匹配。
 const dialogRef = ref();
 const onOpenDialog = async (
     title: string,
@@ -279,19 +283,21 @@ const onExport = () => {
             confirmButtonText: i18n.global.t('commons.button.confirm'),
             cancelButtonText: i18n.global.t('commons.button.cancel'),
         },
-    ).then(async () => {
-        const exportData = selects.value.map((item: Host.RuleInfo) => ({
-            family: item.family,
-            protocol: item.protocol,
-            port: item.port,
-            targetIP: item.targetIP,
-            targetPort: item.targetPort,
-            interface: item.interface,
-        }));
-        const content = JSON.stringify(exportData, null, 2);
-        const fileName = `1panel-firewall-forward-${getCurrentDateFormatted()}.json`;
-        downloadWithContent(content, fileName);
-    });
+    )
+        .then(async () => {
+            const exportData = selects.value.map((item: Host.RuleInfo) => ({
+                family: item.family,
+                protocol: item.protocol,
+                port: item.port,
+                targetIP: item.targetIP,
+                targetPort: item.targetPort,
+                interface: item.interface,
+            }));
+            const content = JSON.stringify(exportData, null, 2);
+            const fileName = `1panel-firewall-forward-${getCurrentDateFormatted()}.json`;
+            downloadWithContent(content, fileName);
+        })
+        .catch(() => {});
 };
 
 const buttons = [

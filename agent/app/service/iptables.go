@@ -288,16 +288,16 @@ func (s *IptablesService) Operate(req dto.IptablesOp) error {
 // enableStrictMode 开启白名单（严格）模式：向已绑定的 AFTER 链注入 DROP all tcp/udp（v4+v6），
 // 未列出端口将被拒绝。高危（可能锁外）→ 先 BeginSession 武装提交-确认窗口（60s 未确认自动还原）。
 func enableStrictMode() error {
-	// 先武装提交-确认会话（拍快照=空 AFTER），再注入 DROP；不在此落盘——遵守"确认前不落盘"：
-	// 用户点「确认保留」时 ConfirmSession 会 persistManagedChains（含 AFTER），超时/崩溃则 RevertSession
-	// 还原为空 AFTER 并落盘，自动回到宽松，杜绝误开严格把人锁外。
+	// 先武装提交-确认会话（拍快照=空 AFTER），再注入 DROP；不在此落盘、也不写 IptablesStrictMode setting
+	// ——遵守"确认前不落定"：用户点「确认保留」时 ConfirmSession 会 persistManagedChains（含 AFTER），超时/崩溃
+	// 则 RevertSession 还原为空 AFTER 并落盘，自动回到宽松，杜绝误开严格把人锁外。StrictMode 以内核为准
+	// （isStrictMode 读 AFTER 链），setting 不在确认前写盘，避免 DB/内核分裂（修 B7）。
 	if err := firewall.BeginSession("enable strict (whitelist) mode"); err != nil {
 		return err
 	}
 	if err := ensureAfterDropRules(); err != nil {
 		return err
 	}
-	_ = settingRepo.Update("IptablesStrictMode", constant.StatusEnable)
 	return nil
 }
 
@@ -310,14 +310,21 @@ func disableStrictMode() error {
 		return err
 	}
 	if iptables.HasIP6tables() {
-		_ = iptables.ClearChain6(iptables.FilterTab, iptables.Chain1PanelAfter)
-		_ = iptables.SaveRulesToFile6(iptables.FilterTab, iptables.Chain1PanelAfter, iptables.AfterFileName)
+		if err := iptables.ClearChain6(iptables.FilterTab, iptables.Chain1PanelAfter); err != nil {
+			return err
+		}
+		if err := iptables.SaveRulesToFile6(iptables.FilterTab, iptables.Chain1PanelAfter, iptables.AfterFileName); err != nil {
+			return err
+		}
 	}
-	_ = settingRepo.Update("IptablesStrictMode", constant.StatusDisable)
+	// 不写 IptablesStrictMode setting：该 setting 全仓无读取方，StrictMode 以内核为准（isStrictMode），
+	// 不在变更点写盘可避免 enable/disable/会话回滚间的 DB/内核分裂（修 B7）。
 	return nil
 }
 
 // ensureAfterDropRules 幂等地向 AFTER 链（v4+v6）注入 DROP all tcp/udp。
+// v6 关键操作失败必须上抛（修 B6）：否则 enableStrictMode 仍返回 nil，造成"v4 严格/v6 宽松"不对称，
+// IPv6 旁路绕过白名单；上抛后上层会话（BeginSession 已武装）会在超时/崩溃时 RevertSession 还原 v4+v6。
 func ensureAfterDropRules() error {
 	for _, proto := range []string{"tcp", "udp"} {
 		if !iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP") {
@@ -326,15 +333,30 @@ func ensureAfterDropRules() error {
 			}
 		}
 		if iptables.HasIP6tables() && !iptables.CheckRuleExist6(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP") {
-			_ = iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP")
+			if err := iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP"); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-// isStrictMode 判断当前是否白名单模式：AFTER 链是否含 DROP all tcp（注入时 tcp/udp 成对，检 tcp 即可）。
+// isStrictMode 判断当前是否白名单模式：AFTER 链需"已 jump 到 INPUT 且含 DROP all tcp"才算生效（注入时 tcp/udp 成对，检 tcp 即可）。
+// v4 与 v6（若可用）都满足才算启用；unbind-base 解绑后链内残留 DROP 时返回 false（与"实际未生效"一致，修 B5）；
+// v4/v6 仅一侧严格视为不一致，返回 false 避免 UI 误报"严格已开"并 warn 暴露 IPv6 旁路风险（修 B6）。
 func isStrictMode() bool {
-	return iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", "tcp", "-j", "DROP")
+	v4Bind, _ := iptables.CheckChainBind(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelAfter)
+	v4Strict := v4Bind && iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", "tcp", "-j", "DROP")
+	if !iptables.HasIP6tables() {
+		return v4Strict
+	}
+	v6Strict := iptables.FindChainNum6(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelAfter) > 0 &&
+		iptables.CheckRuleExist6(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", "tcp", "-j", "DROP")
+	if v4Strict != v6Strict {
+		global.LOG.Warnf("[firewall] strict mode inconsistent: v4=%v v6=%v, treating as disabled to avoid false \"strict on\"", v4Strict, v6Strict)
+		return false
+	}
+	return v4Strict
 }
 
 func (s *IptablesService) LoadChainStatus(req dto.OperationWithName) dto.IptablesChainStatus {

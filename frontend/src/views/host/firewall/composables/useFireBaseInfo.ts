@@ -33,11 +33,10 @@ const defaultBase = (): Host.FirewallBase => ({
 // tab bar, overview and every list page — replaces the per-page FireStatus v-model dance.
 const baseInfo = ref<Host.FirewallBase>(defaultBase());
 const existFlag = ref(true);
-// isInit / isBind are tab-dependent; keep them keyed per tab so concurrent loadBaseInfo
-// calls (tab bar uses 'base', the active page uses its own tab) cannot corrupt each other.
+// isInit is tab-dependent; keep it keyed per tab so concurrent loadBaseInfo calls
+// (tab bar uses 'base', the active page uses its own tab) cannot corrupt each other.
 const activeTab = ref<FireTab>('base');
 const initMap = reactive<Record<string, boolean>>({});
-const bindMap = reactive<Record<string, boolean>>({});
 
 const hasAdvancedRules = ref(false);
 const dockerAvailable = ref(false);
@@ -46,7 +45,6 @@ const dockerRules = ref<Host.FirewallDockerRule[]>([]);
 const isExist = computed(() => existFlag.value);
 const isActive = computed(() => baseInfo.value.isActive);
 const isReady = computed(() => existFlag.value && !!initMap[activeTab.value]);
-const isBind = computed(() => !!bindMap[activeTab.value]);
 const capabilities = computed(() => baseInfo.value.capabilities);
 const mode = computed(() => baseInfo.value.mode);
 const name = computed(() => baseInfo.value.name);
@@ -66,7 +64,6 @@ const loadBaseInfo = async (tab: FireTab = 'base'): Promise<void> => {
         baseInfo.value = res.data;
         existFlag.value = res.data.isExist;
         initMap[tab] = res.data.isInit;
-        bindMap[tab] = res.data.isBind;
     } catch {
         existFlag.value = false;
     }
@@ -101,7 +98,6 @@ const reset = (): void => {
     existFlag.value = true;
     activeTab.value = 'base';
     Object.keys(initMap).forEach((k) => delete initMap[k]);
-    Object.keys(bindMap).forEach((k) => delete bindMap[k]);
     hasAdvancedRules.value = false;
     dockerAvailable.value = false;
     dockerRules.value = [];
@@ -114,7 +110,6 @@ export function useFireBaseInfo() {
         isExist,
         isActive,
         isReady,
-        isBind,
         capabilities,
         mode,
         name,

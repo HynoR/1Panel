@@ -83,15 +83,15 @@ const emit = defineEmits<{ (e: 'search'): void }>();
 
 const visible = ref(false);
 const loading = ref(false);
-const selects = ref<any>([]);
-const displayData = ref<any>([]);
+const selects = ref<Host.RuleInfo[]>([]);
+const displayData = ref<Host.RuleInfo[]>([]);
 const currentRules = ref<Host.RuleInfo[]>([]);
 const forwardImpl = ref('');
 const availableInterfaces = ref<string[]>([]);
 
 const uploadRef = ref();
 const uploaderFiles = ref();
-const pageData = ref([]);
+const pageData = ref<Host.RuleInfo[]>([]);
 const paginationConfig = reactive({
     currentPage: 1,
     pageSize: 10,
@@ -190,16 +190,23 @@ const checkDataFormat = (item: any): boolean => {
     return true;
 };
 
+// 转发规则入站接口的 canonical 规整："*"(iptables -nvL 回显) 与 "all"/空串均表示"所有接口"，
+// 统一映射为空串，使导入判重与后端 OperateForwardRule 判重口径一致。
+const normForwardIface = (v: string | undefined | null): string => {
+    const s = (v ?? '').trim();
+    return s === '*' || s === 'all' ? '' : s;
+};
+
 const compareRules = (importedRules: any[]) => {
     const newRules: any[] = [];
     const conflictRules: any[] = [];
     const duplicateRules: any[] = [];
 
     for (const importedRule of importedRules) {
-        const key = `${importedRule.protocol}:${importedRule.port}:${importedRule.targetIP}:${importedRule.targetPort}`;
+        const key = `${importedRule.protocol}:${importedRule.port}:${importedRule.targetIP}:${importedRule.targetPort}:${normForwardIface(importedRule.interface)}`;
 
         const existingRule = currentRules.value.find((rule) => {
-            const existingKey = `${rule.protocol}:${rule.port}:${rule.targetIP}:${rule.targetPort}`;
+            const existingKey = `${rule.protocol}:${rule.port}:${rule.targetIP}:${rule.targetPort}:${normForwardIface(rule.interface)}`;
             return existingKey === key;
         });
 

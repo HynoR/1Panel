@@ -106,13 +106,14 @@ import { Rules } from '@/global/form-rules';
 import i18n from '@/lang';
 import { ElForm } from 'element-plus';
 import { QuestionFilled } from '@element-plus/icons-vue';
-import { MsgError, MsgSuccess } from '@/utils/message';
+import { MsgError, MsgSuccess, MsgWarning } from '@/utils/message';
 import { Host } from '@/api/interface/host';
 import { operateIPRule, operatePortRule, updateAddrRule, updatePortRule } from '@/api/modules/host';
 import { checkCidr, checkCidrV6, checkIpV4V6, checkPort } from '@/utils/validate';
 import { deepCopy } from '@/utils/misc';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
 import { computeFirewallRisk, ensurePortsLoaded } from '@/views/host/firewall/composables/useFirewallRisk';
+import { enterFireApplying } from '@/views/host/firewall/composables/useFireSession';
 import RiskPrecheck from '@/views/host/firewall/components/risk-precheck.vue';
 
 const { dockerAvailable, loadDockerStatus } = useFireBaseInfo();
@@ -291,7 +292,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
         if (risk.mode === 'none') {
             doSubmit();
         } else {
-            riskRef.value?.acceptParams({ mode: risk.mode, message: risk.message, detail: risk.detail });
+            riskRef.value?.acceptParams({ mode: risk.mode, message: risk.message });
         }
     });
 };
@@ -316,7 +317,14 @@ const doSubmit = async () => {
                 newRule: toRuleIP(form, 'add'),
             });
         }
-        MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+        if (form.strategy === 'drop') {
+            // drop=会话型候选（后端对触及保底端口的 drop / CIDR 封禁武装 60s 确认窗口）：
+            // 即时进入应用中过渡态，且不显示「最终成功」以免在用户确认前误导。
+            MsgWarning(i18n.global.t('firewall.applying'));
+            enterFireApplying();
+        } else {
+            MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+        }
         emit('search');
         drawerVisible.value = false;
     } finally {

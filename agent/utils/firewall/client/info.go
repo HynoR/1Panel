@@ -14,8 +14,9 @@ type FireInfo struct {
 	TargetPort string `json:"targetPort"`
 	Interface  string `json:"interface"`
 
-	UsedStatus  string `json:"usedStatus"`
-	Description string `json:"description"`
+	UsedStatus    string `json:"usedStatus"`
+	Description   string `json:"description"`
+	ApplyToDocker bool   `json:"applyToDocker"` // 该规则是否已落地到 1PANEL_DOCKER（列表回显，由 SearchWithPage 计算）
 }
 
 type Forward struct {
