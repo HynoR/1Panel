@@ -3,9 +3,10 @@
         <FireRouter />
 
         <div v-loading="loading">
-            <el-card v-if="!isReady">
-                <div class="flex flex-col items-center justify-center gap-3 py-8">
+            <el-card v-if="!isReady" class="mask-prompt">
+                <div class="flex flex-col items-center justify-center gap-2 py-8">
                     <span>{{ $t('firewall.goOverviewInit') }}</span>
+                    <span class="text-xs text-gray-400">{{ $t('firewall.forwardIptables') }}</span>
                     <div>
                         <el-button type="primary" @click="goOverview">
                             {{ $t('firewall.overview') }}
@@ -85,9 +86,11 @@
                             />
                             <template #empty>
                                 <el-empty :image-size="80" :description="$t('firewall.forwardEmpty')">
-                                    <el-button v-permission v-node-admin type="primary" @click="onOpenDialog('create')">
-                                        {{ $t('commons.button.create') }}
-                                    </el-button>
+                                    <div class="mt-1 flex flex-col items-center gap-1 text-xs text-gray-400">
+                                        <span>{{ $t('firewall.forwardHelper2') }}</span>
+                                        <span>{{ $t('firewall.forwardHelper1') }}</span>
+                                        <el-tag type="info" size="small" class="mt-1">8080 → 192.168.1.10:80</el-tag>
+                                    </div>
                                 </el-empty>
                             </template>
                         </ComplexTable>

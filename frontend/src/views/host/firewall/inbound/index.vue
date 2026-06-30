@@ -4,10 +4,15 @@
 
         <div v-loading="loading">
             <el-card v-if="!isReady" class="mask-prompt">
-                <span>{{ $t('firewall.goOverviewInit') }}</span>
-                <el-button type="primary" link class="ml-2" @click="goOverview">
-                    {{ $t('firewall.overview') }}
-                </el-button>
+                <div class="flex flex-col items-center justify-center gap-2 py-8">
+                    <span>{{ $t('firewall.goOverviewInit') }}</span>
+                    <span class="text-xs text-gray-400">{{ $t('firewall.baseIptables') }}</span>
+                    <div>
+                        <el-button type="primary" @click="goOverview">
+                            {{ $t('firewall.overview') }}
+                        </el-button>
+                    </div>
+                </div>
             </el-card>
 
             <div v-else>
@@ -15,13 +20,18 @@
                     {{ $t('firewall.firewallNotStart') }}
                 </el-alert>
 
-                <FlowBar
-                    v-if="isActive"
-                    :default-drop="strictMode"
-                    :active-level="activeLevel"
-                    :counts="levelCounts"
-                    @filter="onFilterLevel"
-                />
+                <div v-if="isActive" class="mb-2">
+                    <div class="mb-1 flex items-baseline gap-2">
+                        <span class="text-sm font-medium">{{ $t('firewall.flowSectionTitle') }}</span>
+                        <span class="text-xs text-gray-400">{{ $t('firewall.flowSectionHint') }}</span>
+                    </div>
+                    <FlowBar
+                        :default-drop="strictMode"
+                        :active-level="activeLevel"
+                        :counts="levelCounts"
+                        @filter="onFilterLevel"
+                    />
+                </div>
 
                 <LayoutContent :title="$t('firewall.inboundRule', 2)" :class="{ mask: !isActive }">
                     <template #prompt>
@@ -77,7 +87,7 @@
                             :heightDiff="440"
                         >
                             <el-table-column type="selection" :selectable="canSelect" fix />
-                            <el-table-column :label="$t('firewall.level')" :min-width="90">
+                            <el-table-column :label="$t('firewall.level')" :min-width="120">
                                 <template #default="{ row }">
                                     <el-tag v-if="row.level === 'deny'" type="danger">
                                         {{ $t('firewall.levelDeny') }}
@@ -89,10 +99,17 @@
                                     <el-tag v-else type="success">{{ $t('firewall.levelAllow') }}</el-tag>
                                 </template>
                             </el-table-column>
+                            <el-table-column :label="$t('firewall.family')" :min-width="90">
+                                <template #default="{ row }">
+                                    <el-tag v-if="row.family === 'ipv4'" type="info" size="small">IPv4</el-tag>
+                                    <el-tag v-else-if="row.family === 'ipv6'" type="info" size="small">IPv6</el-tag>
+                                    <el-tag v-else type="info" size="small">{{ $t('firewall.familyBoth') }}</el-tag>
+                                </template>
+                            </el-table-column>
                             <el-table-column :min-width="80" :label="$t('firewall.strategy')" prop="strategy">
                                 <template #default="{ row }">
                                     <el-tooltip
-                                        :content="$t('firewall.rescueReadOnly')"
+                                        :content="$t('firewall.rescueReadOnly') + '：' + $t('firewall.flowBaselineTip')"
                                         :disabled="row.level !== 'baseline'"
                                         placement="top"
                                     >
@@ -206,7 +223,7 @@
                                         :content="$t('firewall.dockerPublished')"
                                         placement="top"
                                     >
-                                        <span>🐳</span>
+                                        <el-tag type="warning" size="small">🐳</el-tag>
                                     </el-tooltip>
                                     <span v-else>-</span>
                                 </template>
@@ -234,6 +251,13 @@
                                 :label="$t('commons.table.operate')"
                                 fix
                             />
+                            <template #empty>
+                                <el-empty :image-size="80" :description="$t('firewall.inboundEmpty')">
+                                    <div class="mt-1 text-xs text-gray-400">
+                                        {{ $t('firewall.inboundEmptyHint') }}
+                                    </div>
+                                </el-empty>
+                            </template>
                         </ComplexTable>
                     </template>
                 </LayoutContent>

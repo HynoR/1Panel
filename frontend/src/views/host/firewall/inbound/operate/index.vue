@@ -2,19 +2,8 @@
     <DrawerPro v-model="drawerVisible" :header="title" @close="handleClose" size="large">
         <el-form ref="formRef" label-position="top" @submit.prevent :model="form" :rules="rules" v-loading="loading">
             <el-alert :title="ruleHint.text" :type="ruleHint.type" :closable="false" show-icon class="mb-4" />
-            <el-form-item prop="strategy">
-                <template #label>
-                    <span class="inline-flex items-center gap-1">
-                        {{ $t('firewall.strategy') }}
-                        <el-tooltip :content="$t('firewall.strategyTip')" placement="top">
-                            <el-icon class="text-gray-400"><QuestionFilled /></el-icon>
-                        </el-tooltip>
-                    </span>
-                </template>
-                <el-radio-group v-model="form.strategy">
-                    <el-radio value="accept">{{ $t('firewall.allow') }}</el-radio>
-                    <el-radio value="drop">{{ $t('firewall.deny') }}</el-radio>
-                </el-radio-group>
+            <el-form-item :label="$t('firewall.intentLabel')" class="mb-4">
+                <el-segmented v-model="intent" :options="intentOptions" />
             </el-form-item>
 
             <template v-if="form.objectType === 'port'">
@@ -48,20 +37,14 @@
 
             <el-collapse v-model="activeCollapse">
                 <el-collapse-item name="advanced" :title="$t('firewall.advancedOptions')">
-                    <el-form-item :label="$t('firewall.inboundRule')" prop="objectType">
-                        <el-radio-group v-model="form.objectType" :disabled="dialogTitle === 'edit'">
-                            <el-radio value="port">{{ $t('firewall.ruleObjectPort') }}</el-radio>
-                            <el-radio value="address">{{ $t('firewall.ruleObjectAddress') }}</el-radio>
-                        </el-radio-group>
-                    </el-form-item>
-
-                    <el-form-item v-if="form.objectType === 'port'" :label="$t('firewall.address')" prop="address">
+                    <el-form-item v-if="form.objectType === 'port'" :label="$t('firewall.source')" prop="address">
                         <el-input
                             :disabled="dialogTitle === 'edit'"
                             clearable
                             v-model.trim="form.address"
                             :placeholder="$t('firewall.addressHelper1')"
                         />
+                        <span class="input-help">{{ $t('firewall.sourceIPHelper') }}</span>
                     </el-form-item>
 
                     <el-form-item
@@ -87,10 +70,13 @@
                 </el-collapse-item>
             </el-collapse>
         </el-form>
+
+        <el-alert :title="effectSummary" type="info" :closable="false" show-icon class="mt-2" />
+
         <template #footer>
             <span class="dialog-footer">
                 <el-button @click="drawerVisible = false">{{ $t('commons.button.cancel') }}</el-button>
-                <el-button type="primary" @click="onSubmit(formRef)">
+                <el-button type="primary" :disabled="riskLevel === 'redline'" @click="onSubmit(formRef)">
                     {{ $t('commons.button.confirm') }}
                 </el-button>
             </span>
@@ -101,11 +87,10 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { Rules } from '@/global/form-rules';
 import i18n from '@/lang';
 import { ElForm } from 'element-plus';
-import { QuestionFilled } from '@element-plus/icons-vue';
 import { MsgError, MsgSuccess, MsgWarning } from '@/utils/message';
 import { Host } from '@/api/interface/host';
 import { operateIPRule, operatePortRule, updateAddrRule, updatePortRule } from '@/api/modules/host';
@@ -160,10 +145,86 @@ const ruleHint = computed<{ type: 'info' | 'warning'; text: string }>(() => {
         : { type: 'info', text: i18n.global.t('firewall.hintAllowPort') };
 });
 
+// 顶部 intent 选择器：用户按「想做什么」选择，strategy / objectType 由 intent 派生，
+// 不再暴露独立的策略单选与对象类型单选。
+type Intent = 'allowPort' | 'blockPort' | 'blockSource' | 'allowSource';
+const intentMap: Record<Intent, { strategy: string; objectType: Host.InboundRuleType }> = {
+    allowPort: { strategy: 'accept', objectType: 'port' },
+    blockPort: { strategy: 'drop', objectType: 'port' },
+    blockSource: { strategy: 'drop', objectType: 'address' },
+    allowSource: { strategy: 'accept', objectType: 'address' },
+};
+const intent = ref<Intent>('allowPort');
+
+const deriveIntent = (f: Host.UnifiedRuleForm): Intent => {
+    if (f.objectType === 'address') return f.strategy === 'drop' ? 'blockSource' : 'allowSource';
+    return f.strategy === 'drop' ? 'blockPort' : 'allowPort';
+};
+
+const intentOptions = computed(() => {
+    // 编辑模式下锁定对象类型：只允许在同对象类型内 allow↔block 切换，
+    // 避免把 port 规则改写成 address 规则导致 oldRule/newRule 类型错配。
+    const isEdit = dialogTitle.value === 'edit';
+    const portLocked = isEdit && form.objectType !== 'port';
+    const addrLocked = isEdit && form.objectType !== 'address';
+    return [
+        { label: i18n.global.t('firewall.intentAllowPort'), value: 'allowPort', disabled: portLocked },
+        { label: i18n.global.t('firewall.intentBlockPort'), value: 'blockPort', disabled: portLocked },
+        { label: i18n.global.t('firewall.intentBlockSource'), value: 'blockSource', disabled: addrLocked },
+        { label: i18n.global.t('firewall.intentAllowSource'), value: 'allowSource', disabled: addrLocked },
+    ];
+});
+
+watch(intent, (v) => {
+    if (!v) return;
+    const mapped = intentMap[v];
+    form.strategy = mapped.strategy;
+    form.objectType = mapped.objectType;
+});
+
+// 实时效果预览：用现有 strategy / port / address / family 词汇拼出「这条规则将做什么」。
+const effectSummary = computed(() => {
+    const action = form.strategy === 'drop' ? i18n.global.t('firewall.deny') : i18n.global.t('firewall.allow');
+    const source = form.address && form.address !== 'Anywhere' ? form.address : i18n.global.t('firewall.allIP');
+    let msg: string;
+    if (form.objectType === 'port') {
+        msg = i18n.global.t('firewall.effectSummaryPort', [
+            action,
+            (form.protocol || '').toUpperCase(),
+            form.port || '—',
+            source,
+        ]);
+    } else {
+        msg = i18n.global.t('firewall.effectSummaryAddr', [action, source]);
+    }
+    if (form.applyToDocker && dockerAvailable.value && form.strategy === 'drop') {
+        msg += i18n.global.t('firewall.effectSummaryDocker');
+    }
+    return msg;
+});
+
+// 实时风险预检：redline 直接禁用 confirm，warn 仍走 onSubmit 的 RiskPrecheck 确认流程。
+const riskLevel = ref<Host.RiskInfo['mode']>('none');
+watch(
+    form,
+    async () => {
+        if (!drawerVisible.value) return;
+        await ensurePortsLoaded();
+        const risk = computeFirewallRisk({
+            strategy: form.strategy,
+            objectType: form.objectType,
+            address: form.address,
+            port: form.port,
+        });
+        riskLevel.value = risk.mode;
+    },
+    { deep: true },
+);
+
 const riskRef = ref<InstanceType<typeof RiskPrecheck>>();
 const emit = defineEmits<{ (e: 'search'): void }>();
 
-const acceptParams = (params: DialogProps): void => {
+const acceptParams = async (params: DialogProps): Promise<void> => {
     dialogTitle.value = params.title;
     dialogMode.value = params.mode || '';
     capabilities.value = params.capabilities;
@@ -171,6 +232,8 @@ const acceptParams = (params: DialogProps): void => {
     if (params.objectType) {
         form.objectType = params.objectType;
     }
+    // 由 rule 反推 intent（编辑模式据此锁定同对象类型内的 allow/block 切换）。
+    intent.value = deriveIntent(form);
     // 从列表点「封禁 IP」进入：预设拒绝并展开高级选项里的来源 IP。
     activeCollapse.value = form.objectType === 'address' || form.strategy === 'drop' ? ['advanced'] : [];
     if (params.title === 'edit') {
@@ -178,8 +241,14 @@ const acceptParams = (params: DialogProps): void => {
     }
     title.value = i18n.global.t('firewall.' + params.title);
     drawerVisible.value = true;
-    ensurePortsLoaded();
-    loadDocker();
+    // await 端口与 docker 就绪，避免快速点确认时 redline 误判（panelPort 仍空 → coversPanel=false）。
+    await Promise.all([ensurePortsLoaded(), loadDocker()]);
+    riskLevel.value = computeFirewallRisk({
+        strategy: form.strategy,
+        objectType: form.objectType,
+        address: form.address,
+        port: form.port,
+    }).mode;
 };
 
 const loadDocker = async () => {
