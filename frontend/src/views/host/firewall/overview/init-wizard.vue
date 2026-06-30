@@ -63,7 +63,7 @@ import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseIn
 
 const emit = defineEmits(['done']);
 
-const { capabilities, loadBaseInfo, isReady } = useFireBaseInfo();
+const { capabilities, loadBaseInfo, isReady } = useFireBaseInfo('base');
 
 const visible = ref(false);
 const loading = ref(false);

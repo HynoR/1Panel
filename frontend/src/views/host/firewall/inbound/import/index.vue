@@ -29,7 +29,7 @@
                     :data="pageData"
                     :height="440"
                 >
-                    <el-table-column type="selection" fix />
+                    <el-table-column type="selection" fix :selectable="isSelectable" />
                     <el-table-column :label="$t('commons.table.status')" :min-width="80">
                         <template #default="{ row }">
                             <Status :status="row.status" />
@@ -89,25 +89,54 @@
 
 <script lang="ts" setup>
 import { reactive, ref } from 'vue';
-import { genFileId, UploadFile, UploadFiles, UploadProps, UploadRawFile } from 'element-plus';
+import { genFileId } from 'element-plus';
+import type { UploadFile, UploadFiles, UploadInstance, UploadProps, UploadRawFile } from 'element-plus';
 import { MsgError, MsgSuccess } from '@/utils/message';
 import i18n from '@/lang';
 import { operateIPRule, operatePortRule, searchFireRule } from '@/api/modules/host';
 import { Host } from '@/api/interface/host';
+import { checkCidr, checkCidrV6, checkIpV4V6, checkPort } from '@/utils/validate';
+import { getErrorMessage } from '@/utils/misc';
 
 const emit = defineEmits<{ (e: 'search'): void }>();
 
+type ImportStatus = 'new' | 'conflict' | 'duplicate';
+type RawImportRule = Partial<{
+    ruleType: string;
+    family: string;
+    address: string;
+    port: string | number;
+    protocol: string;
+    strategy: string;
+    applyToDocker: boolean;
+    description: string;
+}>;
+interface ImportRule {
+    ruleType: Host.InboundRuleType;
+    family: string;
+    address: string;
+    port: string;
+    protocol: string;
+    strategy: string;
+    applyToDocker: boolean;
+    description: string;
+}
+interface PreviewRule extends ImportRule {
+    status: ImportStatus;
+    existingStrategy?: string;
+}
+
 const visible = ref(false);
 const loading = ref(false);
-const selects = ref<Host.RuleInfo[]>([]);
-const displayData = ref<Host.RuleInfo[]>([]);
+const selects = ref<PreviewRule[]>([]);
+const displayData = ref<PreviewRule[]>([]);
 // 端口/来源 IP 两类既有规则分别缓存，导入对比时各自比对
 const currentPortRules = ref<Host.RuleInfo[]>([]);
 const currentAddrRules = ref<Host.RuleInfo[]>([]);
 
-const uploadRef = ref();
-const uploaderFiles = ref();
-const pageData = ref<Host.RuleInfo[]>([]);
+const uploadRef = ref<UploadInstance>();
+const uploaderFiles = ref<UploadFiles>([]);
+const pageData = ref<PreviewRule[]>([]);
 const paginationConfig = reactive({
     currentPage: 1,
     pageSize: 10,
@@ -118,7 +147,8 @@ const acceptParams = async (): Promise<void> => {
     visible.value = true;
     displayData.value = [];
     selects.value = [];
-    loadCurrentData();
+    // await 既有规则就绪，避免用户开对话框立即选文件时 compareRules 误判全为 new、重复导入已存在规则。
+    await loadCurrentData();
 };
 
 const loadCurrentData = async () => {
@@ -153,21 +183,30 @@ const fileOnChange = (_uploadFile: UploadFile, uploadFiles: UploadFiles) => {
                 return;
             }
 
-            const normalized: any[] = [];
+            const normalized: ImportRule[] = [];
+            let invalidCount = 0;
             for (const item of parsed) {
-                const row = normalizeRule(item);
+                const row = normalizeRule(item as RawImportRule);
                 if (!row) {
-                    MsgError(i18n.global.t('commons.msg.errImportFormat'));
-                    loading.value = false;
-                    return;
+                    invalidCount++;
+                    continue;
                 }
                 normalized.push(row);
             }
 
+            if (normalized.length === 0) {
+                MsgError(i18n.global.t('commons.msg.errImportFormat'));
+                loading.value = false;
+                return;
+            }
+
             compareRules(normalized);
+            if (invalidCount > 0) {
+                MsgError(i18n.global.t('firewall.importInvalidSkipped', [invalidCount]));
+            }
             loading.value = false;
         } catch (error) {
-            MsgError(i18n.global.t('commons.msg.errImport') + error.message);
+            MsgError(i18n.global.t('commons.msg.errImport') + getErrorMessage(error));
             loading.value = false;
         }
     };
@@ -181,45 +220,146 @@ const handleExceed: UploadProps['onExceed'] = (files) => {
     uploadRef.value!.handleStart(file);
 };
 
-// 按形状识别规则类型：含端口 → 端口规则；仅含地址 → 来源 IP 规则
-const normalizeRule = (item: any): any | null => {
-    if (!item || !['accept', 'drop'].includes(item.strategy)) {
+// 端口格式校验：支持单端口、范围（8080-8090）、列表（8080,8090），与 create/edit 复用同一 checkPort。
+const isValidPort = (port: string): boolean => {
+    const ports =
+        port.indexOf('-') !== -1 && !port.startsWith('-')
+            ? port.split('-')
+            : port.indexOf(',') !== -1 && !port.startsWith(',')
+              ? port.split(',')
+              : [port];
+    return ports.every((p) => !checkPort(p));
+};
+
+// 地址格式校验：支持逗号分隔多地址、IPv4/IPv6 单 IP 与 CIDR，Anywhere 视为合法。
+const isValidAddress = (address: string): boolean => {
+    if (!address || address === 'Anywhere') return true;
+    return address.split(',').every((item) => {
+        const trimmed = item.trim();
+        if (!trimmed) return false;
+        if (trimmed.indexOf('/') !== -1) {
+            return trimmed.indexOf(':') !== -1 ? !checkCidrV6(trimmed) : !checkCidr(trimmed);
+        }
+        return !checkIpV4V6(trimmed);
+    });
+};
+
+const normalizeAddress = (address?: string): string => {
+    const trimmed = (address || '').trim();
+    return trimmed && trimmed !== 'Anywhere' ? trimmed : 'Anywhere';
+};
+
+const normalizeFamily = (family?: string): string => {
+    return family && ['ipv4', 'ipv6', 'both'].includes(family) ? family : 'both';
+};
+
+const buildRuleKey = (rule: Pick<ImportRule, 'ruleType' | 'address' | 'port' | 'protocol' | 'family'>): string => {
+    const address = normalizeAddress(rule.address);
+    return rule.ruleType === 'port'
+        ? `${address}:${rule.port}:${rule.protocol}:${rule.family}`
+        : `${address}:${rule.family}`;
+};
+
+// 优先用 ruleType 识别（export 已带该字段），否则按形状回退；校验端口/地址格式，非法返回 null。
+const normalizeRule = (item: RawImportRule): ImportRule | null => {
+    const strategy = item?.strategy || '';
+    if (!item || !['accept', 'drop'].includes(strategy)) {
         return null;
     }
-    if (item.port) {
-        if (!item.protocol || !['tcp', 'udp', 'tcp/udp'].includes(item.protocol)) {
+    const ruleType =
+        item.ruleType === 'address'
+            ? 'address'
+            : item.ruleType === 'port'
+              ? 'port'
+              : item.port
+                ? 'port'
+                : item.address
+                  ? 'address'
+                  : '';
+    const family = normalizeFamily(item.family);
+    const address = normalizeAddress(item.address);
+    if (ruleType === 'port') {
+        const protocol = item.protocol || '';
+        if (!item.port || !['tcp', 'udp', 'tcp/udp'].includes(protocol)) {
             return null;
         }
-        return { ...item, ruleType: 'port' };
+        const port = String(item.port).trim();
+        if (!isValidPort(port) || !isValidAddress(address)) {
+            return null;
+        }
+        return {
+            ruleType: 'port',
+            family,
+            address,
+            port,
+            protocol,
+            strategy,
+            applyToDocker: !!item.applyToDocker,
+            description: item.description || '',
+        };
     }
-    if (item.address) {
-        return { ...item, protocol: '', port: '', ruleType: 'address' };
+    if (ruleType === 'address' && item.address) {
+        if (!isValidAddress(address)) {
+            return null;
+        }
+        return {
+            ruleType: 'address',
+            family,
+            address,
+            port: '',
+            protocol: '',
+            strategy,
+            applyToDocker: !!item.applyToDocker,
+            description: item.description || '',
+        };
     }
     return null;
 };
 
-const compareRules = (importedRules: any[]) => {
-    const newRules: any[] = [];
-    const conflictRules: any[] = [];
-    const duplicateRules: any[] = [];
+const compareRules = (importedRules: ImportRule[]) => {
+    const newRules: PreviewRule[] = [];
+    const conflictRules: PreviewRule[] = [];
+    const duplicateRules: PreviewRule[] = [];
+    // 导入文件内部按规则身份判重；同身份不同 strategy 视为冲突，避免一次导入生成互斥规则。
+    const seenInternal = new Map<string, ImportRule>();
 
     for (const importedRule of importedRules) {
         const isPort = importedRule.ruleType === 'port';
-        const key = isPort
-            ? `${importedRule.address || 'Anywhere'}:${importedRule.port}:${importedRule.protocol}`
-            : `${importedRule.address || 'Anywhere'}`;
-        const source = isPort ? currentPortRules.value : currentAddrRules.value;
+        const ruleKey = buildRuleKey(importedRule);
+        const seenRule = seenInternal.get(ruleKey);
+        if (seenRule) {
+            if (seenRule.strategy === importedRule.strategy && seenRule.applyToDocker === importedRule.applyToDocker) {
+                duplicateRules.push({ ...importedRule, status: 'duplicate' });
+            } else {
+                conflictRules.push({
+                    ...importedRule,
+                    status: 'conflict',
+                    existingStrategy: seenRule.strategy,
+                });
+            }
+            continue;
+        }
+        seenInternal.set(ruleKey, importedRule);
 
+        const source = isPort ? currentPortRules.value : currentAddrRules.value;
         const existingRule = source.find((rule) => {
-            const existingKey = isPort
-                ? `${rule.address || 'Anywhere'}:${rule.port}:${rule.protocol}`
-                : `${rule.address || 'Anywhere'}`;
-            return existingKey === key;
+            return (
+                buildRuleKey({
+                    ruleType: importedRule.ruleType,
+                    address: rule.address,
+                    port: rule.port,
+                    protocol: rule.protocol,
+                    family: rule.family || 'both',
+                }) === ruleKey
+            );
         });
 
         if (!existingRule) {
             newRules.push({ ...importedRule, status: 'new' });
-        } else if (existingRule.strategy !== importedRule.strategy) {
+        } else if (
+            existingRule.strategy !== importedRule.strategy ||
+            !!existingRule.applyToDocker !== importedRule.applyToDocker
+        ) {
             conflictRules.push({
                 ...importedRule,
                 status: 'conflict',
@@ -235,12 +375,21 @@ const compareRules = (importedRules: any[]) => {
     search();
 };
 
+// 冲突/重复行不可选择，只有 new 行可导入，避免重复导入或覆盖现有规则。
+const isSelectable = (row: PreviewRule): boolean => row.status === 'new';
+
 const onImport = async () => {
     loading.value = true;
+    const toImport = selects.value.filter((r) => r.status === 'new');
+    if (toImport.length === 0) {
+        loading.value = false;
+        MsgError(i18n.global.t('firewall.importNoNew'));
+        return;
+    }
     let successCount = 0;
     let errorCount = 0;
 
-    for (const rule of selects.value) {
+    for (const rule of toImport) {
         try {
             if (rule.ruleType === 'address') {
                 const params: Host.RuleIP = {

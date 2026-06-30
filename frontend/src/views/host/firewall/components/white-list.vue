@@ -101,7 +101,7 @@ const loadRequiredPorts = async () => {
             result.push({ name: '1Panel', port: `${setting.data.serverPort}/tcp` });
         }
     } catch {
-        // 面板端口获取失败时跳过展示，保底通道仍由后端自动放行。
+        // 面板端口获取失败时跳过展示，保底端口仍由后端自动放行。
     }
     requiredPorts.value = result;
 };

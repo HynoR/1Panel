@@ -3749,9 +3749,6 @@ const message = {
         stop: '정지',
         portFormatError: '이 필드는 유효한 포트이어야 합니다.',
         portHelper1: '여러 포트, 예: 8080, 8081',
-        portHelper2: '포트 범위, 예: 8080-8089',
-        changeStrategyHelper:
-            '[{1}] {0} 전략을 [{2}]로 변경합니다. 설정 후 {0}은(는) {2}로 외부 접근을 허용합니다. 계속하시겠습니까?',
         strategy: '전략',
         accept: '허용',
         drop: '차단',
@@ -3762,7 +3759,6 @@ const message = {
         deny: '거부',
         addressFormatError: '이 필드는 유효한 IP 주소여야 합니다.',
         addressHelper1: "IP 주소 또는 IP 범위가 필요합니다. 예: '172.16.10.11' 또는 '172.16.10.0/24'.",
-        addressHelper2: "여러 IP 주소는 쉼표로 구분합니다. 예: '172.16.10.11, 172.16.0.0/24'.",
         allIP: '모든 IP',
         portRule: '규칙 | 규칙들',
         forwardRule: '포트 전달 규칙 | 포트 전달 규칙들',
@@ -3788,7 +3784,6 @@ const message = {
         bindHelper: '바인딩 - 방화벽 규칙은 상태가 바인딩된 경우에만 효과가 있습니다. 확인하시겠습니까?',
         unbindHelper:
             '바인딩 해제 - 바인딩 해제 시 추가된 모든 방화벽 규칙이 무효화됩니다. 주의하여 진행하세요. 확인하시겠습니까?',
-        whiteList: '화이트리스트',
         portWhiteList: '포트 화이트리스트',
         portWhiteListAlter: '방화벽을 초기화하거나 시작할 때 화이트리스트의 포트가 자동으로 허용됩니다.',
         portWhiteListHelper: '80/tcp 또는 443/udp처럼 프로토콜을 지정할 수 있습니다. 생략하면 기본값은 tcp입니다.',

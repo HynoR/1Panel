@@ -64,7 +64,7 @@
                     </template>
 
                     <template #rightToolBar>
-                        <el-tooltip :content="selectedChain" placement="top">
+                        <el-tooltip :content="chainLabel()" placement="top">
                             <el-select v-model="selectedChain" @change="search()" clearable class="p-w-200">
                                 <template #prefix>{{ $t('firewall.chain') }}</template>
                                 <el-option :label="$t('firewall.inboundDirection')" value="1PANEL_INPUT"></el-option>
@@ -174,7 +174,7 @@ import i18n from '@/lang';
 import { MsgSuccess } from '@/utils/message';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
 
-const { capabilities, isActive, isReady, name, loadBaseInfo } = useFireBaseInfo();
+const { capabilities, isActive, isReady, name, loadBaseInfo } = useFireBaseInfo('advance');
 
 const router = useRouter();
 const loading = ref();

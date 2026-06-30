@@ -11,7 +11,7 @@ import i18n from '@/lang';
 import { MsgSuccess, MsgWarning } from '@/utils/message';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
 
-const { loadBaseInfo } = useFireBaseInfo();
+const { loadBaseInfo } = useFireBaseInfo('base');
 
 const session = ref<Host.FirewallSession>({
     active: false,

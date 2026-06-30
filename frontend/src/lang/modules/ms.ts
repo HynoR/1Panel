@@ -3888,9 +3888,6 @@ const message = {
         stop: 'Hentikan',
         portFormatError: 'Medan ini mesti port yang sah.',
         portHelper1: 'Pelbagai port, contohnya 8080 dan 8081',
-        portHelper2: 'Port rentang, contohnya 8080-8089',
-        changeStrategyHelper:
-            'Tukar strategi {0} [{1}] kepada [{2}]. Selepas tetapan, {0} akan mengakses {2} secara luaran. Adakah anda mahu meneruskan?',
         strategy: 'Strategi',
         accept: 'Terima',
         drop: 'Lumpuhkan',
@@ -3901,7 +3898,6 @@ const message = {
         deny: 'Tolak',
         addressFormatError: 'Medan ini mesti alamat IP yang sah.',
         addressHelper1: 'Sokong alamat IP atau julat IP. Sebagai contoh, "172.16.10.11" atau "172.16.10.0/24".',
-        addressHelper2: 'Untuk pelbagai alamat IP, pisahkan dengan koma. Contohnya, "172.16.10.11, 172.16.0.0/24".',
         allIP: 'Semua IP',
         portRule: 'Peraturan | Peraturan',
         forwardRule: 'Peraturan Pemajuan Port | Peraturan Pemajuan Port',
@@ -3927,7 +3923,6 @@ const message = {
         bindHelper: 'Ikat - Peraturan firewall hanya akan berkuat kuasa apabila status terikat. Sahkan?',
         unbindHelper:
             'Nyahikat - Apabila tidak terikat, semua peraturan firewall yang ditambah akan menjadi tidak sah. Teruskan dengan berhati-hati. Sahkan?',
-        whiteList: 'Senarai putih',
         portWhiteList: 'Senarai putih port',
         portWhiteListAlter:
             'Port dalam senarai putih akan dibuka secara automatik apabila firewall dimulakan atau dihidupkan.',

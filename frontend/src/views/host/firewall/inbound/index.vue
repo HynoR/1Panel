@@ -304,7 +304,7 @@ import { computeFirewallRisk, ensurePortsLoaded } from '@/views/host/firewall/co
 import { enterFireApplying } from '@/views/host/firewall/composables/useFireSession';
 
 const { capabilities, mode, name, isReady, isActive, strictMode, loadBaseInfo, dockerRules, loadDockerStatus } =
-    useFireBaseInfo();
+    useFireBaseInfo('base');
 
 const loading = ref(false);
 const selects = ref<InboundRow[]>([]);
@@ -370,7 +370,7 @@ const goOverview = () => {
 // ---- rescue port set (panel port + whitelist 80/443 + SSH port) for baseline tagging ----
 const loadRescuePorts = async () => {
     const set = new Set<number>();
-    // 面板端口取核心设置（与概览保底通道一致）：agent 设置无 serverPort 字段，
+    // 面板端口取核心设置（与概览保底端口一致）：agent 设置无 serverPort 字段，
     // 之前用 getAgentSettingInfo().serverPort 恒为 undefined → 面板端口从未进保底集，导致面板规则被误判为可删的「放行」。
     try {
         const res = await getSettingInfo();

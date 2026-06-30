@@ -4021,9 +4021,6 @@ const message = {
         stop: 'Parar',
         portFormatError: 'Este campo deve ser uma porta válida.',
         portHelper1: 'Várias portas, ex.: 8080 e 8081',
-        portHelper2: 'Faixa de portas, ex.: 8080-8089',
-        changeStrategyHelper:
-            'Alterar a estratégia [{1}] {0} para [{2}]. Após a definição, {0} acessará {2} externamente. Deseja continuar?',
         strategy: 'Estratégia',
         accept: 'Aceitar',
         drop: 'Bloquear',
@@ -4034,7 +4031,6 @@ const message = {
         deny: 'Negar',
         addressFormatError: 'Este campo deve ser um endereço IP válido.',
         addressHelper1: 'Suporta endereço IP ou intervalo de IP. Por exemplo, "172.16.10.11" ou "172.16.10.0/24".',
-        addressHelper2: 'Para vários endereços IP, separe por vírgula. Por exemplo, "172.16.10.11, 172.16.0.0/24".',
         allIP: 'Todos os IPs',
         portRule: 'Regra | Regras',
         forwardRule: 'Regra de redirecionamento de porta | Regras de redirecionamento de porta',
@@ -4063,7 +4059,6 @@ const message = {
             'Vincular - As regras de firewall só entrarão em vigor quando o status estiver vinculado. Confirmar?',
         unbindHelper:
             'Desvincular - Quando desvinculado, todas as regras de firewall adicionadas se tornarão inválidas. Prossiga com cautela. Confirmar?',
-        whiteList: 'Lista branca',
         portWhiteList: 'Lista branca de portas',
         portWhiteListAlter:
             'As portas na lista branca serão abertas automaticamente ao inicializar ou iniciar o firewall.',

@@ -131,7 +131,7 @@ import { downloadWithContent } from '@/utils/file';
 import { getCurrentDateFormatted } from '@/utils/date';
 
 const router = useRouter();
-const { isExist, isActive, isReady, capabilities, name, loadBaseInfo } = useFireBaseInfo();
+const { isExist, isActive, isReady, capabilities, name, loadBaseInfo } = useFireBaseInfo('forward');
 
 const loading = ref();
 const activeTag = ref('forward');

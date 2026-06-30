@@ -3879,9 +3879,6 @@ const message = {
         stop: 'Durdur',
         portFormatError: 'Bu alan geçerli bir port olmalıdır.',
         portHelper1: 'Birden fazla port, ör. 8080 ve 8081',
-        portHelper2: 'Aralık portu, ör. 8080-8089',
-        changeStrategyHelper:
-            '[{1}] {0} stratejisini [{2}] olarak değiştirin. Ayar yapıldıktan sonra {0}, dışarıdan {2} erişimi sağlayacak. Devam etmek istiyor musunuz?',
         strategy: 'Strateji',
         accept: 'Kabul Et',
         drop: 'Reddet',
@@ -3892,7 +3889,6 @@ const message = {
         deny: 'Reddet',
         addressFormatError: 'Bu alan geçerli bir IP adresi olmalıdır.',
         addressHelper1: 'IP adresi veya IP aralığını destekler. Örneğin, "172.16.10.11" veya "172.16.10.0/24".',
-        addressHelper2: 'Birden fazla IP adresi için virgülle ayırın. Örneğin, "172.16.10.11, 172.16.10.0/24".',
         allIP: 'Tüm IP’ler',
         portRule: 'Kural | Kurallar',
         forwardRule: 'Port-Yönlendirme kuralı | Port-Yönlendirme kuralları',
@@ -3919,7 +3915,6 @@ const message = {
         bindHelper: 'Bağla - Güvenlik duvarı kuralları yalnızca durum bağlı olduğunda etkili olur. Onaylıyor musunuz?',
         unbindHelper:
             'Bağlantıyı Kaldır - Bağlantı kaldırıldığında, eklenen tüm güvenlik duvarı kuralları geçersiz olacaktır. Dikkatli ilerleyin. Onaylıyor musunuz?',
-        whiteList: 'Beyaz liste',
         portWhiteList: 'Port beyaz listesi',
         portWhiteListAlter:
             'Beyaz listedeki portlar, güvenlik duvarı başlatılırken veya çalıştırılırken otomatik olarak açılır.',

@@ -14,7 +14,7 @@ import SessionConfirm from '@/views/host/firewall/session-confirm.vue';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
 import { computed, onMounted } from 'vue';
 
-const { capabilities, hasAdvancedRules, loadBaseInfo, probeAdvancedRules } = useFireBaseInfo();
+const { capabilities, hasAdvancedRules, loadBaseInfo, probeAdvancedRules } = useFireBaseInfo('base');
 
 const buttons = computed(() => {
     const list = [

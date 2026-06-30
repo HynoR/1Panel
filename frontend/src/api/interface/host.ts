@@ -220,14 +220,6 @@ export namespace Host {
         mode: 'warn' | 'redline' | 'none';
         message: string;
     }
-    // A rescue channel shown on the overview (SSH / panel / 80 / 443).
-    export interface RescueChannel {
-        name: string;
-        port: string;
-        status: 'allowed' | 'closable' | 'readonly';
-        readonly: boolean;
-    }
-
     export interface MonitorSetting {
         defaultNetwork: string;
         defaultIO: string;

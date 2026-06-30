@@ -29,47 +29,29 @@ const defaultBase = (): Host.FirewallBase => ({
     strictMode: false,
 });
 
-// MODULE-LEVEL shared singleton state: /firewall/base is fetched once and shared by the
-// tab bar, overview and every list page — replaces the per-page FireStatus v-model dance.
-const baseInfo = ref<Host.FirewallBase>(defaultBase());
+// Module-level cache, keyed by tab. The backend returns tab-dependent init/bind state,
+// so every visible firewall page pins reads to its own tab instead of racing on one object.
+const baseInfoMap = reactive<Record<FireTab, Host.FirewallBase>>({
+    base: defaultBase(),
+    forward: defaultBase(),
+    advance: defaultBase(),
+});
 const existFlag = ref(true);
-// isInit is tab-dependent; keep it keyed per tab so concurrent loadBaseInfo calls
-// (tab bar uses 'base', the active page uses its own tab) cannot corrupt each other.
 const activeTab = ref<FireTab>('base');
-const initMap = reactive<Record<string, boolean>>({});
 
 const hasAdvancedRules = ref(false);
 const dockerAvailable = ref(false);
 const dockerRules = ref<Host.FirewallDockerRule[]>([]);
 
-const isExist = computed(() => existFlag.value);
-const isActive = computed(() => baseInfo.value.isActive);
-// isReady 跟随最后一次 loadBaseInfo 设置的 activeTab：会话确认等全局刷新也用 'base'，
-// 概览页可见时与 base 一致，故现状可用。多 tab keep-alive 并发加载时其它 tab 会改写 activeTab，
-// 因此提供 isReadyFor(tab) 让调用方按自身 tab 钉住就绪态，不被后台 tab 的加载覆写。
-const isReady = computed(() => existFlag.value && !!initMap[activeTab.value]);
-const isReadyFor = (tab: FireTab) => computed(() => existFlag.value && !!initMap[tab]);
-const capabilities = computed(() => baseInfo.value.capabilities);
-const mode = computed(() => baseInfo.value.mode);
-const name = computed(() => baseInfo.value.name);
-const version = computed(() => baseInfo.value.version);
-const pingStatus = computed(() => baseInfo.value.pingStatus);
-const conflict = computed(() => baseInfo.value.conflict);
-const strictMode = computed(() => baseInfo.value.strictMode);
-const bootDegraded = computed(() => {
-    const s = baseInfo.value.bootStatus || '';
-    return s.startsWith('degraded') || s.startsWith('failed');
-});
-
 const loadBaseInfo = async (tab: FireTab = 'base'): Promise<void> => {
     activeTab.value = tab;
     try {
         const res = await loadFireBaseInfo(tab);
-        baseInfo.value = res.data;
+        baseInfoMap[tab] = res.data;
         existFlag.value = res.data.isExist;
-        initMap[tab] = res.data.isInit;
     } catch {
         existFlag.value = false;
+        baseInfoMap[tab] = { ...defaultBase(), isExist: false };
     }
 };
 
@@ -98,18 +80,36 @@ const loadDockerStatus = async (): Promise<void> => {
 };
 
 const reset = (): void => {
-    baseInfo.value = defaultBase();
+    baseInfoMap.base = defaultBase();
+    baseInfoMap.forward = defaultBase();
+    baseInfoMap.advance = defaultBase();
     existFlag.value = true;
     activeTab.value = 'base';
-    Object.keys(initMap).forEach((k) => delete initMap[k]);
     hasAdvancedRules.value = false;
     dockerAvailable.value = false;
     dockerRules.value = [];
 };
 
-export function useFireBaseInfo() {
+export function useFireBaseInfo(tab?: FireTab) {
+    const currentBaseInfo = computed(() => baseInfoMap[tab || activeTab.value] || baseInfoMap.base);
+    const isExist = computed(() => existFlag.value);
+    const isActive = computed(() => currentBaseInfo.value.isActive);
+    const isReady = computed(() => existFlag.value && !!currentBaseInfo.value.isInit);
+    const isReadyFor = (target: FireTab) => computed(() => existFlag.value && !!baseInfoMap[target].isInit);
+    const capabilities = computed(() => currentBaseInfo.value.capabilities);
+    const mode = computed(() => currentBaseInfo.value.mode);
+    const name = computed(() => currentBaseInfo.value.name);
+    const version = computed(() => currentBaseInfo.value.version);
+    const pingStatus = computed(() => currentBaseInfo.value.pingStatus);
+    const conflict = computed(() => currentBaseInfo.value.conflict);
+    const strictMode = computed(() => currentBaseInfo.value.strictMode);
+    const bootDegraded = computed(() => {
+        const s = currentBaseInfo.value.bootStatus || '';
+        return s.startsWith('degraded') || s.startsWith('failed');
+    });
+
     return {
-        baseInfo,
+        baseInfo: currentBaseInfo,
         loadBaseInfo,
         isExist,
         isActive,

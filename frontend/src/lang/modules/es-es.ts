@@ -3847,9 +3847,6 @@ const message = {
         stop: 'Detener',
         portFormatError: 'Este campo debe ser un puerto válido.',
         portHelper1: 'Puertos múltiples, ej. 8080 y 8081',
-        portHelper2: 'Rango de puertos, ej. 8080-8089',
-        changeStrategyHelper:
-            'Cambiar estrategia de {0} [{1}] a [{2}]. Después de configurarla, {0} tendrá acceso externo como {2}. ¿Deseas continuar?',
         strategy: 'Estrategia',
         accept: 'Aceptar',
         drop: 'Rechazar',
@@ -3860,7 +3857,6 @@ const message = {
         deny: 'Denegar',
         addressFormatError: 'Este campo debe ser una dirección IP válida.',
         addressHelper1: 'Admite dirección IP o rango de IP. Ejemplo: "172.16.10.11" o "172.16.10.0/24".',
-        addressHelper2: 'Para múltiples direcciones IP, sepáralas con comas. Ejemplo: "172.16.10.11, 172.16.0.0/24".',
         allIP: 'Todas las IP',
         portRule: 'Regla | Reglas',
         forwardRule: 'Regla de redirección de puertos | Reglas de redirección de puertos',
@@ -3888,7 +3884,6 @@ const message = {
             'Vincular: las reglas de firewall solo surtirán efecto cuando el estado esté vinculado. ¿Confirmar?',
         unbindHelper:
             'Desvincular: al desvincular, todas las reglas de firewall agregadas se volverán inválidas. Proceda con precaución. ¿Confirmar?',
-        whiteList: 'Lista blanca',
         portWhiteList: 'Lista blanca de puertos',
         portWhiteListAlter:
             'Los puertos de la lista blanca se abrirán automáticamente al inicializar o iniciar el firewall.',

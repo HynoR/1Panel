@@ -129,7 +129,7 @@
                         </template>
                     </div>
 
-                    <!-- 严格模式 / 禁 ping -->
+                    <!-- 白名单模式 / 禁 ping -->
                     <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
                         <div v-if="showDefaultPolicy" class="flex items-center gap-2">
                             <span class="text-sm">{{ $t('firewall.whitelistMode') }}</span>
@@ -358,7 +358,7 @@ const {
     strictMode,
     dockerAvailable,
     loadDockerStatus,
-} = useFireBaseInfo();
+} = useFireBaseInfo('base');
 
 // 概览页固定按 base 钉住就绪态：不被其它 tab 的后台 loadBaseInfo 改写 activeTab 影响。
 const readyBase = isReadyFor('base');
