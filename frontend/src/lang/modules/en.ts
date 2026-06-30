@@ -3976,6 +3976,22 @@ const message = {
         effectSummaryDocker: ' (incl. Docker published ports)',
         inboundEmpty: 'No inbound rules yet',
         inboundEmptyHint: 'Use the toolbar above to allow a port, block an IP, or create a rule.',
+        sectionActions: 'Actions & confirm',
+        sectionActionsTip: 'Start/stop, init, strict mode and the pending confirm session',
+        warnNotReady: 'Firewall is not initialized',
+        warnNotReadyHelper:
+            'Click "Init" to configure rescue ports and the default policy. Rules take effect only after init.',
+        warnNotActive: 'Firewall is not active',
+        warnNotActiveHelper: 'The server has no inbound protection right now — start it to stay protected.',
+        dockerProtection: 'Docker published-port protection',
+        ipv6RulesCap: 'IPv6 rules',
+        capSupported: 'Supported',
+        capNotSupported: 'Not supported',
+        pendingSessionLabel: 'Pending session',
+        pendingSessionActive: 'Pending ({0}s)',
+        pendingSessionNone: 'None',
+        overviewHint:
+            'Spot the effective status and next safe action in 5s; take a snapshot before changes to roll back in one click.',
     },
     runtime: {
         runtime: 'Runtime',

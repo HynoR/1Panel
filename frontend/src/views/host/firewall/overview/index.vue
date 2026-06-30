@@ -4,137 +4,166 @@
 
         <NoSuchService v-if="!isExist" name="Firewalld / Ufw / iptables" />
 
-        <div v-else v-loading="loading">
+        <div v-else v-loading="loading" class="flex flex-col gap-3">
+            <!-- 优先级 alert：未初始化 > 未激活 > 开机降级 > 冲突，单一最高优先级，5 秒看清下一步动作 -->
             <el-alert
-                v-if="conflict && conflict.hasConflict"
-                class="mb-2"
-                type="error"
+                v-if="topAlert"
+                :type="topAlert.type"
                 :closable="false"
                 show-icon
-                :title="conflict.message || $t('firewall.conflictHelper')"
-            />
-            <el-alert
-                v-if="bootDegraded"
-                class="mb-2"
-                type="warning"
-                :closable="false"
-                show-icon
-                :title="$t('firewall.bootDegraded', [baseInfo.bootStatus])"
+                :title="topAlert.title"
+                :description="topAlert.description"
             />
 
-            <el-row :gutter="12">
-                <!-- 卡片①：防火墙状态 -->
-                <el-col :xs="24" :sm="24" :md="8" class="mb-3">
-                    <el-card class="h-full" shadow="never">
-                        <template #header>
-                            <div class="flex flex-col">
-                                <span class="font-medium">{{ $t('firewall.statusCard') }}</span>
-                                <span class="text-xs text-gray-400">{{ $t('firewall.statusCardTip') }}</span>
+            <!-- 区1：状态总览条 -->
+            <el-card shadow="never">
+                <template #header>
+                    <div class="flex flex-col">
+                        <span class="font-medium">{{ $t('firewall.statusCard') }}</span>
+                        <span class="text-xs text-gray-400">{{ $t('firewall.statusCardTip') }}</span>
+                    </div>
+                </template>
+                <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <el-tag effect="dark" type="success">{{ name || '-' }}</el-tag>
+                    <Status :status="isActive ? 'enable' : 'disable'" />
+                    <el-tooltip
+                        v-if="mode"
+                        :content="
+                            mode === 'managed' ? $t('firewall.modeManagedTip') : $t('firewall.modeExternalTip', [name])
+                        "
+                    >
+                        <el-tag type="info">
+                            {{ mode === 'managed' ? $t('firewall.modeManaged') : $t('firewall.modeExternal') }}
+                        </el-tag>
+                    </el-tooltip>
+                    <el-tag>{{ $t('app.version') }}: {{ version || '-' }}</el-tag>
+                    <el-divider direction="vertical" />
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm text-gray-400">{{ $t('firewall.bootCheck') }}</span>
+                        <el-tag v-if="!bootDegraded" type="success" size="small">{{ $t('firewall.bootOk') }}</el-tag>
+                        <el-tag v-else type="warning" size="small">{{ baseInfo.bootStatus }}</el-tag>
+                    </div>
+                    <div v-if="showDefaultPolicy" class="flex items-center gap-2">
+                        <span class="text-sm text-gray-400">{{ $t('firewall.defaultPolicy') }}</span>
+                        <el-tag :type="strictMode ? 'warning' : 'success'" size="small">
+                            {{ strictMode ? $t('firewall.policyStrict') : $t('firewall.policyLoose') }}
+                        </el-tag>
+                    </div>
+                </div>
+            </el-card>
+
+            <!-- 区2：主操作区 -->
+            <el-card shadow="never">
+                <template #header>
+                    <div class="flex flex-col">
+                        <span class="font-medium">{{ $t('firewall.sectionActions') }}</span>
+                        <span class="text-xs text-gray-400">{{ $t('firewall.sectionActionsTip') }}</span>
+                    </div>
+                </template>
+                <div class="flex flex-col gap-4">
+                    <!-- 待确认会话卡：视觉优先级高于静态 tag，复用 useFireSession 单例状态与动作 -->
+                    <el-alert
+                        v-if="applying"
+                        :closable="false"
+                        type="info"
+                        show-icon
+                        :title="$t('firewall.applying')"
+                    />
+                    <el-alert v-else-if="session.active" :closable="false" type="warning" show-icon>
+                        <template #title>
+                            <div class="flex w-full flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                <div>
+                                    <span class="font-bold">{{ $t('firewall.confirmTitle') }}</span>
+                                    <span class="ml-2">
+                                        {{
+                                            $t('firewall.confirmTip', {
+                                                count: session.changes.length,
+                                                seconds: remain,
+                                            })
+                                        }}
+                                    </span>
+                                </div>
+                                <div>
+                                    <el-button type="success" size="small" :loading="sessionLoading" @click="onConfirm">
+                                        {{ $t('firewall.confirmKeep') }}
+                                    </el-button>
+                                    <el-button type="danger" size="small" :loading="sessionLoading" @click="onRevert">
+                                        {{ $t('firewall.revertNow') }}
+                                    </el-button>
+                                </div>
                             </div>
                         </template>
-                        <div class="flex flex-col gap-3">
-                            <div class="flex flex-wrap items-center gap-2">
-                                <el-tag effect="dark" type="success">{{ name || '-' }}</el-tag>
-                                <Status :status="isActive ? 'enable' : 'disable'" />
-                                <el-tooltip
-                                    v-if="mode"
-                                    :content="
-                                        mode === 'managed'
-                                            ? $t('firewall.modeManagedTip')
-                                            : $t('firewall.modeExternalTip', [name])
-                                    "
-                                >
-                                    <el-tag type="info">
-                                        {{
-                                            mode === 'managed'
-                                                ? $t('firewall.modeManaged')
-                                                : $t('firewall.modeExternal')
-                                        }}
-                                    </el-tag>
-                                </el-tooltip>
-                                <el-tag>{{ $t('app.version') }}: {{ version || '-' }}</el-tag>
-                            </div>
+                        <ul v-if="session.changes.length" class="mt-2 list-disc pl-5 text-xs">
+                            <li v-for="(item, index) in session.changes" :key="index">
+                                {{ item.at }} — {{ item.summary }}
+                            </li>
+                        </ul>
+                    </el-alert>
 
-                            <div class="flex flex-wrap items-center gap-2">
-                                <span class="text-sm">{{ $t('firewall.bootCheck') }}:</span>
-                                <el-tag v-if="!bootDegraded" type="success" size="small">
-                                    {{ $t('firewall.bootOk') }}
-                                </el-tag>
-                                <el-tag v-else type="warning" size="small">{{ baseInfo.bootStatus }}</el-tag>
-                            </div>
+                    <!-- 启停 / 重启 / 初始化 -->
+                    <div class="flex flex-wrap items-center gap-2">
+                        <template v-if="mode === 'external'">
+                            <el-button
+                                v-if="isActive"
+                                v-permission
+                                v-node-admin
+                                type="primary"
+                                link
+                                @click="onOperate('stop')"
+                            >
+                                {{ $t('commons.button.stop') }}
+                            </el-button>
+                            <el-button v-else v-permission v-node-admin type="primary" link @click="onOperate('start')">
+                                {{ $t('commons.button.start') }}
+                            </el-button>
+                            <el-divider direction="vertical" />
+                        </template>
+                        <el-button v-permission v-node-admin type="primary" link @click="onOperate('restart')">
+                            {{ $t('commons.button.restart') }}
+                        </el-button>
+                        <template v-if="!readyBase">
+                            <el-divider direction="vertical" />
+                            <el-button v-permission v-node-admin type="primary" link @click="onOpenWizard">
+                                {{ $t('commons.button.init') }}
+                            </el-button>
+                        </template>
+                    </div>
 
-                            <div v-if="showDefaultPolicy" class="flex flex-wrap items-center gap-2">
-                                <span class="text-sm">{{ $t('firewall.defaultPolicy') }}:</span>
-                                <el-tag :type="strictMode ? 'warning' : 'success'" size="small">
-                                    {{ strictMode ? $t('firewall.policyStrict') : $t('firewall.policyLoose') }}
-                                </el-tag>
-                                <el-switch
-                                    v-permission
-                                    v-node-admin
-                                    size="small"
-                                    :model-value="strictMode"
-                                    :active-text="$t('firewall.whitelistMode')"
-                                    @change="onToggleStrict"
-                                />
-                                <el-tooltip :content="$t('firewall.whitelistModeTip')" placement="top">
-                                    <el-icon class="text-gray-400"><QuestionFilled /></el-icon>
-                                </el-tooltip>
-                            </div>
-
-                            <div class="flex flex-wrap items-center gap-2">
-                                <template v-if="mode === 'external'">
-                                    <el-button
-                                        v-permission
-                                        v-node-admin
-                                        type="primary"
-                                        link
-                                        v-if="isActive"
-                                        @click="onOperate('stop')"
-                                    >
-                                        {{ $t('commons.button.stop') }}
-                                    </el-button>
-                                    <el-button
-                                        v-permission
-                                        v-node-admin
-                                        type="primary"
-                                        link
-                                        v-else
-                                        @click="onOperate('start')"
-                                    >
-                                        {{ $t('commons.button.start') }}
-                                    </el-button>
-                                    <el-divider direction="vertical" />
-                                </template>
-                                <el-button v-permission v-node-admin type="primary" link @click="onOperate('restart')">
-                                    {{ $t('commons.button.restart') }}
-                                </el-button>
-                                <template v-if="!isReady">
-                                    <el-divider direction="vertical" />
-                                    <el-button v-permission v-node-admin type="primary" link @click="onOpenWizard">
-                                        {{ $t('commons.button.init') }}
-                                    </el-button>
-                                </template>
-                            </div>
-
-                            <div v-if="pingStatus !== 'None'" class="flex items-center gap-2">
-                                <span class="text-sm">{{ $t('firewall.noPing') }}</span>
-                                <el-switch
-                                    v-permission
-                                    v-node-admin
-                                    size="small"
-                                    inactive-value="Disable"
-                                    active-value="Enable"
-                                    v-model="onPing"
-                                    @change="onPingOperate"
-                                />
-                            </div>
+                    <!-- 严格模式 / 禁 ping -->
+                    <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
+                        <div v-if="showDefaultPolicy" class="flex items-center gap-2">
+                            <span class="text-sm">{{ $t('firewall.whitelistMode') }}</span>
+                            <el-switch
+                                v-permission
+                                v-node-admin
+                                size="small"
+                                :model-value="strictMode"
+                                @change="onToggleStrict"
+                            />
+                            <el-tooltip :content="$t('firewall.whitelistModeTip')" placement="top">
+                                <el-icon class="text-gray-400"><QuestionFilled /></el-icon>
+                            </el-tooltip>
                         </div>
-                    </el-card>
-                </el-col>
+                        <div v-if="pingStatus !== 'None'" class="flex items-center gap-2">
+                            <span class="text-sm">{{ $t('firewall.noPing') }}</span>
+                            <el-switch
+                                v-permission
+                                v-node-admin
+                                size="small"
+                                inactive-value="Disable"
+                                active-value="Enable"
+                                v-model="onPing"
+                                @change="onPingOperate"
+                            />
+                        </div>
+                    </div>
+                </div>
+            </el-card>
 
-                <!-- 卡片②：保底通道 -->
-                <el-col :xs="24" :sm="24" :md="8" class="mb-3">
-                    <el-card class="h-full" shadow="never">
+            <!-- 区3 + 区4：保护汇总 / 恢复汇总 -->
+            <el-row :gutter="12">
+                <el-col :xs="24" :sm="24" :md="12" class="mb-3 md:mb-0">
+                    <el-card shadow="never" class="h-full">
                         <template #header>
                             <div class="flex flex-col">
                                 <span class="font-medium">{{ $t('firewall.rescueChannel') }}</span>
@@ -174,6 +203,21 @@
                                     />
                                 </el-tooltip>
                             </div>
+                            <el-divider class="my-1" />
+                            <div class="flex flex-wrap items-center gap-2">
+                                <el-tag size="small" :type="dockerAvailable ? 'success' : 'info'">
+                                    {{ $t('firewall.dockerProtection') }}:
+                                    {{ dockerAvailable ? $t('firewall.capSupported') : $t('firewall.capNotSupported') }}
+                                </el-tag>
+                                <el-tag size="small" :type="capabilities.ipv6Rules ? 'success' : 'info'">
+                                    {{ $t('firewall.ipv6RulesCap') }}:
+                                    {{
+                                        capabilities.ipv6Rules
+                                            ? $t('firewall.capSupported')
+                                            : $t('firewall.capNotSupported')
+                                    }}
+                                </el-tag>
+                            </div>
                             <div>
                                 <el-button v-permission v-node-admin type="primary" link @click="onOpenWhiteList">
                                     {{ $t('firewall.portWhiteList') }}
@@ -183,9 +227,8 @@
                     </el-card>
                 </el-col>
 
-                <!-- 卡片③：快照 -->
-                <el-col :xs="24" :sm="24" :md="8" class="mb-3">
-                    <el-card class="h-full" shadow="never">
+                <el-col :xs="24" :sm="24" :md="12">
+                    <el-card shadow="never" class="h-full">
                         <template #header>
                             <div class="flex flex-col">
                                 <span class="font-medium">{{ $t('firewall.snapshot') }}</span>
@@ -193,12 +236,22 @@
                             </div>
                         </template>
                         <div class="flex flex-col gap-3">
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-gray-400">{{ $t('firewall.snapshotLatest') }}</span>
+                                <span class="text-sm">{{ latestSnapshot }}</span>
+                            </div>
                             <div class="flex items-center gap-2">
                                 <el-tag size="small">{{ $t('firewall.snapshotCount', [snapshots.length]) }}</el-tag>
                             </div>
-                            <div class="flex items-center gap-2">
-                                <span class="text-sm">{{ $t('firewall.snapshotLatest') }}:</span>
-                                <span class="text-sm">{{ latestSnapshot }}</span>
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-gray-400">{{ $t('firewall.pendingSessionLabel') }}</span>
+                                <el-tag v-if="applying" type="info" size="small">{{ $t('firewall.applying') }}</el-tag>
+                                <el-tag v-else-if="session.active" type="warning" size="small">
+                                    {{ $t('firewall.pendingSessionActive', [remain]) }}
+                                </el-tag>
+                                <el-tag v-else type="success" size="small">
+                                    {{ $t('firewall.pendingSessionNone') }}
+                                </el-tag>
                             </div>
                             <div>
                                 <el-button
@@ -216,6 +269,38 @@
                     </el-card>
                 </el-col>
             </el-row>
+
+            <!-- 底部说明 + 快速跳转，避免四区下方留白 -->
+            <el-card shadow="never">
+                <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <span class="text-xs text-gray-400">{{ $t('firewall.overviewHint') }}</span>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <span class="text-xs text-gray-400">{{ $t('firewall.quickJump') }}</span>
+                        <el-link
+                            type="primary"
+                            :underline="false"
+                            @click="router.push({ path: '/hosts/firewall/inbound' })"
+                        >
+                            {{ $t('firewall.inboundRule', 2) }}
+                        </el-link>
+                        <el-link
+                            type="primary"
+                            :underline="false"
+                            @click="router.push({ path: '/hosts/firewall/forward' })"
+                        >
+                            {{ $t('firewall.forwardRule', 2) }}
+                        </el-link>
+                        <el-link
+                            v-if="capabilities.filter"
+                            type="primary"
+                            :underline="false"
+                            @click="router.push({ path: '/hosts/firewall/advance' })"
+                        >
+                            {{ $t('firewall.advancedControl') }}
+                        </el-link>
+                    </div>
+                </div>
+            </el-card>
         </div>
 
         <DockerRestart
@@ -236,6 +321,7 @@
 
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import i18n from '@/lang';
 import { Host } from '@/api/interface/host';
 import { dateFormat } from '@/utils/date';
@@ -252,14 +338,16 @@ import WhiteList from '@/views/host/firewall/components/white-list.vue';
 import SnapshotDrawer from '@/views/host/firewall/components/snapshot-drawer.vue';
 import InitWizard from '@/views/host/firewall/overview/init-wizard.vue';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
-import { enterFireApplying } from '@/views/host/firewall/composables/useFireSession';
+import { enterFireApplying, useFireSession } from '@/views/host/firewall/composables/useFireSession';
+
+const router = useRouter();
 
 const {
     baseInfo,
     loadBaseInfo,
     isExist,
     isActive,
-    isReady,
+    isReadyFor,
     capabilities,
     mode,
     name,
@@ -271,6 +359,11 @@ const {
     dockerAvailable,
     loadDockerStatus,
 } = useFireBaseInfo();
+
+// 概览页固定按 base 钉住就绪态：不被其它 tab 的后台 loadBaseInfo 改写 activeTab 影响。
+const readyBase = isReadyFor('base');
+
+const { session, remain, applying, loading: sessionLoading, onConfirm, onRevert } = useFireSession();
 
 const loading = ref(false);
 const onPing = ref('Disable');
@@ -291,15 +384,49 @@ const wizardRef = ref();
 const operation = ref('restart');
 const withDockerRestart = ref(false);
 
-const showDefaultPolicy = computed(() => mode.value === 'managed' && capabilities.value.defaultDrop && isReady.value);
+const showDefaultPolicy = computed(() => mode.value === 'managed' && capabilities.value.defaultDrop && readyBase.value);
+
+// 顶部 alert 按可行动优先级取最高者：未初始化 > 未激活 > 开机降级 > 冲突。
+// 待确认会话由区2 内联卡呈现（视觉优先级高于静态 tag），Docker/IPv6 能力归入区3 保护汇总，
+// 避免在无 Docker 主机上误报"Docker 不可用"。
+const topAlert = computed<{ type: 'warning' | 'error'; title: string; description?: string } | null>(() => {
+    if (!readyBase.value) {
+        return {
+            type: 'warning',
+            title: i18n.global.t('firewall.warnNotReady'),
+            description: i18n.global.t('firewall.warnNotReadyHelper'),
+        };
+    }
+    if (!isActive.value) {
+        return {
+            type: 'warning',
+            title: i18n.global.t('firewall.warnNotActive'),
+            description: i18n.global.t('firewall.warnNotActiveHelper'),
+        };
+    }
+    if (bootDegraded.value) {
+        return { type: 'warning', title: i18n.global.t('firewall.bootDegraded', [baseInfo.value.bootStatus]) };
+    }
+    if (conflict.value?.hasConflict) {
+        return { type: 'error', title: conflict.value.message || i18n.global.t('firewall.conflictHelper') };
+    }
+    return null;
+});
 
 // 后端以 UTC 紧凑格式（20060102150405）存快照时间，new Date() 无法直接解析，需手动转本地时间展示。
+// 非紧凑格式直接回原值；并对解析结果做有限性兜底，避免 dateFormat 喂入 Invalid Date 输出 NaN-NaN-NaN。
 const formatSnapshotTime = (ts: string): string => {
-    const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(ts || '');
+    if (!ts) {
+        return '—';
+    }
+    const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(ts);
     if (!m) {
         return ts;
     }
     const utc = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    if (!Number.isFinite(utc)) {
+        return ts;
+    }
     return dateFormat(0, 0, utc);
 };
 

@@ -33,91 +33,18 @@
 </template>
 
 <script lang="ts" setup>
-import { onMounted, onUnmounted, ref } from 'vue';
+import { onMounted, onUnmounted } from 'vue';
 import { Loading } from '@element-plus/icons-vue';
-import { Host } from '@/api/interface/host';
-import { confirmFireSession, loadFireSession, revertFireSession } from '@/api/modules/host';
-import i18n from '@/lang';
-import { MsgSuccess, MsgWarning } from '@/utils/message';
-import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
-import { registerFireApplying } from '@/views/host/firewall/composables/useFireSession';
+import { useFireSession } from '@/views/host/firewall/composables/useFireSession';
 
-const { loadBaseInfo } = useFireBaseInfo();
-const session = ref<Host.FirewallSession>({ active: false, changes: [], remainSeconds: 0, since: '', snapshot: '' });
-const remain = ref(0);
-const loading = ref(false);
-// 保存成功后立即进入的「应用中…」过渡态：禁用确认/撤销，约 2s 或拿到确认窗口为止。
-const applying = ref(false);
+// 仅负责会话轮询与倒计时；状态与 confirm/revert 动作由 useFireSession 单例持有，
+// overview 内联确认卡与全局横幅共用同一份，避免重复拉取与动作逻辑分叉。
+const { session, remain, applying, loading, refresh, onConfirm, onRevert, onCountdownZero } = useFireSession();
+
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
-let applyTimer: ReturnType<typeof setTimeout> | null = null;
-
-const refresh = async () => {
-    try {
-        const res = await loadFireSession();
-        session.value = res.data;
-        remain.value = res.data.remainSeconds;
-    } catch (error) {
-        session.value.active = false;
-    }
-    // 已拿到确认窗口，提前结束过渡态。
-    if (applying.value && session.value.active) {
-        applying.value = false;
-        if (applyTimer) {
-            clearTimeout(applyTimer);
-            applyTimer = null;
-        }
-    }
-};
-
-// 由保存成功的调用方触发：先显示 spinner，再主动刷新拿确认窗口；约 2s 后兜底退出。
-const enterApplying = () => {
-    applying.value = true;
-    refresh();
-    if (applyTimer) clearTimeout(applyTimer);
-    applyTimer = setTimeout(() => {
-        applying.value = false;
-        applyTimer = null;
-        refresh();
-    }, 2000);
-};
-
-// 倒计时归 0：后端会自动撤销，前端主动刷新并据结果提示。
-const onCountdownZero = async () => {
-    await refresh();
-    await loadBaseInfo('base');
-    if (!session.value.active) {
-        MsgWarning(i18n.global.t('firewall.autoReverted'));
-    }
-};
-
-const onConfirm = async () => {
-    loading.value = true;
-    try {
-        await confirmFireSession();
-        MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
-        await refresh();
-        await loadBaseInfo('base');
-    } finally {
-        loading.value = false;
-    }
-};
-
-const onRevert = async () => {
-    loading.value = true;
-    try {
-        await revertFireSession();
-        MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
-        await refresh();
-        await loadBaseInfo('base');
-    } finally {
-        loading.value = false;
-    }
-};
 
 onMounted(() => {
-    // 把自身的 enterApplying 注册到单例，供各会话型保存成功方即时触发应用中过渡态。
-    registerFireApplying(enterApplying);
     refresh();
     pollTimer = setInterval(refresh, 3000);
     tickTimer = setInterval(() => {
@@ -131,13 +58,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-    registerFireApplying(null);
     if (pollTimer) clearInterval(pollTimer);
     if (tickTimer) clearInterval(tickTimer);
-    if (applyTimer) clearTimeout(applyTimer);
-});
-
-defineExpose({
-    enterApplying,
 });
 </script>
