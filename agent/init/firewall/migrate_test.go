@@ -44,6 +44,7 @@ func TestIsDenyRuleLockoutRisk(t *testing.T) {
 	}{
 		{"broad covers ssh 22", "-p tcp -m tcp --dport 22 -j DROP", true},
 		{"broad explicit anywhere covers panel", "-s 0.0.0.0/0 -p tcp --dport 9999 -j DROP", true},
+		{"negated source covers ssh 22", "! -s 1.2.3.4 -p tcp --dport 22 -j DROP", true},
 		{"specific src single ip", "-s 1.2.3.4 -p tcp --dport 22 -j DROP", false},
 		{"no dport full drop", "-j DROP", true},
 		{"multiport contains 22", "-p tcp -m multiport --dports 22,80,443 -j DROP", true},

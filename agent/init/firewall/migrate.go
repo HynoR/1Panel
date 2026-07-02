@@ -163,7 +163,7 @@ func classifyLegacyRule(oldChain, rest string) string {
 
 // isDenyRuleLockoutRisk 纯函数：判断一条即将进入 DENY 的旧规则（去掉 "-A oldChain" 前缀部分）
 // 是否可能在升级瞬间静默锁外——即"广源"且"目的端口覆盖任一保底端口"。
-// 广源：无 -s，或 -s 为 0.0.0.0/0 / ::/0 / anywhere。
+// 广源：无 -s，或 -s 为 0.0.0.0/0 / ::/0 / anywhere，或取反源 `! -s <ip>`。
 // 端口覆盖：无 --dport/--dports 的全端口 DROP 视为覆盖全部；否则解析 --dport(单端口或 x:y 段)、
 //
 //	--dports(multiport 逗号列表，每项可为段) 是否命中任一保底端口。
@@ -191,6 +191,9 @@ func isBroadSource(rule string) bool {
 	fields := strings.Fields(rule)
 	for i, f := range fields {
 		if f == "-s" && i+1 < len(fields) {
+			if i > 0 && fields[i-1] == "!" {
+				return true
+			}
 			v := strings.ToLower(fields[i+1])
 			return v == "0.0.0.0/0" || v == "::/0" || v == "anywhere"
 		}

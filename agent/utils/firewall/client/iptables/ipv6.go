@@ -28,6 +28,7 @@ var (
 func HasIP6tables() bool {
 	has6Once.Do(func() {
 		has6Cached = cmd.Which("ip6tables")
+		global.LOG.Infof("[firewall] ip6tables available: %v", has6Cached)
 	})
 	return has6Cached
 }

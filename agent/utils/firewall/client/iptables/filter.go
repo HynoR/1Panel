@@ -291,7 +291,7 @@ func validateRuleSafety(rule FilterRules, chain string) error {
 		return nil
 	}
 
-	if chain == ChainInput || chain == Chain1PanelInput || chain == Chain1PanelBasic {
+	if chain == ChainInput || chain == Chain1PanelInput || chain == Chain1PanelBasic || chain == Chain1PanelDeny {
 		if rule.SrcIP == "0.0.0.0/0" && len(rule.SrcPort) == 0 && len(rule.DstPort) == 0 {
 			return fmt.Errorf("unsafe DROP is not allowed")
 		}

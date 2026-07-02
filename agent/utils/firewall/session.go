@@ -72,7 +72,7 @@ var session = &sessionState{windowSec: defaultConfirmWindow}
 
 // BeginSession 登记一笔"降低可达性"的变更并武装/刷新确认窗口。
 // 若当前无会话则先拍快照作为还原点；窗口内的后续变更并入同一会话并刷新计时器。
-// 变更应在调用本函数之前已实际应用（设计稿：立即应用，用户才能在当前连接上验证没锁外）。
+// 调用方应先登记会话再应用规则；若应用失败且尚未改动规则，由调用方 CancelSession 清理本次会话。
 func BeginSession(summary string) error {
 	session.mu.Lock()
 	defer session.mu.Unlock()
