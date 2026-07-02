@@ -78,9 +78,14 @@ func ReadFilterRulesByChain(chain string) ([]FilterRules, error) {
 	if err != nil {
 		return rules, fmt.Errorf("load filter fules by chain %s failed, %v", chain, err)
 	}
-	lines := strings.Split(stdout, "\n")
-	for i := 0; i < len(lines); i++ {
-		fields := strings.Fields(lines[i])
+	return parseFilterRules(chain, stdout), nil
+}
+
+// parseFilterRules 解析 `-nL <chain>` 输出中的 accept/drop/reject 规则（v4/v6 共用）。
+func parseFilterRules(chain, stdout string) []FilterRules {
+	var rules []FilterRules
+	for _, line := range strings.Split(stdout, "\n") {
+		fields := strings.Fields(line)
 		if len(fields) < 5 {
 			continue
 		}
@@ -88,7 +93,7 @@ func ReadFilterRulesByChain(chain string) ([]FilterRules, error) {
 		if strategy != "accept" && strategy != "drop" && strategy != "reject" {
 			continue
 		}
-		itemRule := FilterRules{
+		rules = append(rules, FilterRules{
 			Chain:    chain,
 			Protocol: loadProtocol(fields[1]),
 			SrcPort:  loadPort("src", fields),
@@ -96,10 +101,9 @@ func ReadFilterRulesByChain(chain string) ([]FilterRules, error) {
 			SrcIP:    loadIP(fields[3]),
 			DstIP:    loadIP(fields[4]),
 			Strategy: strategy,
-		}
-		rules = append(rules, itemRule)
+		})
 	}
-	return rules, nil
+	return rules
 }
 
 func LoadDefaultStrategy(chain string) (string, error) {
@@ -137,19 +141,24 @@ func LoadInitStatus(clientName, tab string) (bool, bool) {
 			return false, false
 		}
 		lines := strings.Split(filterRules, "\n")
+		// 新布局（PR-3）：GUARD/DENY/BASELINE/ALLOW/AFTER。
 		initRules := []string{
-			"-N " + Chain1PanelBasicBefore,
-			"-N " + Chain1PanelBasic,
-			"-N " + Chain1PanelBasicAfter,
-			fmt.Sprintf("-A %s %s -j ACCEPT", Chain1PanelBasicBefore, strings.ReplaceAll(strings.ReplaceAll(IoRuleIn, "'", "\""), " -j ACCEPT", "")),
-			fmt.Sprintf("-A %s %s -j ACCEPT", Chain1PanelBasicBefore, strings.ReplaceAll(strings.ReplaceAll(EstablishedRule, "'", "\""), " -j ACCEPT", "")),
-			fmt.Sprintf("-A %s %s", Chain1PanelBasicAfter, DropAllTcp),
-			fmt.Sprintf("-A %s %s", Chain1PanelBasicAfter, DropAllUdp),
+			"-N " + Chain1PanelGuard,
+			"-N " + Chain1PanelDeny,
+			"-N " + Chain1PanelBaseline,
+			"-N " + Chain1PanelAllow,
+			"-N " + Chain1PanelAfter,
+			fmt.Sprintf("-A %s %s -j ACCEPT", Chain1PanelGuard, strings.ReplaceAll(strings.ReplaceAll(IoRuleIn, "'", "\""), " -j ACCEPT", "")),
+			fmt.Sprintf("-A %s %s -j ACCEPT", Chain1PanelGuard, strings.ReplaceAll(strings.ReplaceAll(EstablishedRule, "'", "\""), " -j ACCEPT", "")),
+			fmt.Sprintf("-A %s %s", Chain1PanelAfter, DropAllTcp),
+			fmt.Sprintf("-A %s %s", Chain1PanelAfter, DropAllUdp),
 		}
 		bindRules := []string{
-			fmt.Sprintf("-A %s -j %s", ChainInput, Chain1PanelBasicBefore),
-			fmt.Sprintf("-A %s -j %s", ChainInput, Chain1PanelBasic),
-			fmt.Sprintf("-A %s -j %s", ChainInput, Chain1PanelBasicAfter),
+			fmt.Sprintf("-A %s -j %s", ChainInput, Chain1PanelGuard),
+			fmt.Sprintf("-A %s -j %s", ChainInput, Chain1PanelDeny),
+			fmt.Sprintf("-A %s -j %s", ChainInput, Chain1PanelBaseline),
+			fmt.Sprintf("-A %s -j %s", ChainInput, Chain1PanelAllow),
+			fmt.Sprintf("-A %s -j %s", ChainInput, Chain1PanelAfter),
 		}
 		return checkWithInitAndBind(initRules, bindRules, lines)
 	case "advance":
@@ -260,7 +269,7 @@ func loadPort(position string, portStr []string) string {
 }
 
 func loadIP(ipStr string) string {
-	if ipStr == ANYWHERE || ipStr == "0.0.0.0/0" {
+	if ipStr == ANYWHERE || ipStr == "0.0.0.0/0" || ipStr == "::/0" {
 		return ""
 	}
 	return ipStr
@@ -286,7 +295,7 @@ func validateRuleSafety(rule FilterRules, chain string) error {
 		return nil
 	}
 
-	if chain == ChainInput || chain == Chain1PanelInput || chain == Chain1PanelBasic {
+	if chain == ChainInput || chain == Chain1PanelInput || chain == Chain1PanelBasic || chain == Chain1PanelDeny {
 		if rule.SrcIP == "0.0.0.0/0" && len(rule.SrcPort) == 0 && len(rule.DstPort) == 0 {
 			return fmt.Errorf("unsafe DROP is not allowed")
 		}
