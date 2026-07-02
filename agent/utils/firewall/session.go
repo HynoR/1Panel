@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/1Panel-dev/1Panel/agent/buserr"
 	"github.com/1Panel-dev/1Panel/agent/global"
 	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client/iptables"
 )
@@ -29,6 +30,11 @@ const defaultConfirmWindow = 60
 // ReclaimSession 兜底（或人工介入）。
 const revertRetryWindowSec = 15
 const maxRevertRetries = 3
+
+// StrictModeSessionSummary 是开启白名单（严格）模式时登记的会话摘要，作为该会话的可辨识标记。
+// 关闭白名单（disableStrictMode）据此判定"当前活动会话是否只是这一笔严格变更"，
+// 只有这种会话才允许被关闭动作整体 Revert，避免连带回滚窗口内另一笔无关的待确认变更（D3）。
+const StrictModeSessionSummary = "enable strict (whitelist) mode"
 
 type SessionChange struct {
 	Summary string `json:"summary"`
@@ -115,6 +121,12 @@ func ConfirmSession() error {
 	if !session.active {
 		return nil
 	}
+	// 自动回滚已连续失败到上限：会话仍 active，但内核处于半还原危险态、定时器不再武装、marker 保留待兜底。
+	// 此时绝不能确认——persistManagedChains 会把这份半还原状态落盘并覆盖上次确认的良好持久化文件，
+	// 令危险规则集在重启/重放后复活（D1）。拒绝确认，指引用户重启 agent 或用 1pctl firewall rescue 恢复。
+	if session.revertFails >= maxRevertRetries {
+		return buserr.New("ErrFirewallRevertExhausted")
+	}
 	persistManagedChains()
 	global.LOG.Infof("[firewall-session] confirmed %d change(s)", len(session.changes))
 	session.clearLocked()
@@ -184,6 +196,24 @@ func SessionStatus() SessionInfo {
 		info.RemainSeconds = remain
 	}
 	return info
+}
+
+// ActiveSessionIsStrictOnly 判定当前活动会话是否"仅由开启白名单（严格）模式"这一/这些变更组成。
+// 仅取 mu 读快照、不嵌套其他会话函数，故与 Begin/Confirm/Revert/Status 顺序取锁不会死锁。
+// 关闭白名单时据此决定能否整体 Revert：窗口内若混入了别的待确认变更（如某条待确认的 DROP 规则），
+// Revert 会把它一并撤销（D3/A4 误伤），此时返回 false 让上层要求用户先确认或撤销。
+func ActiveSessionIsStrictOnly() bool {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if !session.active || len(session.changes) == 0 {
+		return false
+	}
+	for _, c := range session.changes {
+		if c.Summary != StrictModeSessionSummary {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *sessionState) clearLocked() {

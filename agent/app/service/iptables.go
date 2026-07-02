@@ -9,6 +9,7 @@ import (
 
 	"github.com/1Panel-dev/1Panel/agent/app/dto"
 	"github.com/1Panel-dev/1Panel/agent/app/model"
+	"github.com/1Panel-dev/1Panel/agent/buserr"
 	"github.com/1Panel-dev/1Panel/agent/constant"
 	"github.com/1Panel-dev/1Panel/agent/global"
 	"github.com/1Panel-dev/1Panel/agent/utils/cmd"
@@ -287,23 +288,41 @@ func (s *IptablesService) Operate(req dto.IptablesOp) error {
 
 // enableStrictMode 开启白名单（严格）模式：向已绑定的 AFTER 链注入 DROP all tcp/udp（v4+v6），
 // 未列出端口将被拒绝。高危（可能锁外）→ 先 BeginSession 武装提交-确认窗口（60s 未确认自动还原）。
-func enableStrictMode() error {
+func enableStrictMode() (retErr error) {
 	// 先武装提交-确认会话（拍快照=空 AFTER），再注入 DROP；不在此落盘、也不写 IptablesStrictMode setting
 	// ——遵守"确认前不落定"：用户点「确认保留」时 ConfirmSession 会 persistManagedChains（含 AFTER），超时/崩溃
 	// 则 RevertSession 还原为空 AFTER 并落盘，自动回到宽松，杜绝误开严格把人锁外。StrictMode 以内核为准
 	// （isStrictMode 读 AFTER 链），setting 不在确认前写盘，避免 DB/内核分裂（修 B7）。
-	if err := firewall.BeginSession("enable strict (whitelist) mode"); err != nil {
+	// SessionStatus 与 BeginSession 顺序取 mu、不嵌套，无死锁（D2 备注）。
+	sessionWasActive := firewall.SessionStatus().Active
+	if err := firewall.BeginSession(firewall.StrictModeSessionSummary); err != nil {
 		return err
 	}
-	if err := ensureAfterDropRules(); err != nil {
-		return err
-	}
-	return nil
+	applied := false
+	defer func() {
+		// 仅当本次是新武装会话、且失败前未向内核写入任何 DROP 规则时，撤销刚武装的会话，
+		// 避免"武装会话→写规则前就失败"残留一张 60s 幽灵确认卡片（D2）。
+		// 已有待确认会话（sessionWasActive）或已部分写入内核（applied）时不取消：前者不属于本次，
+		// 后者需保留会话在超时/崩溃时 RevertSession 清掉半写入的 DROP。
+		if retErr != nil && !sessionWasActive && !applied {
+			firewall.CancelSession(fmt.Sprintf("enable strict failed before any rule was applied: %v", retErr))
+		}
+	}()
+	var err error
+	applied, err = ensureAfterDropRules()
+	return err
 }
 
 // disableStrictMode 关闭白名单模式：清空 AFTER 链（v4+v6），未列出端口落回 INPUT(ACCEPT) 即宽松放行。
 func disableStrictMode() error {
 	if firewall.SessionStatus().Active {
+		// 活动会话若不是"仅开启白名单"这一笔，直接 Revert 会把窗口内另一笔无关的待确认变更（如某条待确认
+		// 的 DROP 规则）连带回滚（D3/A4 误伤）。仅当活动会话是严格启用会话时才走 Revert（用户"开启白名单→
+		// 60s 内反悔点关闭"的主保留场景）；否则要求用户先确认或撤销当前待确认变更。
+		// SessionStatus/ActiveSessionIsStrictOnly/RevertSession 顺序取 mu、不嵌套，无死锁。
+		if !firewall.ActiveSessionIsStrictOnly() {
+			return buserr.New("ErrFirewallSessionBusy")
+		}
 		if err := firewall.RevertSession(); err != nil {
 			return err
 		}
@@ -330,20 +349,24 @@ func disableStrictMode() error {
 // ensureAfterDropRules 幂等地向 AFTER 链（v4+v6）注入 DROP all tcp/udp。
 // v6 关键操作失败必须上抛（修 B6）：否则 enableStrictMode 仍返回 nil，造成"v4 严格/v6 宽松"不对称，
 // IPv6 旁路绕过白名单；上抛后上层会话（BeginSession 已武装）会在超时/崩溃时 RevertSession 还原 v4+v6。
-func ensureAfterDropRules() error {
+// 返回 applied 标记本次是否真的向内核写入过 DROP：供 enableStrictMode 区分"失败前零写入"（可安全撤销
+// 幽灵会话）与"已部分写入"（须保留会话让 Revert 兜底），见 D2。
+func ensureAfterDropRules() (applied bool, err error) {
 	for _, proto := range []string{"tcp", "udp"} {
 		if !iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP") {
 			if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP"); err != nil {
-				return err
+				return applied, err
 			}
+			applied = true
 		}
 		if iptables.HasIP6tables() && !iptables.CheckRuleExist6(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP") {
 			if err := iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP"); err != nil {
-				return err
+				return applied, err
 			}
+			applied = true
 		}
 	}
-	return nil
+	return applied, nil
 }
 
 // isStrictMode 判断当前是否白名单模式：AFTER 链需"已 jump 到 INPUT 且含 DROP all tcp"才算生效（注入时 tcp/udp 成对，检 tcp 即可）。
