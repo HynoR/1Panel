@@ -13,6 +13,7 @@
             show-icon
         >
             <div>{{ data.message }}</div>
+            <div class="mt-1 text-xs">{{ $t('firewall.redlineHint') }}</div>
         </el-alert>
         <template v-else>
             <el-alert :title="$t('firewall.riskTitle')" type="warning" :closable="false" show-icon>

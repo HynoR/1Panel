@@ -21,11 +21,20 @@
                 <el-form label-position="top">
                     <el-form-item :label="$t('firewall.defaultPolicy')">
                         <el-radio-group v-model="policy">
-                            <el-radio value="loose">{{ $t('firewall.policyLoose') }}</el-radio>
+                            <el-radio value="loose">
+                                {{ $t('firewall.policyLoose') }} ({{ $t('firewall.policyRecommended') }})
+                            </el-radio>
                             <el-radio value="strict" :disabled="!capabilities.defaultDrop">
                                 {{ $t('firewall.policyStrict') }}
                             </el-radio>
                         </el-radio-group>
+                        <el-alert
+                            v-if="policy === 'strict'"
+                            class="mt-2"
+                            type="warning"
+                            :closable="false"
+                            :title="$t('firewall.wizardStrictWarn')"
+                        />
                     </el-form-item>
                 </el-form>
             </div>

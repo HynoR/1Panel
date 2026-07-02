@@ -17,7 +17,12 @@
 
             <div v-else>
                 <el-alert v-if="!isActive" class="mb-2" type="warning" :closable="false" show-icon>
-                    {{ $t('firewall.firewallNotStart') }}
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span>{{ $t('firewall.firewallNotStart') }}</span>
+                        <el-button type="primary" link @click="goOverview">
+                            {{ $t('firewall.goOverviewStart') }}
+                        </el-button>
+                    </div>
                 </el-alert>
 
                 <div v-if="isActive" class="mb-2">
@@ -244,13 +249,31 @@
                                     />
                                 </template>
                             </el-table-column>
-                            <fu-table-operations
-                                width="180px"
-                                :buttons="buttons"
-                                :ellipsis="10"
-                                :label="$t('commons.table.operate')"
-                                fix
-                            />
+                            <el-table-column :label="$t('commons.table.operate')" width="180px" fixed="right">
+                                <template #default="{ row }">
+                                    <el-button v-permission v-node-admin type="primary" link @click="onEdit(row)">
+                                        {{ $t('commons.button.edit') }}
+                                    </el-button>
+                                    <el-tooltip
+                                        :content="$t('firewall.flowBaselineTip')"
+                                        :disabled="row.level !== 'baseline'"
+                                        placement="top"
+                                    >
+                                        <span>
+                                            <el-button
+                                                v-permission
+                                                v-node-admin
+                                                type="primary"
+                                                link
+                                                :disabled="row.level === 'baseline'"
+                                                @click="onDelete(row)"
+                                            >
+                                                {{ $t('commons.button.delete') }}
+                                            </el-button>
+                                        </span>
+                                    </el-tooltip>
+                                </template>
+                            </el-table-column>
                             <template #empty>
                                 <el-empty :image-size="80" :description="$t('firewall.inboundEmpty')">
                                     <div class="mt-1 text-xs text-gray-400">
@@ -982,26 +1005,6 @@ const onExport = () => {
 const showProcessDetail = (pid: number) => {
     processDetailRef.value?.acceptParams(pid);
 };
-
-const buttons = [
-    {
-        label: i18n.global.t('commons.button.edit'),
-        permission: true,
-        nodeAdmin: true,
-        click: (row: InboundRow) => {
-            onEdit(row);
-        },
-    },
-    {
-        label: i18n.global.t('commons.button.delete'),
-        permission: true,
-        nodeAdmin: true,
-        disabled: (row: InboundRow) => row.level === 'baseline',
-        click: (row: InboundRow) => {
-            onDelete(row);
-        },
-    },
-];
 
 onMounted(async () => {
     await loadBaseInfo('base');

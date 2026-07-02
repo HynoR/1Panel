@@ -177,6 +177,7 @@
                                     />
                                 </el-tooltip>
                             </div>
+                            <span class="text-xs text-gray-400">{{ $t('firewall.rescuePortSwitchHelper') }}</span>
                             <el-divider class="my-1" />
                             <div class="flex flex-wrap items-center gap-2">
                                 <el-tag size="small" :type="dockerAvailable ? 'success' : 'info'">

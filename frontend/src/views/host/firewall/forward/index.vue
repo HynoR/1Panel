@@ -20,7 +20,12 @@
 
             <div v-else>
                 <el-alert v-if="!isActive" class="mb-2" type="warning" :closable="false" show-icon>
-                    {{ $t('firewall.firewallNotStart') }}
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span>{{ $t('firewall.firewallNotStart') }}</span>
+                        <el-button type="primary" link @click="goOverview">
+                            {{ $t('firewall.goOverviewStart') }}
+                        </el-button>
+                    </div>
                 </el-alert>
 
                 <LayoutContent :title="$t('firewall.forwardRule', 2)" :class="{ mask: !isActive }">
@@ -121,7 +126,6 @@ import FireRouter from '@/views/host/firewall/index.vue';
 import OperateDialog from './operate/index.vue';
 import ImportDialog from './import/index.vue';
 import { onMounted, reactive, ref } from 'vue';
-import { useRouter } from 'vue-router';
 import { operateForwardRule, operateFilterChain, searchFireRule } from '@/api/modules/host';
 import { Host } from '@/api/interface/host';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
@@ -129,8 +133,8 @@ import i18n from '@/lang';
 import { MsgSuccess } from '@/utils/message';
 import { downloadWithContent } from '@/utils/file';
 import { getCurrentDateFormatted } from '@/utils/date';
+import { routerToName } from '@/utils/router';
 
-const router = useRouter();
 const { isExist, isActive, isReady, capabilities, name, loadBaseInfo } = useFireBaseInfo('forward');
 
 const loading = ref();
@@ -158,7 +162,7 @@ const reload = async () => {
 };
 
 const goOverview = () => {
-    router.push({ path: '/hosts/firewall/overview' });
+    routerToName('FirewallOverview');
 };
 
 const onInitForward = () => {
