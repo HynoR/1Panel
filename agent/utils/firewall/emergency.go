@@ -16,7 +16,12 @@ import (
 // 因此无需 DB，agent 重启后后台清理仍能识别并回收过期规则。
 //
 // 注意（设计稿已知限制）：external 模式下 ufw/firewalld reload 会清掉它——这只是兜底而非功能。
-// 反代场景下 RemoteAddr 是代理 IP，刻意不信任 X-Forwarded-For（方向正确）。
+//
+// 调用方 IP 的取舍（见 agent/utils/callerip）：master 单机部署下 core 经 root-only 的
+// unix socket 反代，agent 侧 RemoteAddr 取不到浏览器 IP，改采信 core 在该受信通道上注入的
+// X-1Panel-Caller-Ip（core 从入站 RemoteAddr 解析，非外部头）；node 多节点(TCP)部署下
+// RemoteAddr 就是真实对端 IP，一律忽略任何头以防网络伪造。始终不信任 X-Forwarded-For
+// （反代下它指向代理出口而非真实用户，方向正确）。
 
 const (
 	emergencyComment = "1PANEL_EMERGENCY"

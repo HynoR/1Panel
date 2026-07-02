@@ -40,6 +40,16 @@ func Init() {
 			if req.Header.Get("X-Forwarded-Host") == "" && req.Host != "" {
 				req.Header.Set("X-Forwarded-Host", req.Host)
 			}
+			// 经受信的 root-only unix socket 把 core 看到的真实客户端 IP 传给 agent，
+			// 供防火墙紧急放行 / 单 IP 自锁检测使用（unix socket 下 agent 侧 RemoteAddr
+			// 取不到浏览器 IP）。刻意只用入站 RemoteAddr，不信任外部 X-Forwarded-For；
+			// 先 Del 再 Set，防止外部请求伪造同名头穿透到 agent。
+			req.Header.Del("X-1Panel-Caller-Ip")
+			if host, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
+				if ip := net.ParseIP(host); ip != nil {
+					req.Header.Set("X-1Panel-Caller-Ip", ip.String())
+				}
+			}
 			req.URL.Scheme = "http"
 			req.URL.Host = "unix"
 		},

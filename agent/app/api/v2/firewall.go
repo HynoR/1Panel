@@ -1,22 +1,16 @@
 package v2
 
 import (
-	"net"
-
 	"github.com/1Panel-dev/1Panel/agent/app/api/v2/helper"
 	"github.com/1Panel-dev/1Panel/agent/app/dto"
+	"github.com/1Panel-dev/1Panel/agent/utils/callerip"
 	"github.com/gin-gonic/gin"
 )
 
+// firewallCallerIP 解析调用方真实客户端 IP（B9 单 IP 自锁检测用）。
+// 信任模型见 callerip.Resolve：unix socket 采信 core 注入的受信头，TCP 用 RemoteAddr。
 func firewallCallerIP(c *gin.Context) string {
-	host, _, err := net.SplitHostPort(c.Request.RemoteAddr)
-	if err != nil {
-		host = c.Request.RemoteAddr
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		return ip.String()
-	}
-	return ""
+	return callerip.Resolve(c.Request)
 }
 
 // @Tags Firewall
