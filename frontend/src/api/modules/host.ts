@@ -43,6 +43,31 @@ export const updateFirewallDescription = (params: Host.UpdateDescription) => {
 export const batchOperateRule = (params: Host.BatchRule) => {
     return http.post(`/hosts/firewall/batch`, params, TimeoutEnum.T_60S);
 };
+// firewall commit-confirm session + snapshots (safety stack L3)
+export const loadFireSession = () => {
+    return http.post<Host.FirewallSession>(`/hosts/firewall/session/status`, {});
+};
+export const confirmFireSession = () => {
+    return http.post(`/hosts/firewall/session/confirm`, {}, TimeoutEnum.T_40S);
+};
+export const revertFireSession = () => {
+    return http.post(`/hosts/firewall/session/revert`, {}, TimeoutEnum.T_60S);
+};
+export const listFireSnapshot = () => {
+    return http.post<Host.FirewallSnapshot[]>(`/hosts/firewall/snapshot/list`, {});
+};
+export const restoreFireSnapshot = (name: string) => {
+    return http.post(`/hosts/firewall/snapshot/restore`, { name: name }, TimeoutEnum.T_60S);
+};
+export const loadFireDockerStatus = () => {
+    return http.post<Host.FirewallDockerStatus>(`/hosts/firewall/docker/status`, {});
+};
+export const listFireQuarantine = () => {
+    return http.get<string[]>(`/hosts/firewall/quarantine`);
+};
+export const cleanFireQuarantine = () => {
+    return http.post(`/hosts/firewall/quarantine/clean`, {}, TimeoutEnum.T_40S);
+};
 
 // Iptables Filter
 export const searchFilterRules = (params: Host.IptablesFilterRuleSearch) => {

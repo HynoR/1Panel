@@ -66,12 +66,51 @@ export namespace Host {
 
     export interface FirewallBase {
         name: string;
+        mode: string;
         isExist: boolean;
         isActive: boolean;
         isInit: boolean;
         isBind: boolean;
         version: string;
         pingStatus: string;
+        capabilities: FirewallCapabilities;
+        conflict: FirewallConflict;
+        bootStatus: string;
+        consistent: boolean;
+        strictMode: boolean;
+    }
+    export interface FirewallCapabilities {
+        rules: boolean;
+        forward: boolean;
+        forwardImpl: string;
+        filter: boolean;
+        baseline: boolean;
+        snapshot: string;
+        ipv6Rules: boolean;
+        defaultDrop: boolean;
+    }
+    export interface FirewallConflict {
+        hasConflict: boolean;
+        providers: string[];
+        message: string;
+    }
+    export interface FirewallSessionChange {
+        summary: string;
+        at: string;
+    }
+    export interface FirewallSession {
+        active: boolean;
+        changes: FirewallSessionChange[];
+        remainSeconds: number;
+        since: string;
+        snapshot: string;
+    }
+    export interface FirewallSnapshot {
+        name: string;
+        tag: string;
+        createdAt: string;
+        hasV6: boolean;
+        size: number;
     }
     export interface RuleSearch extends ReqPage {
         strategy: string;
@@ -90,6 +129,7 @@ export namespace Host {
 
         usedStatus: string;
         description: string;
+        applyToDocker?: boolean;
 
         [key: string]: any;
     }
@@ -102,6 +142,7 @@ export namespace Host {
         dstPort: string;
         protocol: string;
         strategy: string;
+        family?: string;
         description: string;
     }
     export interface RulePort {
@@ -112,6 +153,8 @@ export namespace Host {
         protocol: string;
         strategy: string;
         description: string;
+        family?: string;
+        applyToDocker?: boolean;
     }
     export interface RuleForward {
         operation: string;
@@ -126,6 +169,18 @@ export namespace Host {
         address: string;
         strategy: string;
         description: string;
+        family?: string;
+        applyToDocker?: boolean;
+    }
+    export interface FirewallDockerRule {
+        address: string;
+        port: string;
+        protocol: string;
+        strategy: string;
+    }
+    export interface FirewallDockerStatus {
+        available: boolean;
+        rules: FirewallDockerRule[];
     }
     export interface UpdatePortRule {
         oldRule: RulePort;
@@ -140,6 +195,30 @@ export namespace Host {
         rules: Array<RulePort>;
     }
 
+    // ---- FRONTEND-ONLY view types for the unified inbound rules (no backend DTO change) ----
+    export type InboundRuleType = 'port' | 'address';
+    export type InboundRuleLevel = 'deny' | 'baseline' | 'allow';
+    // A RuleInfo row tagged for the merged inbound table; level is derived client-side.
+    export interface InboundRule extends RuleInfo {
+        ruleType: InboundRuleType;
+        level?: InboundRuleLevel;
+    }
+    // Unified create/edit form model; objectType routes to operatePortRule / operateIPRule.
+    export interface UnifiedRuleForm {
+        objectType: InboundRuleType;
+        port: string;
+        address: string;
+        protocol: string;
+        strategy: string;
+        family: string;
+        applyToDocker: boolean;
+        description: string;
+    }
+    // Client-side risk heuristic result (no backend risk field / precheck endpoint).
+    export interface RiskInfo {
+        mode: 'warn' | 'redline' | 'none';
+        message: string;
+    }
     export interface MonitorSetting {
         defaultNetwork: string;
         defaultIO: string;
