@@ -7,6 +7,7 @@ import (
 
 	"github.com/1Panel-dev/1Panel/agent/utils/cmd"
 	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client"
+	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client/iptables"
 )
 
 // ErrNoFirewall 表示系统未检测到任何受支持的防火墙后端。
@@ -157,7 +158,7 @@ func newManagedProvider(name string, c FirewallClient) *Provider {
 		Filter:      true,
 		Baseline:    true,
 		Snapshot:    "panel",
-		IPv6Rules:   hasIP6tables(),
+		IPv6Rules:   iptables.HasIP6tables(),
 		DefaultDrop: true,
 	}
 	return &Provider{name: name, mode: ModeManaged, caps: caps, client: c}
@@ -178,8 +179,4 @@ func newExternalProvider(name string, c FirewallClient) *Provider {
 		caps.ForwardImpl = "panel-nat"
 	}
 	return &Provider{name: name, mode: ModeExternal, caps: caps, client: c}
-}
-
-func hasIP6tables() bool {
-	return cmd.Which("ip6tables")
 }

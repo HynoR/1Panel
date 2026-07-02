@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 
 	"github.com/1Panel-dev/1Panel/agent/app/dto"
@@ -293,23 +292,16 @@ func enableStrictMode() (retErr error) {
 	// ——遵守"确认前不落定"：用户点「确认保留」时 ConfirmSession 会 persistManagedChains（含 AFTER），超时/崩溃
 	// 则 RevertSession 还原为空 AFTER 并落盘，自动回到宽松，杜绝误开严格把人锁外。StrictMode 以内核为准
 	// （isStrictMode 读 AFTER 链），setting 不在确认前写盘，避免 DB/内核分裂（修 B7）。
-	// SessionStatus 与 BeginSession 顺序取 mu、不嵌套，无死锁（D2 备注）。
-	sessionWasActive := firewall.SessionStatus().Active
-	if err := firewall.BeginSession(firewall.StrictModeSessionSummary); err != nil {
+	// 幽灵会话撤销 / 半写入保留的取舍见 firewall.SessionGuard（D2）。
+	guard, err := firewall.BeginSessionGuard(firewall.StrictModeSessionSummary)
+	if err != nil {
 		return err
 	}
-	applied := false
-	defer func() {
-		// 仅当本次是新武装会话、且失败前未向内核写入任何 DROP 规则时，撤销刚武装的会话，
-		// 避免"武装会话→写规则前就失败"残留一张 60s 幽灵确认卡片（D2）。
-		// 已有待确认会话（sessionWasActive）或已部分写入内核（applied）时不取消：前者不属于本次，
-		// 后者需保留会话在超时/崩溃时 RevertSession 清掉半写入的 DROP。
-		if retErr != nil && !sessionWasActive && !applied {
-			firewall.CancelSession(fmt.Sprintf("enable strict failed before any rule was applied: %v", retErr))
-		}
-	}()
-	var err error
-	applied, err = ensureAfterDropRules()
+	defer func() { guard.Finish("enable strict", retErr) }()
+	applied, err := ensureAfterDropRules()
+	if applied {
+		guard.MarkApplied()
+	}
 	return err
 }
 
@@ -352,15 +344,16 @@ func disableStrictMode() error {
 // 返回 applied 标记本次是否真的向内核写入过 DROP：供 enableStrictMode 区分"失败前零写入"（可安全撤销
 // 幽灵会话）与"已部分写入"（须保留会话让 Revert 兜底），见 D2。
 func ensureAfterDropRules() (applied bool, err error) {
+	// 已显式 CheckRuleExist 去重，直接 -A 追加（AddRule 内部会再跑一次同样的 -C，纯浪费）。
 	for _, proto := range []string{"tcp", "udp"} {
 		if !iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP") {
-			if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP"); err != nil {
+			if err := iptables.Run(iptables.FilterTab, "-A", iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP"); err != nil {
 				return applied, err
 			}
 			applied = true
 		}
 		if iptables.HasIP6tables() && !iptables.CheckRuleExist6(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP") {
-			if err := iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP"); err != nil {
+			if err := iptables.Run6(iptables.FilterTab, "-A", iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP"); err != nil {
 				return applied, err
 			}
 			applied = true
@@ -496,7 +489,7 @@ func initPreRules() error {
 func bindBaseChainsInOrder() error {
 	unbindBaseChains()
 	for i, chain := range baseChainOrder {
-		if err := iptables.Run(iptables.FilterTab, "-I", iptables.ChainInput, strconv.Itoa(i+1), "-j", chain); err != nil {
+		if err := iptables.InsertChain(iptables.FilterTab, iptables.ChainInput, chain, i+1); err != nil {
 			return fmt.Errorf("bind base chain %s failed: %w", chain, err)
 		}
 	}
@@ -515,15 +508,7 @@ func unbindBaseChains() {
 		iptables.Chain1PanelBasicAfter,
 	)
 	for _, chain := range chains {
-		for i := 0; i < 16; i++ {
-			num, _ := iptables.FindChainNum(iptables.FilterTab, iptables.ChainInput, chain)
-			if num == 0 {
-				break
-			}
-			if err := iptables.Run(iptables.FilterTab, "-D", iptables.ChainInput, strconv.Itoa(num)); err != nil {
-				break
-			}
-		}
+		iptables.UnbindChainAll(iptables.FilterTab, iptables.ChainInput, chain)
 	}
 }
 

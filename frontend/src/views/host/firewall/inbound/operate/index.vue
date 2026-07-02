@@ -48,7 +48,7 @@
                     </el-form-item>
 
                     <el-form-item
-                        v-if="dialogMode === 'managed' && capabilities && capabilities.ipv6Rules"
+                        v-if="mode === 'managed' && capabilities.ipv6Rules"
                         :label="$t('firewall.family')"
                         prop="family"
                     >
@@ -91,32 +91,29 @@ import { computed, reactive, ref, watch } from 'vue';
 import { Rules } from '@/global/form-rules';
 import i18n from '@/lang';
 import { ElForm } from 'element-plus';
-import { MsgError, MsgSuccess, MsgWarning } from '@/utils/message';
+import { MsgError, MsgSuccess } from '@/utils/message';
 import { Host } from '@/api/interface/host';
 import { operateIPRule, operatePortRule, updateAddrRule, updatePortRule } from '@/api/modules/host';
-import { checkCidr, checkCidrV6, checkIpV4V6, checkPort } from '@/utils/validate';
 import { deepCopy } from '@/utils/misc';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
 import { computeFirewallRisk, ensurePortsLoaded } from '@/views/host/firewall/composables/useFirewallRisk';
+import { isValidAddressList, isValidPortExpr } from '@/views/host/firewall/composables/firewallHelpers';
 import { enterFireApplying } from '@/views/host/firewall/composables/useFireSession';
 import RiskPrecheck from '@/views/host/firewall/components/risk-precheck.vue';
 
-const { dockerAvailable, loadDockerStatus } = useFireBaseInfo();
+// 能力/模式直接读共享 baseInfo（列表页已加载），不再经 acceptParams 层层透传。
+const { dockerAvailable, loadDockerStatus, capabilities, mode } = useFireBaseInfo('base');
 
 interface DialogProps {
     title: 'create' | 'edit';
     objectType?: Host.InboundRuleType;
     rowData?: Partial<Host.UnifiedRuleForm>;
-    capabilities?: Host.FirewallCapabilities;
-    mode?: string;
 }
 
 const loading = ref(false);
 const drawerVisible = ref(false);
 const title = ref('');
 const dialogTitle = ref<'create' | 'edit'>('create');
-const dialogMode = ref('');
-const capabilities = ref<Host.FirewallCapabilities>();
 const activeCollapse = ref<string[]>([]);
 
 const emptyForm = (): Host.UnifiedRuleForm => ({
@@ -205,18 +202,19 @@ const effectSummary = computed(() => {
 
 // 实时风险预检：redline 直接禁用 confirm，warn 仍走 onSubmit 的 RiskPrecheck 确认流程。
 const riskLevel = ref<Host.RiskInfo['mode']>('none');
+const evalRisk = (): Host.RiskInfo =>
+    computeFirewallRisk({
+        strategy: form.strategy,
+        objectType: form.objectType,
+        address: form.address,
+        port: form.port,
+    });
 watch(
     form,
     async () => {
         if (!drawerVisible.value) return;
         await ensurePortsLoaded();
-        const risk = computeFirewallRisk({
-            strategy: form.strategy,
-            objectType: form.objectType,
-            address: form.address,
-            port: form.port,
-        });
-        riskLevel.value = risk.mode;
+        riskLevel.value = evalRisk().mode;
     },
     { deep: true },
 );
@@ -226,8 +224,6 @@ const emit = defineEmits<{ (e: 'search'): void }>();
 
 const acceptParams = async (params: DialogProps): Promise<void> => {
     dialogTitle.value = params.title;
-    dialogMode.value = params.mode || '';
-    capabilities.value = params.capabilities;
     Object.assign(form, emptyForm(), params.rowData || {});
     if (params.objectType) {
         form.objectType = params.objectType;
@@ -243,12 +239,7 @@ const acceptParams = async (params: DialogProps): Promise<void> => {
     drawerVisible.value = true;
     // await 端口与 docker 就绪，避免快速点确认时 redline 误判（panelPort 仍空 → coversPanel=false）。
     await Promise.all([ensurePortsLoaded(), loadDocker()]);
-    riskLevel.value = computeFirewallRisk({
-        strategy: form.strategy,
-        objectType: form.objectType,
-        address: form.address,
-        port: form.port,
-    }).mode;
+    riskLevel.value = evalRisk().mode;
 };
 
 const loadDocker = async () => {
@@ -284,26 +275,11 @@ function checkPortField(rule: any, value: any, callback: any) {
 }
 
 function checkAddress(rule: any, value: any, callback: any) {
-    if (form.objectType === 'address') {
-        if (!form.address) {
-            return callback(new Error(i18n.global.t('firewall.addressFormatError')));
-        }
-    } else if (!form.address) {
-        return callback();
+    if (form.objectType === 'address' && !form.address) {
+        return callback(new Error(i18n.global.t('firewall.addressFormatError')));
     }
-    const addrs = form.address.split(',');
-    for (const item of addrs) {
-        if (item.indexOf('/') !== -1) {
-            if (item.indexOf(':') !== -1) {
-                if (checkCidrV6(item)) {
-                    return callback(new Error(i18n.global.t('firewall.addressFormatError')));
-                }
-            } else if (checkCidr(item)) {
-                return callback(new Error(i18n.global.t('firewall.addressFormatError')));
-            }
-        } else if (checkIpV4V6(item)) {
-            return callback(new Error(i18n.global.t('firewall.addressFormatError')));
-        }
+    if (!isValidAddressList(form.address)) {
+        return callback(new Error(i18n.global.t('firewall.addressFormatError')));
     }
     callback();
 }
@@ -336,28 +312,13 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
     if (!formEl) return;
     await formEl.validate(async (valid) => {
         if (!valid) return;
-        if (form.objectType === 'port') {
-            const ports =
-                form.port.indexOf('-') !== -1 && !form.port.startsWith('-')
-                    ? form.port.split('-')
-                    : form.port.indexOf(',') !== -1 && !form.port.startsWith(',')
-                      ? form.port.split(',')
-                      : [form.port];
-            for (const port of ports) {
-                if (checkPort(port)) {
-                    MsgError(i18n.global.t('firewall.portFormatError'));
-                    return;
-                }
-            }
+        if (form.objectType === 'port' && !isValidPortExpr(form.port)) {
+            MsgError(i18n.global.t('firewall.portFormatError'));
+            return;
         }
         // 确保端口就绪后再做红线判定，避免 sshPort/panelPort 未加载导致 redline 失效。
         await ensurePortsLoaded();
-        const risk = computeFirewallRisk({
-            strategy: form.strategy,
-            objectType: form.objectType,
-            address: form.address,
-            port: form.port,
-        });
+        const risk = evalRisk();
         if (risk.mode === 'none') {
             doSubmit();
         } else {
@@ -388,8 +349,7 @@ const doSubmit = async () => {
         }
         if (form.strategy === 'drop') {
             // drop=会话型候选（后端对触及保底端口的 drop / CIDR 封禁武装 60s 确认窗口）：
-            // 即时进入应用中过渡态，且不显示「最终成功」以免在用户确认前误导。
-            MsgWarning(i18n.global.t('firewall.applying'));
+            // 即时进入应用中过渡态（含「应用中…」提示），且不显示「最终成功」以免在用户确认前误导。
             enterFireApplying();
         } else {
             MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));

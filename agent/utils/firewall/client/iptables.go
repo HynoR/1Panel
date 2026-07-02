@@ -62,38 +62,40 @@ func (i *Iptables) Version() (string, error) {
 
 func (i *Iptables) ListPort() ([]FireInfo, error) {
 	// 新布局：端口规则散落在 DENY(黑名单)、BASELINE(保底)、ALLOW(放行/白名单) 三条链。
-	if _, err := iptables.ReadFilterRulesByChain(iptables.Chain1PanelDeny); err != nil {
-		return nil, err
-	}
 	chains := []string{iptables.Chain1PanelDeny, iptables.Chain1PanelBaseline, iptables.Chain1PanelAllow}
 	var datas []FireInfo
 	idx := map[string]int{}
-	appendPortRules(&datas, idx, iptables.ReadFilterRulesByChain, chains, "ipv4")
+	if err := appendPortRules(&datas, idx, iptables.ReadFilterRulesByChain, chains, "ipv4"); err != nil {
+		return nil, err
+	}
 	if iptables.HasIP6tables() {
-		appendPortRules(&datas, idx, iptables.ReadFilterRulesByChain6, chains, "ipv6")
+		_ = appendPortRules(&datas, idx, iptables.ReadFilterRulesByChain6, chains, "ipv6")
 	}
 	return datas, nil
 }
 
 func (i *Iptables) ListAddress() ([]FireInfo, error) {
 	// 新布局：IP 规则在 DENY(黑名单) 与 ALLOW(白名单) 两条链。
-	if _, err := iptables.ReadFilterRulesByChain(iptables.Chain1PanelDeny); err != nil {
-		return nil, err
-	}
 	chains := []string{iptables.Chain1PanelDeny, iptables.Chain1PanelAllow}
 	var datas []FireInfo
 	idx := map[string]int{}
-	appendAddressRules(&datas, idx, iptables.ReadFilterRulesByChain, chains, "ipv4")
+	if err := appendAddressRules(&datas, idx, iptables.ReadFilterRulesByChain, chains, "ipv4"); err != nil {
+		return nil, err
+	}
 	if iptables.HasIP6tables() {
-		appendAddressRules(&datas, idx, iptables.ReadFilterRulesByChain6, chains, "ipv6")
+		_ = appendAddressRules(&datas, idx, iptables.ReadFilterRulesByChain6, chains, "ipv6")
 	}
 	return datas, nil
 }
 
 // appendPortRules 合并多条链的端口规则；v4/v6 同一条语义规则合并为 family=both（保持 v4 出现顺序）。
-func appendPortRules(out *[]FireInfo, idx map[string]int, reader func(string) ([]iptables.FilterRules, error), chains []string, family string) {
+// 读链失败即返回错误（v4 侧上抛给调用方，v6 镜像侧忽略）。
+func appendPortRules(out *[]FireInfo, idx map[string]int, reader func(string) ([]iptables.FilterRules, error), chains []string, family string) error {
 	for _, chain := range chains {
-		rules, _ := reader(chain)
+		rules, err := reader(chain)
+		if err != nil {
+			return err
+		}
 		for _, item := range rules {
 			if len(item.DstPort) == 0 {
 				continue
@@ -111,11 +113,15 @@ func appendPortRules(out *[]FireInfo, idx map[string]int, reader func(string) ([
 			*out = append(*out, FireInfo{Chain: item.Chain, Address: item.SrcIP, Protocol: item.Protocol, Port: item.DstPort, Strategy: strategy, Family: family})
 		}
 	}
+	return nil
 }
 
-func appendAddressRules(out *[]FireInfo, idx map[string]int, reader func(string) ([]iptables.FilterRules, error), chains []string, family string) {
+func appendAddressRules(out *[]FireInfo, idx map[string]int, reader func(string) ([]iptables.FilterRules, error), chains []string, family string) error {
 	for _, chain := range chains {
-		rules, _ := reader(chain)
+		rules, err := reader(chain)
+		if err != nil {
+			return err
+		}
 		for _, item := range rules {
 			if len(item.DstPort) != 0 || len(item.SrcPort) != 0 {
 				continue
@@ -133,6 +139,7 @@ func appendAddressRules(out *[]FireInfo, idx map[string]int, reader func(string)
 			*out = append(*out, FireInfo{Address: item.SrcIP, Strategy: strategy, Family: family})
 		}
 	}
+	return nil
 }
 
 func combineFamily(a, b string) string {
@@ -170,31 +177,36 @@ func (i *Iptables) Port(port FireInfo, operation string) error {
 	}
 
 	ruleArgs := []string{"-p", protocol, "--dport", portSpec, "-j", action}
-	name := iptables.ChainFileName(port.Chain)
 	// 端口规则默认双栈（family 空=both）；镜像写 ip6tables 同名链（修 C7）。
 	doV4, doV6 := familyTargets(port.Family)
+	return applyFilterRule(port.Chain, ruleArgs, operation, doV4, doV6)
+}
+
+// applyFilterRule 在 chain 上执行 add/remove 并持久化（doV4/doV6 控制地址族；v6 需系统存在 ip6tables）。
+func applyFilterRule(chain string, ruleArgs []string, operation string, doV4, doV6 bool) error {
+	name := iptables.ChainFileName(chain)
 	if doV4 {
 		if operation == "add" {
-			if err := iptables.AddRule(iptables.FilterTab, port.Chain, ruleArgs...); err != nil {
+			if err := iptables.AddRule(iptables.FilterTab, chain, ruleArgs...); err != nil {
 				return err
 			}
-		} else if err := iptables.DeleteRule(iptables.FilterTab, port.Chain, ruleArgs...); err != nil {
+		} else if err := iptables.DeleteRule(iptables.FilterTab, chain, ruleArgs...); err != nil {
 			return err
 		}
-		if err := iptables.SaveRulesToFile(iptables.FilterTab, port.Chain, name); err != nil {
-			global.LOG.Errorf("persistence for %s failed, err: %v", port.Chain, err)
+		if err := iptables.SaveRulesToFile(iptables.FilterTab, chain, name); err != nil {
+			global.LOG.Errorf("persistence for %s failed, err: %v", chain, err)
 		}
 	}
 	if doV6 && iptables.HasIP6tables() {
 		if operation == "add" {
-			if err := iptables.AddRule6(iptables.FilterTab, port.Chain, ruleArgs...); err != nil {
+			if err := iptables.AddRule6(iptables.FilterTab, chain, ruleArgs...); err != nil {
 				return err
 			}
-		} else if err := iptables.DeleteRule6(iptables.FilterTab, port.Chain, ruleArgs...); err != nil {
+		} else if err := iptables.DeleteRule6(iptables.FilterTab, chain, ruleArgs...); err != nil {
 			return err
 		}
-		if err := iptables.SaveRulesToFile6(iptables.FilterTab, port.Chain, name); err != nil {
-			global.LOG.Errorf("v6 persistence for %s failed, err: %v", port.Chain, err)
+		if err := iptables.SaveRulesToFile6(iptables.FilterTab, chain, name); err != nil {
+			global.LOG.Errorf("v6 persistence for %s failed, err: %v", chain, err)
 		}
 	}
 	return nil
@@ -260,7 +272,6 @@ func (i *Iptables) RichRules(rule FireInfo, operation string) error {
 	}
 
 	ruleArgs = append(ruleArgs, "-j", action)
-	name := iptables.ChainFileName(rule.Chain)
 
 	// 按地址族判定：有地址按地址族；无地址（纯端口富规则）按 family（默认 both）。
 	doV4, doV6 := familyTargets(rule.Family)
@@ -271,30 +282,8 @@ func (i *Iptables) RichRules(rule FireInfo, operation string) error {
 			doV4, doV6 = true, false
 		}
 	}
-
-	if doV4 {
-		if operation == "add" {
-			if err := iptables.AddRule(iptables.FilterTab, rule.Chain, ruleArgs...); err != nil {
-				return err
-			}
-		} else if err := iptables.DeleteRule(iptables.FilterTab, rule.Chain, ruleArgs...); err != nil {
-			return err
-		}
-		if err := iptables.SaveRulesToFile(iptables.FilterTab, rule.Chain, name); err != nil {
-			global.LOG.Errorf("persistence for %s failed, err: %v", rule.Chain, err)
-		}
-	}
-	if doV6 && iptables.HasIP6tables() {
-		if operation == "add" {
-			if err := iptables.AddRule6(iptables.FilterTab, rule.Chain, ruleArgs...); err != nil {
-				return err
-			}
-		} else if err := iptables.DeleteRule6(iptables.FilterTab, rule.Chain, ruleArgs...); err != nil {
-			return err
-		}
-		if err := iptables.SaveRulesToFile6(iptables.FilterTab, rule.Chain, name); err != nil {
-			global.LOG.Errorf("v6 persistence for %s failed, err: %v", rule.Chain, err)
-		}
+	if err := applyFilterRule(rule.Chain, ruleArgs, operation, doV4, doV6); err != nil {
+		return err
 	}
 	// 黑名单立即生效：清掉该源已建立的连接（conntrack 处理双栈）。
 	if operation == "add" && action == "DROP" && address != "" {

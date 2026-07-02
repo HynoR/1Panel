@@ -41,7 +41,6 @@ const activeTab = ref<FireTab>('base');
 
 const hasAdvancedRules = ref(false);
 const dockerAvailable = ref(false);
-const dockerRules = ref<Host.FirewallDockerRule[]>([]);
 
 const loadBaseInfo = async (tab: FireTab = 'base'): Promise<void> => {
     activeTab.value = tab;
@@ -72,22 +71,9 @@ const loadDockerStatus = async (): Promise<void> => {
     try {
         const res = await loadFireDockerStatus();
         dockerAvailable.value = res.data.available;
-        dockerRules.value = res.data.rules || [];
     } catch {
         dockerAvailable.value = false;
-        dockerRules.value = [];
     }
-};
-
-const reset = (): void => {
-    baseInfoMap.base = defaultBase();
-    baseInfoMap.forward = defaultBase();
-    baseInfoMap.advance = defaultBase();
-    existFlag.value = true;
-    activeTab.value = 'base';
-    hasAdvancedRules.value = false;
-    dockerAvailable.value = false;
-    dockerRules.value = [];
 };
 
 export function useFireBaseInfo(tab?: FireTab) {
@@ -126,8 +112,6 @@ export function useFireBaseInfo(tab?: FireTab) {
         hasAdvancedRules,
         probeAdvancedRules,
         dockerAvailable,
-        dockerRules,
         loadDockerStatus,
-        reset,
     };
 }

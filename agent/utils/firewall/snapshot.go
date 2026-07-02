@@ -276,7 +276,10 @@ func applyScoped(tables map[string]*savedTable, bin string) error {
 		tbl := tables[tab]
 		// 1. 先解绑所有现存 1PANEL jump（无论快照里有没有），保证顺序可控。
 		for _, base := range bases {
-			unbindAllPanelJumps(bin, tab, base)
+			// step1 会解绑任意以 1PANEL_* 为目标的跳转（含带匹配条件的），而 step4 只重绑"纯 jump"。
+			// 这是有意的非对称——1Panel 自己只产生纯 jump，故纳管规则可无损往返；step1 顺带清掉
+			// 手工/第三方加的带条件跳转（不重建）属于清理而非回滚丢失。
+			iptables.UnbindMatchingJumps(bin, tab, base, panelChainPrefix)
 		}
 		if tbl == nil {
 			continue
@@ -300,7 +303,7 @@ func applyScoped(tables map[string]*savedTable, bin string) error {
 		}
 		// 3. 删除当前存在但快照里没有的 1PANEL 链。
 		//    同样跳过 1PANEL_DOCKER：它由 persistDocker/LoadDockerRules 独立维护，删它会永久丢规则（P1）。
-		for _, chain := range listPanelChains(bin, tab) {
+		for _, chain := range iptables.ListChainsByPrefix(bin, tab, panelChainPrefix) {
 			if chain == iptables.Chain1PanelDocker {
 				continue
 			}
@@ -322,63 +325,6 @@ func applyScoped(tables map[string]*savedTable, bin string) error {
 		}
 	}
 	return nil
-}
-
-func unbindAllPanelJumps(bin, tab, base string) {
-	for {
-		num := findFirstPanelJump(bin, tab, base)
-		if num == 0 {
-			return
-		}
-		if err := runScoped(bin, tab, "-D", base, fmt.Sprintf("%d", num)); err != nil {
-			return
-		}
-	}
-}
-
-// findFirstPanelJump 返回基础链上第一条"目标列为 1PANEL_* 链"的规则行号（step1 解绑用）。
-// 注意与 jumpTarget（step4 重绑用）的非对称：step1 会解绑任意以 1PANEL_* 为目标的跳转
-// （含带匹配条件的），而 step4 只重绑"纯 jump"。这是有意的——1Panel 自己只产生纯 jump，
-// 故纳管规则可无损往返；step1 顺带清掉手工/第三方加的带条件跳转（不重建）属于清理而非回滚丢失。
-func findFirstPanelJump(bin, tab, base string) int {
-	out, err := cmd.NewCommandMgr(cmd.WithTimeout(30*time.Second), cmd.WithIgnoreExist1()).
-		RunWithOptionalSudoAndStdout(bin, "-t", tab, "-w", "-L", base, "--line-numbers", "-n")
-	if err != nil {
-		return 0
-	}
-	for _, line := range strings.Split(out, "\n") {
-		if !strings.Contains(line, panelChainPrefix) {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		// target 列（fields[1]）须是 1PANEL_* 链名（纯 jump）。
-		if strings.HasPrefix(fields[1], panelChainPrefix) {
-			var num int
-			if _, err := fmt.Sscanf(fields[0], "%d", &num); err == nil {
-				return num
-			}
-		}
-	}
-	return 0
-}
-
-func listPanelChains(bin, tab string) []string {
-	out, err := cmd.NewCommandMgr(cmd.WithTimeout(30*time.Second), cmd.WithIgnoreExist1()).
-		RunWithOptionalSudoAndStdout(bin, "-t", tab, "-w", "-S")
-	if err != nil {
-		return nil
-	}
-	var chains []string
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "-N "+panelChainPrefix) {
-			chains = append(chains, strings.TrimPrefix(line, "-N "))
-		}
-	}
-	return chains
 }
 
 // tokenize 把一行 iptables 规则按空白切分，支持双引号包裹的 comment（含空格）。

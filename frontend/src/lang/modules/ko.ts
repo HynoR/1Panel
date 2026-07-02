@@ -3717,7 +3717,6 @@ const message = {
     },
     firewall: {
         create: '규칙 만들기',
-        cookieBlockList: '쿠키 차단 목록',
         dockerHelper:
             '현재 방화벽은 컨테이너 포트 매핑을 비활성화할 수 없습니다. 설치된 애플리케이션은 [설치됨] 페이지에서 애플리케이션 매개변수를 편집하고 포트 해제 규칙을 구성할 수 있습니다.',
         iptablesHelper:

@@ -3844,7 +3844,6 @@ const message = {
     },
     firewall: {
         create: 'Kural oluştur',
-        cookieBlockList: 'Çerez engelleme listesi',
         dockerHelper:
             'Mevcut güvenlik duvarı konteyner port eşlemesini devre dışı bırakamaz. Yüklü uygulamalar, uygulama parametrelerini düzenlemek ve port serbest bırakma kurallarını yapılandırmak için [Yüklü] sayfasına gidebilir.',
         iptablesHelper:

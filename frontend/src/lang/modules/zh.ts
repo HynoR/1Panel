@@ -3520,7 +3520,6 @@ const message = {
         familyBoth: 'IPv4 + IPv6',
         advancedControl: '高级控制',
         advancedControlNotAvailable: '当前使用 {0} 防火墙，高级规则仅支持 iptables',
-        cookieBlockList: 'Cookie 黑名单',
 
         dockerHelper: '当前防火墙无法禁用容器端口映射，已安装应用可前往【已安装】页面编辑应用参数，配置端口放行规则。',
         iptablesHelper: '检测到系统正在使用 {0} 防火墙，如需切换至 iptables，请先手动卸载！',

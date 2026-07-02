@@ -3987,7 +3987,6 @@ const message = {
     },
     firewall: {
         create: 'Criar regra',
-        cookieBlockList: 'Lista de cookies bloqueados',
         dockerHelper:
             'O firewall atual não pode desativar o mapeamento de porta de contêiner. Aplicativos instalados podem ir para a página [Instalados] para editar parâmetros do aplicativo e configurar regras de liberação de porta.',
         iptablesHelper:

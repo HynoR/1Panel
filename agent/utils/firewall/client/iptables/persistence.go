@@ -1,7 +1,6 @@
 package iptables
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"os"
@@ -54,6 +53,10 @@ func ChainFileName(chain string) string {
 		return OutputFileName
 	case Chain1PanelForward:
 		return ForwardFileName
+	case Chain1PanelPreRouting:
+		return ForwardFileName1
+	case Chain1PanelPostRouting:
+		return ForwardFileName2
 	case Chain1PanelBasicBefore:
 		return BasicBeforeFileName
 	case Chain1PanelBasic:
@@ -72,35 +75,27 @@ func SaveRulesToFile(tab, chain, fileName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to list %s rules: %w", chain, err)
 	}
+	if err := writeChainRules(stdout, chain, rulesFile); err != nil {
+		return fmt.Errorf("failed to write rules file: %w", err)
+	}
+	global.LOG.Infof("persistence rules to %s successful", rulesFile)
+	return nil
+}
+
+// writeChainRules 从 `-S` 输出中筛出 "-A <chain>" 规则并写入持久化文件（v4/v6 共用）。
+func writeChainRules(stdout, chain, rulesFile string) error {
 	var rules []string
-	lines := strings.Split(stdout, "\n")
-	for _, line := range lines {
+	for _, line := range strings.Split(stdout, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, fmt.Sprintf("-A %s", chain)) {
 			rules = append(rules, line)
 		}
 	}
-
-	file, err := os.Create(rulesFile)
-	if err != nil {
-		return fmt.Errorf("failed to create rules file: %w", err)
+	content := strings.Join(rules, "\n")
+	if len(rules) > 0 {
+		content += "\n"
 	}
-	defer file.Close()
-
-	writer := bufio.NewWriter(file)
-	for _, rule := range rules {
-		_, err := writer.WriteString(rule + "\n")
-		if err != nil {
-			return fmt.Errorf("failed to write rule to file: %w", err)
-		}
-	}
-
-	if err := writer.Flush(); err != nil {
-		return fmt.Errorf("failed to flush rules to file: %w", err)
-	}
-
-	global.LOG.Infof("persistence rules to %s successful", rulesFile)
-	return nil
+	return os.WriteFile(rulesFile, []byte(content), 0644)
 }
 
 func LoadRulesFromFile(tab, chain, fileName string) error {
@@ -108,7 +103,12 @@ func LoadRulesFromFile(tab, chain, fileName string) error {
 		global.LOG.Errorf("create chain %s failed: %v", chain, err)
 		return err
 	}
-	rulesFile := path.Join(global.Dir.FirewallDir, fileName)
+	return replayRulesFromFile(binIptables, tab, chain, path.Join(global.Dir.FirewallDir, fileName))
+}
+
+// replayRulesFromFile 清空链后把持久化文件中的 "-A <chain>" 规则逐条经 <bin>-restore 重放
+// （文件不存在视为无规则；单条失败仅记日志继续。刻意不合并为一次 restore 以保持逐条容错）。
+func replayRulesFromFile(bin, tab, chain, rulesFile string) error {
 	if _, err := os.Stat(rulesFile); os.IsNotExist(err) {
 		return nil
 	}
@@ -117,25 +117,23 @@ func LoadRulesFromFile(tab, chain, fileName string) error {
 		global.LOG.Errorf("read rules from file %s failed, err: %v", rulesFile, err)
 		return err
 	}
-	rules := strings.Split(string(data), "\n")
-	if err := ClearChain(tab, chain); err != nil {
+	if err := runFor(bin)(tab, "-F", chain); err != nil {
 		global.LOG.Warnf("clear existing rules from %s failed, err: %v", chain, err)
 	}
-
-	for _, rule := range rules {
-		if strings.HasPrefix(rule, fmt.Sprintf("-A %s", chain)) {
-			if err := restoreRule(tab, rule); err != nil {
-				global.LOG.Errorf("apply rule '%s' failed, err: %v", rule, err)
-			}
+	for _, rule := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(rule, fmt.Sprintf("-A %s", chain)) {
+			continue
+		}
+		if err := restoreRule(bin, tab, rule); err != nil {
+			global.LOG.Errorf("apply %s rule '%s' failed, err: %v", bin, rule, err)
 		}
 	}
-
 	return nil
 }
 
-func restoreRule(tab, rule string) error {
+func restoreRule(bin, tab, rule string) error {
 	restoreInput := fmt.Sprintf("*%s\n%s\nCOMMIT\n", tab, rule)
-	commandName, commandArgs := cmd.WrapWithOptionalSudo("iptables-restore", "-n")
+	commandName, commandArgs := cmd.WrapWithOptionalSudo(bin+"-restore", "-n")
 	_, err := cmd.NewCommandMgr().RunPipe(cmd.PipeCommand{
 		Name:  commandName,
 		Args:  commandArgs,

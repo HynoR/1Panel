@@ -3,6 +3,7 @@ import { Host } from '@/api/interface/host';
 import { getSSHInfo } from '@/api/modules/host';
 import { getSettingInfo } from '@/api/modules/setting';
 import i18n from '@/lang';
+import { portRuleIncludes } from '@/views/host/firewall/composables/firewallHelpers';
 
 // Pure-client heuristic: the ultimate safety net is still the post-submit
 // 60s session-confirm auto-revert. This just keeps the user from self-locking
@@ -10,11 +11,13 @@ import i18n from '@/lang';
 //
 // Shared by the inbound list (inline strategy toggle) and the operate drawer,
 // so both paths evaluate redline/warn with identical rules and a single port
-// source. Ports are a module-level singleton fetched once per session.
+// source. Ports are a module-level singleton fetched once per session; views
+// that need the resolved ports (overview / inbound / white-list) consume the
+// exported refs after ensurePortsLoaded() instead of refetching.
 
-const sshPort = ref('22');
+export const sshPort = ref('22');
 // 面板端口取核心设置，而非 window.location.port（开发/反代下不等于真实面板端口），保证封禁风险预检准确。
-const panelPort = ref('');
+export const panelPort = ref('');
 
 let portsLoaded = false;
 let portsLoading: Promise<void> | null = null;
@@ -39,34 +42,13 @@ const isAllPorts = (port: string): boolean => {
 
 const portsInclude = (port: string, target: string): boolean => {
     if (!target) return false;
-    const t = Number(target);
-    const segs = (port || '').split(',');
-    for (const seg of segs) {
-        const s = seg.trim();
-        if (!s) continue;
-        if (s.indexOf('-') !== -1 && !s.startsWith('-')) {
-            const [from, to] = s.split('-').map((n) => Number(n.trim()));
-            if (t >= from && t <= to) return true;
-        } else if (Number(s) === t) {
-            return true;
-        }
-    }
-    return false;
+    return portRuleIncludes(port, Number(target));
 };
 
 const loadPorts = async (): Promise<void> => {
-    try {
-        const res = await getSSHInfo();
-        sshPort.value = res.data.port || '22';
-    } catch {
-        sshPort.value = '22';
-    }
-    try {
-        const res = await getSettingInfo();
-        panelPort.value = String(res.data.serverPort || '');
-    } catch {
-        panelPort.value = '';
-    }
+    const [sshRes, settingRes] = await Promise.allSettled([getSSHInfo(), getSettingInfo()]);
+    sshPort.value = sshRes.status === 'fulfilled' ? sshRes.value.data.port || '22' : '22';
+    panelPort.value = settingRes.status === 'fulfilled' ? String(settingRes.value.data.serverPort || '') : '';
 };
 
 // Idempotent: concurrent callers share the same in-flight load; later callers

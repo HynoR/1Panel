@@ -74,20 +74,25 @@ const handleMenuClick = (path) => {
 
 // 路由重命名后的向下兼容：将历史持久化菜单里的旧 name 归一到当前 name，
 // 避免升级后已保存的 HideMenu 配置匹配不到菜单项而整项消失。
+// 归一在 buildMenuListFromSettings 解析持久化配置时一次完成，后续消费无需再映射。
 const legacyMenuNameMap: Record<string, string> = {
     FirewallPort: 'FirewallOverview',
 };
-function resolveMenuName(name?: string): string | undefined {
-    if (!name) {
-        return name;
+function normalizeLegacyMenuNames(menu: any[]) {
+    for (const item of menu) {
+        if (item.label && legacyMenuNameMap[item.label]) {
+            item.label = legacyMenuNameMap[item.label];
+        }
+        if (Array.isArray(item.children)) {
+            normalizeLegacyMenuNames(item.children);
+        }
     }
-    return legacyMenuNameMap[name] ?? name;
 }
 
 function getCheckedLabels(menu: any, showSet: Set<string>) {
     for (const item of menu) {
         if (item.isShow) {
-            showSet.add(resolveMenuName(item.label) as string);
+            showSet.add(item.label as string);
         }
         if (item.children) {
             getCheckedLabels(item.children, showSet);
@@ -144,6 +149,7 @@ function allowMenuItem(item: RouteRecordRaw) {
 
 function buildMenuListFromSettings(hideMenuValue?: string) {
     const hideMenu = JSON.parse(hideMenuValue || '[]');
+    normalizeLegacyMenuNames(hideMenu);
     const showSet = new Set<string>();
     getCheckedLabels(hideMenu, showSet);
     const rstMenuList: RouteRecordRaw[] = [];
@@ -248,8 +254,7 @@ function adjustAndCleanMenu(menuItem, list) {
         const result = [];
 
         for (const ref of refList) {
-            const refName = resolveMenuName(ref.label);
-            const matched = itemMap.get(refName);
+            const matched = itemMap.get(ref.label);
 
             if (!matched) continue;
 

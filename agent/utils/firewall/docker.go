@@ -76,27 +76,14 @@ func ApplyDockerIPRule(ip, operation string) error {
 		global.LOG.Debugf("[firewall-docker] skip ipv6 address %s (docker protection is ipv4-only)", ip)
 		return nil
 	}
-	dockerMu.Lock()
-	defer dockerMu.Unlock()
-	args := []string{"-s", ip, "-j", "DROP"}
+	if err := applyDockerRule([]string{"-s", ip, "-j", "DROP"}, operation); err != nil {
+		return err
+	}
+	// 黑名单立即生效：清掉该源已建立的连接。
 	if operation == "add" {
-		ensureDockerChain()
-		if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelDocker, args...); err != nil {
-			return err
-		}
 		iptables.ClearConntrack(ip)
-		return persistDocker()
 	}
-	// 幂等删除：链不存在或规则不存在则视为无事可做（不报错、不建空链）。
-	if exist, _ := iptables.CheckChainExist(iptables.FilterTab, iptables.Chain1PanelDocker); !exist {
-		return nil
-	}
-	if iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelDocker, args...) {
-		if err := iptables.DeleteRule(iptables.FilterTab, iptables.Chain1PanelDocker, args...); err != nil {
-			return err
-		}
-	}
-	return persistDocker()
+	return nil
 }
 
 // ApplyDockerPortRule 在 1PANEL_DOCKER 中按"原始目的端口"封禁容器发布端口（用 conntrack 还原 DNAT 前的端口）。
@@ -116,8 +103,6 @@ func ApplyDockerPortRule(port, protocol, srcException, operation string) error {
 		global.LOG.Debugf("[firewall-docker] skip ipv6 source %s (docker protection is ipv4-only)", srcException)
 		return nil
 	}
-	dockerMu.Lock()
-	defer dockerMu.Unlock()
 	if protocol == "" {
 		protocol = "tcp"
 	}
@@ -126,6 +111,15 @@ func ApplyDockerPortRule(port, protocol, srcException, operation string) error {
 		args = append(args, "-s", srcException)
 	}
 	args = append(args, "-p", protocol, "-m", "conntrack", "--ctorigdstport", port, "--ctdir", "ORIGINAL", "-j", "DROP")
+	return applyDockerRule(args, operation)
+}
+
+// applyDockerRule 在 dockerMu 保护下对 1PANEL_DOCKER 执行变更并持久化：
+// add → 确保链与 DOCKER-USER jump 存在后追加规则；remove → 幂等删除
+// （链不存在或规则不存在则视为无事可做——不报错、不建空链）。
+func applyDockerRule(args []string, operation string) error {
+	dockerMu.Lock()
+	defer dockerMu.Unlock()
 	if operation == "add" {
 		ensureDockerChain()
 		if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelDocker, args...); err != nil {
@@ -133,7 +127,6 @@ func ApplyDockerPortRule(port, protocol, srcException, operation string) error {
 		}
 		return persistDocker()
 	}
-	// 幂等删除：链不存在或规则不存在则视为无事可做。
 	if exist, _ := iptables.CheckChainExist(iptables.FilterTab, iptables.Chain1PanelDocker); !exist {
 		return nil
 	}

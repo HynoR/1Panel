@@ -95,7 +95,7 @@ import { MsgError, MsgSuccess } from '@/utils/message';
 import i18n from '@/lang';
 import { operateIPRule, operatePortRule, searchFireRule } from '@/api/modules/host';
 import { Host } from '@/api/interface/host';
-import { checkCidr, checkCidrV6, checkIpV4V6, checkPort } from '@/utils/validate';
+import { isValidAddressList, isValidPortExpr } from '@/views/host/firewall/composables/firewallHelpers';
 import { getErrorMessage } from '@/utils/misc';
 
 const emit = defineEmits<{ (e: 'search'): void }>();
@@ -220,30 +220,6 @@ const handleExceed: UploadProps['onExceed'] = (files) => {
     uploadRef.value!.handleStart(file);
 };
 
-// 端口格式校验：支持单端口、范围（8080-8090）、列表（8080,8090），与 create/edit 复用同一 checkPort。
-const isValidPort = (port: string): boolean => {
-    const ports =
-        port.indexOf('-') !== -1 && !port.startsWith('-')
-            ? port.split('-')
-            : port.indexOf(',') !== -1 && !port.startsWith(',')
-              ? port.split(',')
-              : [port];
-    return ports.every((p) => !checkPort(p));
-};
-
-// 地址格式校验：支持逗号分隔多地址、IPv4/IPv6 单 IP 与 CIDR，Anywhere 视为合法。
-const isValidAddress = (address: string): boolean => {
-    if (!address || address === 'Anywhere') return true;
-    return address.split(',').every((item) => {
-        const trimmed = item.trim();
-        if (!trimmed) return false;
-        if (trimmed.indexOf('/') !== -1) {
-            return trimmed.indexOf(':') !== -1 ? !checkCidrV6(trimmed) : !checkCidr(trimmed);
-        }
-        return !checkIpV4V6(trimmed);
-    });
-};
-
 const normalizeAddress = (address?: string): string => {
     const trimmed = (address || '').trim();
     return trimmed && trimmed !== 'Anywhere' ? trimmed : 'Anywhere';
@@ -284,7 +260,7 @@ const normalizeRule = (item: RawImportRule): ImportRule | null => {
             return null;
         }
         const port = String(item.port).trim();
-        if (!isValidPort(port) || !isValidAddress(address)) {
+        if (!isValidPortExpr(port) || !isValidAddressList(address)) {
             return null;
         }
         return {
@@ -299,7 +275,7 @@ const normalizeRule = (item: RawImportRule): ImportRule | null => {
         };
     }
     if (ruleType === 'address' && item.address) {
-        if (!isValidAddress(address)) {
+        if (!isValidAddressList(address)) {
             return null;
         }
         return {

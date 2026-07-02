@@ -49,8 +49,9 @@ const hostRouter = {
             name: 'FirewallRedirect',
             redirect: '/hosts/firewall/overview',
             hidden: true,
+            // 纯 redirect 路由不会成为导航终点，activeMenu/parent 等展示型 meta 不生效；
+            // permission 仍会被 router.resolve + hasRouteAccess 读取，需保留。
             meta: {
-                activeMenu: '/hosts/firewall/overview',
                 permission: 'host_firewall_view',
             },
         },
@@ -108,8 +109,6 @@ const hostRouter = {
             redirect: '/hosts/firewall/inbound',
             hidden: true,
             meta: {
-                activeMenu: '/hosts/firewall/overview',
-                parent: 'menu.firewall',
                 permission: 'host_firewall_view',
             },
         },
@@ -119,8 +118,6 @@ const hostRouter = {
             redirect: '/hosts/firewall/inbound',
             hidden: true,
             meta: {
-                activeMenu: '/hosts/firewall/overview',
-                parent: 'menu.firewall',
                 permission: 'host_firewall_view',
             },
         },

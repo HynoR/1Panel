@@ -19,6 +19,8 @@ import (
 func FirewallEmergency() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if host := callerip.Resolve(c.Request); host != "" {
+			// 单点解析：结果写入 context，同一请求的 handler（firewallCallerIP）直接复用。
+			c.Set(callerip.ContextKey, host)
 			if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() {
 				firewall.EnsureCallerAccept(host)
 			}

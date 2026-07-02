@@ -62,7 +62,13 @@ const (
 	NatTab    = "nat"
 )
 
-func runIptables(tab string, ignoreExist1, withWait bool, ruleArgs ...string) (string, error) {
+const (
+	binIptables  = "iptables"
+	binIP6tables = "ip6tables"
+)
+
+// runBin 执行 <bin> -t <tab> [-w] <args...>（bin = iptables | ip6tables），v4/v6 共用的底层实现。
+func runBin(bin, tab string, ignoreExist1, withWait bool, ruleArgs ...string) (string, error) {
 	options := []cmd.Option{cmd.WithTimeout(60 * time.Second)}
 	if ignoreExist1 {
 		options = append(options, cmd.WithIgnoreExist1())
@@ -73,7 +79,15 @@ func runIptables(tab string, ignoreExist1, withWait bool, ruleArgs ...string) (s
 		args = append(args, "-w")
 	}
 	args = append(args, ruleArgs...)
-	return cmdMgr.RunWithOptionalSudoAndStdout("iptables", args...)
+	return cmdMgr.RunWithOptionalSudoAndStdout(bin, args...)
+}
+
+// runFor 返回对应地址族的带日志执行函数（iptables → Run，ip6tables → Run6）。
+func runFor(bin string) func(tab string, args ...string) error {
+	if bin == binIP6tables {
+		return Run6
+	}
+	return Run
 }
 
 // ClearConntrack 在系统存在 conntrack 工具时清掉某源的现存连接，使新加的黑名单/封禁立即生效（conntrack 处理双栈，设计稿 §3.4）。
@@ -87,7 +101,7 @@ func ClearConntrack(ip string) {
 }
 
 func RunWithStd(tab string, args ...string) (string, error) {
-	stdout, err := runIptables(tab, true, true, args...)
+	stdout, err := runBin(binIptables, tab, true, true, args...)
 	if err != nil {
 		global.LOG.Errorf("iptables command failed [table=%s, args=%s]: %v", tab, strings.Join(args, " "), err)
 		return stdout, err
@@ -95,11 +109,7 @@ func RunWithStd(tab string, args ...string) (string, error) {
 	return stdout, nil
 }
 func RunWithoutIgnore(tab string, args ...string) (string, error) {
-	stdout, err := runIptables(tab, false, false, args...)
-	if err != nil {
-		return stdout, err
-	}
-	return stdout, nil
+	return runBin(binIptables, tab, false, false, args...)
 }
 func Run(tab string, args ...string) error {
 	if _, err := RunWithStd(tab, args...); err != nil {
@@ -134,12 +144,17 @@ func CheckChainExist(tab, chain string) (bool, error) {
 		global.LOG.Errorf("check chain %s from tab %s exist failed, err: %v", chain, tab, err)
 		return false, fmt.Errorf("check chain %s from tab %s exist failed, err: %v", chain, tab, err)
 	}
+	return chainExistsIn(stdout, chain), nil
+}
+
+// chainExistsIn 判断 `-S` 输出中是否含有链声明 "-N <chain>"（v4/v6 共用解析）。
+func chainExistsIn(stdout, chain string) bool {
 	for _, line := range strings.Split(stdout, "\n") {
 		if strings.TrimSpace(line) == "-N "+chain {
-			return true, nil
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
 func CheckChainBind(tab, parentChain, chain string) (bool, error) {
 	stdout, err := RunWithStd(tab, "-S", parentChain)
@@ -219,6 +234,79 @@ func FindChainNum(tab, targetChain, chain string) (int, error) {
 		}
 	}
 	return 0, nil
+}
+
+// findJumpLine 返回 targetChain 中第一条"目标列匹配 match"的规则行号（-L --line-numbers 解析，0 表示没有）。
+func findJumpLine(bin, tab, targetChain string, match func(target string) bool) int {
+	out, err := runBin(bin, tab, true, true, "-L", targetChain, "--line-numbers", "-n")
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		if match(fields[1]) {
+			num, _ := strconv.Atoi(fields[0])
+			return num
+		}
+	}
+	return 0
+}
+
+// unbindChainAll 循环解绑 targetChain 上全部跳向 chain 的 jump（处理重复绑定，最多 16 次）。
+func unbindChainAll(bin, tab, targetChain, chain string) {
+	run := runFor(bin)
+	for i := 0; i < 16; i++ {
+		num := findJumpLine(bin, tab, targetChain, func(target string) bool { return target == chain })
+		if num == 0 {
+			return
+		}
+		if err := run(tab, "-D", targetChain, strconv.Itoa(num)); err != nil {
+			return
+		}
+	}
+}
+
+// UnbindChainAll 解绑 targetChain 上全部跳向 chain 的 jump（v4，语义与 UnbindChain6 对齐）。
+func UnbindChainAll(tab, targetChain, chain string) {
+	unbindChainAll(binIptables, tab, targetChain, chain)
+}
+
+// InsertChain 在 targetChain 的 position 处插入跳转到 chain（不去重，调用方负责先解绑）。
+func InsertChain(tab, targetChain, chain string, position int) error {
+	return Run(tab, "-I", targetChain, strconv.Itoa(position), "-j", chain)
+}
+
+// UnbindMatchingJumps 循环解绑 targetChain 上所有"目标列以 prefix 开头"的 jump
+// （-L --line-numbers 解析 → -D <num>，bin = iptables | ip6tables，失败即停止）。
+func UnbindMatchingJumps(bin, tab, targetChain, prefix string) {
+	for {
+		num := findJumpLine(bin, tab, targetChain, func(target string) bool { return strings.HasPrefix(target, prefix) })
+		if num == 0 {
+			return
+		}
+		if _, err := runBin(bin, tab, true, true, "-D", targetChain, strconv.Itoa(num)); err != nil {
+			return
+		}
+	}
+}
+
+// ListChainsByPrefix 列出某表中链名以 prefix 开头的全部自定义链（bin = iptables | ip6tables）。
+func ListChainsByPrefix(bin, tab, prefix string) []string {
+	out, err := runBin(bin, tab, true, true, "-S")
+	if err != nil {
+		return nil
+	}
+	var chains []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "-N "+prefix) {
+			chains = append(chains, strings.TrimPrefix(line, "-N "))
+		}
+	}
+	return chains
 }
 
 func AddChainWithAppend(tab, parentChain, chain string) error {

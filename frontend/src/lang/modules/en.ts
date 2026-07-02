@@ -3789,7 +3789,6 @@ const message = {
         familyBoth: 'IPv4 + IPv6',
         advancedControl: 'Advanced Control',
         advancedControlNotAvailable: 'Currently using {0} firewall, advanced rules only support iptables',
-        cookieBlockList: 'Cookie blocklist',
         dockerHelper:
             'The current firewall cannot disable container port mapping. Installed applications can go to the [Installed] page to edit application parameters and configure port release rules.',
         iptablesHelper:

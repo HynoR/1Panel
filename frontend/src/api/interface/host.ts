@@ -202,7 +202,6 @@ export namespace Host {
     export interface InboundRule extends RuleInfo {
         ruleType: InboundRuleType;
         level?: InboundRuleLevel;
-        dockerPublished?: boolean;
     }
     // Unified create/edit form model; objectType routes to operatePortRule / operateIPRule.
     export interface UnifiedRuleForm {

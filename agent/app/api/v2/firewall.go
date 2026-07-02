@@ -7,9 +7,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// firewallCallerIP 解析调用方真实客户端 IP（B9 单 IP 自锁检测用）。
-// 信任模型见 callerip.Resolve：unix socket 采信 core 注入的受信头，TCP 用 RemoteAddr。
+// firewallCallerIP 返回调用方真实客户端 IP（B9 单 IP 自锁检测用）。
+// 优先读 FirewallEmergency 中间件解析并写入 context 的结果（单点解析）；
+// 未挂该中间件的路由回退自行解析。信任模型见 callerip.Resolve：
+// unix socket 采信 core 注入的受信头，TCP 用 RemoteAddr。
 func firewallCallerIP(c *gin.Context) string {
+	if v, ok := c.Get(callerip.ContextKey); ok {
+		if ip, ok := v.(string); ok && ip != "" {
+			return ip
+		}
+	}
 	return callerip.Resolve(c.Request)
 }
 

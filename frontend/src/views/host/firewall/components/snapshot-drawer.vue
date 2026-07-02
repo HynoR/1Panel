@@ -26,7 +26,6 @@ import { ref } from 'vue';
 import i18n from '@/lang';
 import { Host } from '@/api/interface/host';
 import { listFireSnapshot, restoreFireSnapshot } from '@/api/modules/host';
-import { MsgWarning } from '@/utils/message';
 import { ElMessageBox } from 'element-plus';
 import { enterFireApplying } from '@/views/host/firewall/composables/useFireSession';
 
@@ -67,9 +66,8 @@ const onRestore = (row: Host.FirewallSnapshot) => {
         },
     ).then(async () => {
         await restoreFireSnapshot(row.name);
-        // 恢复快照=会话型（后端 BeginSession 武装确认窗口）：即时进入应用中过渡态，
-        // 不在用户确认前显示最终成功。
-        MsgWarning(i18n.global.t('firewall.applying'));
+        // 恢复快照=会话型（后端 BeginSession 武装确认窗口）：即时进入应用中过渡态
+        //（含「应用中…」提示），不在用户确认前显示最终成功。
         enterFireApplying();
         drawerVisible.value = false;
     });

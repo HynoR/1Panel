@@ -345,7 +345,13 @@ func (u *FirewallService) OperateFirewall(req dto.FirewallOperation) error {
 	return nil
 }
 
-func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) (retErr error) {
+func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) error {
+	return u.operatePortRule(req, reload, &rescuePortSet{})
+}
+
+// operatePortRule 是 OperatePortRule 的实现体：rescue 由调用方注入，
+// 使批量操作（BatchOperateRule）中多条规则共享同一份保底端口解析结果。
+func (u *FirewallService) operatePortRule(req dto.PortRuleOperate, reload bool, rescue *rescuePortSet) (retErr error) {
 	client, err := firewall.NewFirewallClient()
 	if err != nil {
 		return err
@@ -359,40 +365,38 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 		}
 	}
 	// L1 红线预检 + L3 提交-确认会话（设计稿 §3.5）。
-	if err := precheckPortRule(req); err != nil {
+	if err := precheckPortRule(req, rescue); err != nil {
 		return err
 	}
-	needsConfirm := portChangeNeedsConfirm(req)
+	needsConfirm := portChangeNeedsConfirm(req, rescue)
 	if mode == firewall.ModeExternal && needsConfirm {
 		return buserr.New("ErrFirewallBlockRescue")
 	}
-	sessionWasActive := false
-	sessionArmed := false
-	applied := false
+	var guard *firewall.SessionGuard
 	if mode == firewall.ModeManaged && needsConfirm {
-		sessionWasActive = firewall.SessionStatus().Active
-		if err := firewall.BeginSession(fmt.Sprintf("port %s %s/%s %s", req.Operation, req.Port, req.Protocol, req.Strategy)); err != nil {
+		if guard, err = firewall.BeginSessionGuard(fmt.Sprintf("port %s %s/%s %s", req.Operation, req.Port, req.Protocol, req.Strategy)); err != nil {
 			return err
 		}
-		sessionArmed = true
 		defer func() {
-			if retErr != nil && sessionArmed && !sessionWasActive && !applied {
-				firewall.CancelSession(fmt.Sprintf("port %s %s/%s failed before any rule was applied: %v", req.Operation, req.Port, req.Protocol, retErr))
-			}
+			guard.Finish(fmt.Sprintf("port %s %s/%s", req.Operation, req.Port, req.Protocol), retErr)
 		}()
 	}
+	protos := strings.Split(req.Protocol, "/")
+	itemAddress := strings.Split(strings.TrimSuffix(req.Address, ","), ",")
+
 	// PR-6：Docker 端口防护与防火墙模式正交，按勾选同步到 1PANEL_DOCKER（用 conntrack 还原原始目的端口）。
 	// 删除时不依赖 applyToDocker（列表行不携带该标记），也不依赖 Docker 当前是否就绪（DOCKER-USER 可能因
 	// Docker 临时停机而缺失）：一律尝试清理镜像规则并重写持久化文件，避免 Docker 恢复后 LoadDockerRules
 	// 重放陈旧 DROP 致已发布端口持续被封（评审 P2）。Apply* 内部对"链不存在"幂等 no-op。
 	if req.Strategy == "drop" && (req.Operation == "remove" || (req.ApplyToDocker && firewall.DockerProtectionAvailable())) {
-		for _, proto := range strings.Split(req.Protocol, "/") {
+		for _, proto := range protos {
 			for _, port := range strings.Split(req.Port, ",") {
+				// docker 侧端口区间归一化为 iptables multiport 的 `:` 语法（与主流程的 `-` 表示有意不同）。
 				port = strings.TrimSpace(strings.ReplaceAll(port, "-", ":"))
 				if port == "" {
 					continue
 				}
-				for _, addr := range strings.Split(strings.TrimSuffix(req.Address, ","), ",") {
+				for _, addr := range itemAddress {
 					addr = strings.TrimSpace(addr)
 					// ufw 任意源端口行在列表里地址显示为 "Anywhere"/"Anywhere (v6)"，而创建时镜像的
 					// 1PANEL_DOCKER 规则用的是空源；删除若把 "Anywhere" 当 -s 源会匹配不上 →
@@ -403,14 +407,12 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 					if err := firewall.ApplyDockerPortRule(port, proto, addr, req.Operation); err != nil {
 						global.LOG.Warnf("apply docker port rule %s/%s failed: %v", port, proto, err)
 					} else {
-						applied = true
+						guard.MarkApplied()
 					}
 				}
 			}
 		}
 	}
-	protos := strings.Split(req.Protocol, "/")
-	itemAddress := strings.Split(strings.TrimSuffix(req.Address, ","), ",")
 
 	if client.Name() == "ufw" {
 		if strings.Contains(req.Port, ",") || strings.Contains(req.Port, "-") {
@@ -425,7 +427,7 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 					if err := u.operatePort(client, req); err != nil {
 						return err
 					}
-					applied = true
+					guard.MarkApplied()
 					req.Port = strings.ReplaceAll(req.Port, ":", "-")
 					if err := u.addPortRecord(client.Name(), req); err != nil {
 						return err
@@ -445,7 +447,7 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 			if err := u.operatePort(client, req); err != nil {
 				return err
 			}
-			applied = true
+			guard.MarkApplied()
 			if len(req.Protocol) == 0 {
 				req.Protocol = "tcp/udp"
 			}
@@ -465,7 +467,7 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 				if err := u.operatePort(client, req); err != nil {
 					return err
 				}
-				applied = true
+				guard.MarkApplied()
 				if err := u.addPortRecord(client.Name(), req); err != nil {
 					return err
 				}
@@ -483,7 +485,7 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 					if err := u.operatePort(client, req); err != nil {
 						return err
 					}
-					applied = true
+					guard.MarkApplied()
 					if err := u.addPortRecord(client.Name(), req); err != nil {
 						return err
 					}
@@ -620,19 +622,13 @@ func (u *FirewallService) OperateAddressRule(req dto.AddrRuleOperate, reload boo
 	if mode == firewall.ModeExternal && needsConfirm {
 		return buserr.New("ErrFirewallBlockSelf")
 	}
-	sessionWasActive := false
-	sessionArmed := false
-	applied := false
+	var guard *firewall.SessionGuard
 	if mode == firewall.ModeManaged && needsConfirm {
-		sessionWasActive = firewall.SessionStatus().Active
-		if err := firewall.BeginSession(fmt.Sprintf("ip %s %s %s", req.Operation, req.Address, req.Strategy)); err != nil {
+		if guard, err = firewall.BeginSessionGuard(fmt.Sprintf("ip %s %s %s", req.Operation, req.Address, req.Strategy)); err != nil {
 			return err
 		}
-		sessionArmed = true
 		defer func() {
-			if retErr != nil && sessionArmed && !sessionWasActive && !applied {
-				firewall.CancelSession(fmt.Sprintf("ip %s %s failed before any rule was applied: %v", req.Operation, req.Address, retErr))
-			}
+			guard.Finish(fmt.Sprintf("ip %s %s", req.Operation, req.Address), retErr)
 		}()
 	}
 	var fireInfo fireClient.FireInfo
@@ -649,7 +645,7 @@ func (u *FirewallService) OperateAddressRule(req dto.AddrRuleOperate, reload boo
 		if err := client.RichRules(fireInfo, req.Operation); err != nil {
 			return err
 		}
-		applied = true
+		guard.MarkApplied()
 		req.Address = addressList[i]
 		if err := u.addAddressRecord(client.Name(), chain, req); err != nil {
 			return err
@@ -661,7 +657,7 @@ func (u *FirewallService) OperateAddressRule(req dto.AddrRuleOperate, reload boo
 			if err := firewall.ApplyDockerIPRule(addressList[i], req.Operation); err != nil {
 				global.LOG.Warnf("apply docker ip rule %s failed: %v", addressList[i], err)
 			} else {
-				applied = true
+				guard.MarkApplied()
 			}
 		}
 	}
@@ -741,10 +737,12 @@ func (u *FirewallService) BatchOperateRule(req dto.BatchRuleOperate) error {
 	}
 	success := 0
 	var firstErr error
+	// 批量内共享一份保底端口解析（sshd_config / DB 读取只做一次，而非每条规则重复解析）。
+	rescue := &rescuePortSet{}
 	for _, rule := range req.Rules {
 		var opErr error
 		if req.Type == "port" {
-			opErr = u.OperatePortRule(rule, false)
+			opErr = u.operatePortRule(rule, false, rescue)
 		} else {
 			itemRule := dto.AddrRuleOperate{Operation: rule.Operation, Address: rule.Address, Strategy: rule.Strategy, Family: rule.Family, ApplyToDocker: rule.ApplyToDocker, CallerIP: req.CallerIP}
 			opErr = u.OperateAddressRule(itemRule, false)
@@ -1104,11 +1102,11 @@ func lowersReachability(operation, strategy string) bool {
 // 仅当变更降低可达性「且」触及管理通道（SSH/面板/端口白名单等保底端口）时才武装：封禁/删除
 // 普通业务端口不会把管理员锁外（保底链始终放行 SSH/面板，L2 紧急 ACCEPT 另保当前连接），无需
 // 自动回滚，避免打扰以小白用户为主的常用操作。
-func portChangeNeedsConfirm(req dto.PortRuleOperate) bool {
+func portChangeNeedsConfirm(req dto.PortRuleOperate, rescue *rescuePortSet) bool {
 	if !lowersReachability(req.Operation, req.Strategy) {
 		return false
 	}
-	return touchesRescuePort(req.Port)
+	return rescue.touchesRescuePort(req.Port)
 }
 
 // addressChangeNeedsConfirm 判断 IP 变更是否需要 L3 提交-确认窗口。
@@ -1125,16 +1123,37 @@ func addressChangeNeedsConfirm(req dto.AddrRuleOperate) bool {
 	return false
 }
 
+// rescuePortSet 惰性解析并缓存管理/保底端口（SSH、面板、端口白名单）：
+// 同一次操作/批量内所有规则共享一份，避免每条规则反复读 sshd_config 与 DB
+// （原先预检+确认判定最多 3 次解析 × N 条批量规则）。首次使用时才真正解析，
+// 纯放行等不触及保底判断的常见路径零开销。
+type rescuePortSet struct {
+	once      sync.Once
+	sshPort   string
+	panelPort string
+	whiteList []firewallPortWhitelist
+	whiteErr  error
+}
+
+func (r *rescuePortSet) resolve() {
+	r.once.Do(func() {
+		r.sshPort = loadSSHPort()
+		r.panelPort = LoadPanelPort()
+		r.whiteList, r.whiteErr = loadFirewallPortWhiteList()
+	})
+}
+
 // touchesRescuePort 判断端口表达式是否覆盖任一管理/保底端口（SSH、面板、已配置端口白名单）。
-func touchesRescuePort(portSpec string) bool {
-	if portSpecContains(portSpec, loadSSHPort()) || portSpecContains(portSpec, LoadPanelPort()) {
-		return true
+// 白名单加载成功时其已包含 SSH/面板端口（见 loadFirewallPortWhiteList），仅在加载失败时退回
+// 显式的 SSH/面板端口检查兜底。
+func (r *rescuePortSet) touchesRescuePort(portSpec string) bool {
+	r.resolve()
+	if r.whiteErr != nil {
+		return portSpecContains(portSpec, r.sshPort) || portSpecContains(portSpec, r.panelPort)
 	}
-	if list, err := loadFirewallPortWhiteList(); err == nil {
-		for _, item := range list {
-			if portSpecContains(portSpec, item.Port) {
-				return true
-			}
+	for _, item := range r.whiteList {
+		if portSpecContains(portSpec, item.Port) {
+			return true
 		}
 	}
 	return false
@@ -1194,7 +1213,7 @@ func precheckAddressRule(req dto.AddrRuleOperate) error {
 }
 
 // precheckPortRule 实现 I1/I2 红线对端口规则的部分（设计稿 §3.5.2）。
-func precheckPortRule(req dto.PortRuleOperate) error {
+func precheckPortRule(req dto.PortRuleOperate, rescue *rescuePortSet) error {
 	if req.Operation != "add" || req.Strategy != "drop" {
 		return nil
 	}
@@ -1208,7 +1227,8 @@ func precheckPortRule(req dto.PortRuleOperate) error {
 		return nil
 	}
 	// I2：无源限定地封禁 SSH/面板端口会阻断所有人 → 抢救通道红线。
-	if portSpecContains(req.Port, LoadPanelPort()) || portSpecContains(req.Port, loadSSHPort()) {
+	rescue.resolve()
+	if portSpecContains(req.Port, rescue.panelPort) || portSpecContains(req.Port, rescue.sshPort) {
 		return buserr.New("ErrFirewallBlockRescue")
 	}
 	return nil

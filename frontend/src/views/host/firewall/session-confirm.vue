@@ -43,10 +43,16 @@ const { session, remain, applying, loading, refresh, onConfirm, onRevert, onCoun
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
+let pollTick = 0;
 
 onMounted(() => {
     refresh();
-    pollTimer = setInterval(refresh, 3000);
+    // 自适应轮询：会话激活/应用中保持 3s，空闲退避到 12s，减少无谓请求。
+    pollTimer = setInterval(() => {
+        pollTick++;
+        if (!session.value.active && !applying.value && pollTick % 4 !== 0) return;
+        refresh();
+    }, 3000);
     tickTimer = setInterval(() => {
         if (session.value.active && remain.value > 0) {
             remain.value--;

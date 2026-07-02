@@ -3513,7 +3513,6 @@ const message = {
     },
     firewall: {
         create: '建立規則',
-        cookieBlockList: 'Cookie 黑名單',
         dockerHelper: '目前防火牆無法停用容器埠映射，已安裝應用可前往【已安裝】頁面編輯應用參數，設定埠放行規則。',
         iptablesHelper: '偵測到系統正在使用 {0} 防火牆，如需切換至 iptables，請先手動解除安裝',
         quickJump: '快速跳轉',

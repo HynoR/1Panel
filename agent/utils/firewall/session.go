@@ -2,6 +2,7 @@ package firewall
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path"
 	"sync"
@@ -96,6 +97,42 @@ func BeginSession(summary string) error {
 	session.armTimerLocked()
 	global.LOG.Infof("[firewall-session] armed confirm window %ds, change: %s", session.windowSec, summary)
 	return nil
+}
+
+// SessionGuard 封装"武装提交-确认会话 + 失败时撤销幽灵会话"的样板（服务层三处复用）。
+// BeginSessionGuard 成功后，若整个操作失败（Finish 收到非 nil 错误）、本会话是新武装的、
+// 且期间没有任何内核写入（未 MarkApplied），则 CancelSession 清理，避免"武装会话→写规则前
+// 就失败"残留一张 60s 幽灵确认卡片；已有待确认会话或已部分写入时不取消——前者不属于本次，
+// 后者需保留会话在超时/崩溃时 RevertSession 兜底。
+type SessionGuard struct {
+	wasActive bool
+	applied   bool
+}
+
+// BeginSessionGuard 登记一笔变更并武装/刷新确认窗口（见 BeginSession），返回守卫对象。
+func BeginSessionGuard(summary string) (*SessionGuard, error) {
+	wasActive := SessionStatus().Active
+	if err := BeginSession(summary); err != nil {
+		return nil, err
+	}
+	return &SessionGuard{wasActive: wasActive}, nil
+}
+
+// MarkApplied 标记本次操作已向内核写入过规则（此后失败不再撤销会话，交由超时 Revert 兜底）。
+// nil 安全：未武装会话（guard 为 nil）时为 no-op。
+func (g *SessionGuard) MarkApplied() {
+	if g != nil {
+		g.applied = true
+	}
+}
+
+// Finish 在操作结束时调用（defer）：失败且本会话为新武装、失败前零写入时撤销会话。
+// reason 为取消日志的操作描述前缀。nil 安全。
+func (g *SessionGuard) Finish(reason string, retErr error) {
+	if g == nil || retErr == nil || g.wasActive || g.applied {
+		return
+	}
+	CancelSession(fmt.Sprintf("%s failed before any rule was applied: %v", reason, retErr))
 }
 
 func (s *sessionState) armTimerLocked() {
@@ -272,46 +309,46 @@ func markerPath() string {
 	return path.Join(global.Dir.FirewallDir, sessionMarkerFile)
 }
 
-// persistManagedChains 把当前 managed 模式下的全部 1PANEL 链回写到持久化文件。
-// 注意：链布局在 PR-3 会变化，届时需同步更新本列表。
+// persistManagedChains 把当前 managed 模式下的全部 1PANEL 链回写到持久化文件
+// （文件名统一由 iptables.ChainFileName 派生，单一真源）。
 func persistManagedChains() {
-	type chainFile struct {
+	type chainRef struct {
 		tab   string
 		chain string
-		file  string
 	}
-	items := []chainFile{
-		{iptables.FilterTab, iptables.Chain1PanelGuard, iptables.GuardFileName},
-		{iptables.FilterTab, iptables.Chain1PanelDeny, iptables.DenyFileName},
-		{iptables.FilterTab, iptables.Chain1PanelBaseline, iptables.BaselineFileName},
-		{iptables.FilterTab, iptables.Chain1PanelAllow, iptables.AllowFileName},
-		{iptables.FilterTab, iptables.Chain1PanelAfter, iptables.AfterFileName},
-		{iptables.FilterTab, iptables.Chain1PanelInput, iptables.InputFileName},
-		{iptables.FilterTab, iptables.Chain1PanelOutput, iptables.OutputFileName},
-		{iptables.FilterTab, iptables.Chain1PanelForward, iptables.ForwardFileName},
-		{iptables.NatTab, iptables.Chain1PanelPreRouting, iptables.ForwardFileName1},
-		{iptables.NatTab, iptables.Chain1PanelPostRouting, iptables.ForwardFileName2},
+	items := []chainRef{
+		{iptables.FilterTab, iptables.Chain1PanelGuard},
+		{iptables.FilterTab, iptables.Chain1PanelDeny},
+		{iptables.FilterTab, iptables.Chain1PanelBaseline},
+		{iptables.FilterTab, iptables.Chain1PanelAllow},
+		{iptables.FilterTab, iptables.Chain1PanelAfter},
+		{iptables.FilterTab, iptables.Chain1PanelInput},
+		{iptables.FilterTab, iptables.Chain1PanelOutput},
+		{iptables.FilterTab, iptables.Chain1PanelForward},
+		{iptables.NatTab, iptables.Chain1PanelPreRouting},
+		{iptables.NatTab, iptables.Chain1PanelPostRouting},
 	}
 	// 注意：1PANEL_DOCKER 刻意不在此列表内。Docker 规则由 persistDocker（写）+ LoadDockerRules（开机重放）
 	// 独立维护，与提交-确认会话/快照解耦。若让会话机制读内核 docker 链回写文件，会在开机"链已建空但
 	// 尚未 LoadDockerRules"的窗口里用空内容覆盖文件而永久丢规则（P1），且与巡检/用户操作存在跨 goroutine
 	// 竞争。解耦后内核与文件始终由 docker.go（dockerMu 串行）保持一致，不会出现陈旧文件复活。
 	for _, item := range items {
+		file := iptables.ChainFileName(item.chain)
 		if exist, _ := iptables.CheckChainExist(item.tab, item.chain); !exist {
 			// 链已不存在（如 revert 删掉了本会话新建的转发链）→ 删掉其残留持久化文件，
 			// 否则下次开机重放会把已撤销的规则复活，破坏"确认前不落盘"承诺。
-			_ = os.Remove(path.Join(global.Dir.FirewallDir, item.file))
+			_ = os.Remove(path.Join(global.Dir.FirewallDir, file))
 			if item.tab == iptables.FilterTab {
-				_ = os.Remove(path.Join(global.Dir.FirewallDir, item.file+".v6"))
+				_ = os.Remove(path.Join(global.Dir.FirewallDir, file+".v6"))
 			}
 			continue
 		}
-		if err := iptables.SaveRulesToFile(item.tab, item.chain, item.file); err != nil {
+		if err := iptables.SaveRulesToFile(item.tab, item.chain, file); err != nil {
 			global.LOG.Warnf("[firewall-session] persist chain %s failed: %v", item.chain, err)
 		}
 		// 镜像写 v6（filter 表的链才有 v6 镜像）。
 		if item.tab == iptables.FilterTab && iptables.HasIP6tables() && iptables.CheckChainExist6(item.tab, item.chain) {
-			_ = iptables.SaveRulesToFile6(item.tab, item.chain, item.file)
+			_ = iptables.SaveRulesToFile6(item.tab, item.chain, file)
 		}
 	}
 }

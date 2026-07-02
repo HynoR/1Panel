@@ -1,20 +1,18 @@
 package iptables
 
 import (
-	"bytes"
 	"fmt"
-	"os"
 	"path"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/1Panel-dev/1Panel/agent/global"
 	"github.com/1Panel-dev/1Panel/agent/utils/cmd"
 )
 
 // ip6tables 镜像层（设计稿 §3.7）：managed 模式下对 both/ipv6 规则镜像写 ip6tables 同名链。
+// 本文件只保留 v6 薄封装，底层实现按 bin 参数化在 common.go / persistence.go / filter.go 中复用。
 // inet 族天然双栈是 nftables 的事；iptables 模式只能 v4/v6 双写。
 // v6 持久化文件 = 对应 v4 文件名 + ".v6" 后缀，开机分别重放。
 
@@ -33,9 +31,10 @@ func HasIP6tables() bool {
 	return has6Cached
 }
 
+// run6 与 v4 的差异（有意保留）：始终带 -w 且容忍 exit 1（WithIgnoreExist1），
+// 而 v4 侧 CheckRuleExist 走 RunWithoutIgnore（不带 -w、不容忍 exit 1）。
 func run6(tab string, args ...string) (string, error) {
-	full := append([]string{"-t", tab, "-w"}, args...)
-	return cmd.NewCommandMgr(cmd.WithTimeout(60*time.Second), cmd.WithIgnoreExist1()).RunWithOptionalSudoAndStdout("ip6tables", full...)
+	return runBin(binIP6tables, tab, true, true, args...)
 }
 
 func Run6(tab string, args ...string) error {
@@ -51,12 +50,7 @@ func CheckChainExist6(tab, chain string) bool {
 	if err != nil {
 		return false
 	}
-	for _, line := range strings.Split(out, "\n") {
-		if strings.TrimSpace(line) == "-N "+chain {
-			return true
-		}
-	}
-	return false
+	return chainExistsIn(out, chain)
 }
 
 func AddChain6(tab, chain string) error {
@@ -71,9 +65,7 @@ func ClearChain6(tab, chain string) error {
 }
 
 func CheckRuleExist6(tab, chain string, ruleArgs ...string) bool {
-	args := append([]string{"-C", chain}, ruleArgs...)
-	full := append([]string{"-t", tab, "-w"}, args...)
-	_, err := cmd.NewCommandMgr(cmd.WithTimeout(60*time.Second)).RunWithOptionalSudoAndStdout("ip6tables", full...)
+	_, err := runBin(binIP6tables, tab, false, true, append([]string{"-C", chain}, ruleArgs...)...)
 	return err == nil
 }
 
@@ -88,34 +80,13 @@ func DeleteRule6(tab, chain string, ruleArgs ...string) error {
 	return Run6(tab, append([]string{"-D", chain}, ruleArgs...)...)
 }
 
+// FindChainNum6 与 v4 FindChainNum 的差异（有意保留）：返回裸 int 并吞掉错误。
 func FindChainNum6(tab, targetChain, chain string) int {
-	out, err := run6(tab, "-L", targetChain, "--line-numbers", "-n")
-	if err != nil {
-		return 0
-	}
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		if fields[1] == chain {
-			num, _ := strconv.Atoi(fields[0])
-			return num
-		}
-	}
-	return 0
+	return findJumpLine(binIP6tables, tab, targetChain, func(target string) bool { return target == chain })
 }
 
 func UnbindChain6(tab, targetChain, chain string) {
-	for i := 0; i < 16; i++ {
-		num := FindChainNum6(tab, targetChain, chain)
-		if num == 0 {
-			return
-		}
-		if err := Run6(tab, "-D", targetChain, strconv.Itoa(num)); err != nil {
-			return
-		}
-	}
+	unbindChainAll(binIP6tables, tab, targetChain, chain)
 }
 
 // InsertChain6 在 targetChain 的 position 处插入跳转到 chain（不去重，调用方负责先解绑）。
@@ -129,48 +100,14 @@ func SaveRulesToFile6(tab, chain, fileName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to list ip6tables %s rules: %w", chain, err)
 	}
-	var rules []string
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, fmt.Sprintf("-A %s", chain)) {
-			rules = append(rules, line)
-		}
-	}
-	content := strings.Join(rules, "\n")
-	if len(rules) > 0 {
-		content += "\n"
-	}
-	return os.WriteFile(rulesFile, []byte(content), 0644)
+	return writeChainRules(out, chain, rulesFile)
 }
 
 func LoadRulesFromFile6(tab, chain, fileName string) error {
 	if err := AddChain6(tab, chain); err != nil {
 		return err
 	}
-	rulesFile := path.Join(global.Dir.FirewallDir, fileName+".v6")
-	if _, err := os.Stat(rulesFile); os.IsNotExist(err) {
-		return nil
-	}
-	data, err := os.ReadFile(rulesFile)
-	if err != nil {
-		return err
-	}
-	_ = ClearChain6(tab, chain)
-	for _, rule := range strings.Split(string(data), "\n") {
-		if !strings.HasPrefix(rule, fmt.Sprintf("-A %s", chain)) {
-			continue
-		}
-		restoreInput := fmt.Sprintf("*%s\n%s\nCOMMIT\n", tab, rule)
-		commandName, commandArgs := cmd.WrapWithOptionalSudo("ip6tables-restore", "-n")
-		if _, err := cmd.NewCommandMgr().RunPipe(cmd.PipeCommand{
-			Name:  commandName,
-			Args:  commandArgs,
-			Stdin: bytes.NewReader([]byte(restoreInput)),
-		}); err != nil {
-			global.LOG.Errorf("apply ip6tables rule '%s' failed, err: %v", rule, err)
-		}
-	}
-	return nil
+	return replayRulesFromFile(binIP6tables, tab, chain, path.Join(global.Dir.FirewallDir, fileName+".v6"))
 }
 
 // ReadFilterRulesByChain6 读取某 v6 链的规则（复用 v4 的解析助手，family=ipv6）。
@@ -183,24 +120,5 @@ func ReadFilterRulesByChain6(chain string) ([]FilterRules, error) {
 	if err != nil {
 		return rules, err
 	}
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 5 {
-			continue
-		}
-		strategy := strings.ToLower(fields[0])
-		if strategy != "accept" && strategy != "drop" && strategy != "reject" {
-			continue
-		}
-		rules = append(rules, FilterRules{
-			Chain:    chain,
-			Protocol: loadProtocol(fields[1]),
-			SrcPort:  loadPort("src", fields),
-			DstPort:  loadPort("dst", fields),
-			SrcIP:    loadIP(fields[3]),
-			DstIP:    loadIP(fields[4]),
-			Strategy: strategy,
-		})
-	}
-	return rules, nil
+	return parseFilterRules(chain, out), nil
 }

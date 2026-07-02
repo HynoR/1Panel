@@ -86,25 +86,23 @@ func runBootReplay() string {
 	// L4 ①：在任何重放/绑定前，先确保 INPUT 默认策略不是 DROP；若是，直接注入 SSH/面板紧急 ACCEPT。
 	firewall.EnsureInputPolicySafe(service.LoadBaselinePorts())
 
-	baseChains := []struct {
-		chain string
-		file  string
-	}{
-		{iptables.Chain1PanelGuard, iptables.GuardFileName},
-		{iptables.Chain1PanelDeny, iptables.DenyFileName},
-		{iptables.Chain1PanelBaseline, iptables.BaselineFileName},
-		{iptables.Chain1PanelAllow, iptables.AllowFileName},
-		{iptables.Chain1PanelAfter, iptables.AfterFileName},
+	baseChains := []string{
+		iptables.Chain1PanelGuard,
+		iptables.Chain1PanelDeny,
+		iptables.Chain1PanelBaseline,
+		iptables.Chain1PanelAllow,
+		iptables.Chain1PanelAfter,
 	}
-	for _, item := range baseChains {
-		if err := iptables.LoadRulesFromFile(iptables.FilterTab, item.chain, item.file); err != nil {
-			global.LOG.Errorf("[firewall-boot] load %s rules from file failed, err: %v", item.chain, err)
-			return "failed:load " + item.chain
+	for _, chain := range baseChains {
+		file := iptables.ChainFileName(chain)
+		if err := iptables.LoadRulesFromFile(iptables.FilterTab, chain, file); err != nil {
+			global.LOG.Errorf("[firewall-boot] load %s rules from file failed, err: %v", chain, err)
+			return "failed:load " + chain
 		}
 		// v6 镜像链重放（存在 ip6tables 且有 .v6 文件时）。
 		if iptables.HasIP6tables() {
-			if err := iptables.LoadRulesFromFile6(iptables.FilterTab, item.chain, item.file); err != nil {
-				global.LOG.Warnf("[firewall-boot] load v6 %s rules failed: %v", item.chain, err)
+			if err := iptables.LoadRulesFromFile6(iptables.FilterTab, chain, file); err != nil {
+				global.LOG.Warnf("[firewall-boot] load v6 %s rules failed: %v", chain, err)
 			}
 		}
 	}

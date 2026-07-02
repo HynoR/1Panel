@@ -1,6 +1,8 @@
 package repo
 
 import (
+	"fmt"
+
 	"github.com/1Panel-dev/1Panel/agent/app/model"
 	"github.com/1Panel-dev/1Panel/agent/global"
 	"github.com/1Panel-dev/1Panel/agent/utils/encrypt"
@@ -184,7 +186,7 @@ func (h *HostRepo) DeleteFirewallRecordByID(id uint) error {
 }
 
 // DeleteFirewallRecordByTuple 按规则元组删除描述记录（删除请求不携带 id 时使用），与 SaveFirewallRecord 的匹配口径一致，
-// 避免删规则后 firewalls 行残留、再次添加同名规则时复活旧描述。
+// 避免删规则后 firewalls 行残留、再次添加同名规则时复活旧描述。仅支持 port/address 两类记录。
 func (h *HostRepo) DeleteFirewallRecordByTuple(record model.Firewall) error {
 	db := global.DB.Where("type = ? AND strategy = ?", record.Type, record.Strategy)
 	switch record.Type {
@@ -193,8 +195,7 @@ func (h *HostRepo) DeleteFirewallRecordByTuple(record model.Firewall) error {
 	case "address":
 		db = db.Where("src_ip = ?", record.SrcIP)
 	default:
-		db = db.Where("chain = ? AND src_port = ? AND dst_port = ? AND protocol = ? AND src_ip = ? AND dst_ip = ?",
-			record.Chain, record.SrcPort, record.DstPort, record.Protocol, record.SrcIP, record.DstIP)
+		return fmt.Errorf("delete firewall record by tuple: unsupported type %q", record.Type)
 	}
 	return db.Delete(&model.Firewall{}).Error
 }

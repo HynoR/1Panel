@@ -44,8 +44,10 @@ const refresh = async (): Promise<void> => {
     }
 };
 
-// 由保存成功的调用方触发：先显示 spinner，再主动刷新拿确认窗口；约 2s 后兜底退出。
+// 由保存成功的调用方触发：统一弹「应用中…」提示并显示 spinner，
+// 再主动刷新拿确认窗口；约 2s 后兜底退出。
 const enterApplying = (): void => {
+    MsgWarning(i18n.global.t('firewall.applying'));
     applying.value = true;
     refresh();
     if (applyTimer) clearTimeout(applyTimer);

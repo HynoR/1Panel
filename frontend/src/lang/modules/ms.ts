@@ -3851,7 +3851,6 @@ const message = {
     },
     firewall: {
         create: 'Buat peraturan',
-        cookieBlockList: 'Senarai blok Cookie',
         dockerHelper:
             'Firewall semasa tidak boleh melumpuhkan pemetaan port bekas. Aplikasi yang dipasang boleh pergi ke halaman [Dipasang] untuk mengedit parameter aplikasi dan mengkonfigurasi peraturan pelepasan port.',
         iptablesHelper:

@@ -135,7 +135,7 @@ import { downloadWithContent } from '@/utils/file';
 import { getCurrentDateFormatted } from '@/utils/date';
 import { routerToName } from '@/utils/router';
 
-const { isExist, isActive, isReady, capabilities, name, loadBaseInfo } = useFireBaseInfo('forward');
+const { isExist, isActive, isReady, capabilities, loadBaseInfo } = useFireBaseInfo('forward');
 
 const loading = ref();
 const activeTag = ref('forward');
@@ -279,7 +279,7 @@ const onSubmitDelete = async () => {
 };
 
 const onImport = () => {
-    dialogImportRef.value.acceptParams(name.value, capabilities.value.forwardImpl);
+    dialogImportRef.value.acceptParams(capabilities.value.forwardImpl);
 };
 
 const onExport = () => {

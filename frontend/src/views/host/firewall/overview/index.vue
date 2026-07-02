@@ -150,7 +150,7 @@
                                 <el-tag type="success" size="small">{{ $t('firewall.rescueReadOnly') }}</el-tag>
                             </div>
                             <div class="flex items-center justify-between">
-                                <span>{{ $t('firewall.rescuePanel') }}: {{ panelPort }}</span>
+                                <span>{{ $t('firewall.rescuePanel') }}: {{ panelPort || '-' }}</span>
                                 <el-tag type="success" size="small">{{ $t('firewall.rescueReadOnly') }}</el-tag>
                             </div>
                             <div class="flex items-center justify-between">
@@ -326,15 +326,14 @@ import { Host } from '@/api/interface/host';
 import { dateFormat } from '@/utils/date';
 import {
     cleanFireQuarantine,
-    getSSHInfo,
     listFireQuarantine,
     listFireSnapshot,
     operateFire,
     operateFilterChain,
 } from '@/api/modules/host';
 import { QuestionFilled } from '@element-plus/icons-vue';
-import { getAgentSettingInfo, getSettingInfo, updateAgentSetting } from '@/api/modules/setting';
-import { MsgSuccess, MsgWarning } from '@/utils/message';
+import { getAgentSettingInfo, updateAgentSetting } from '@/api/modules/setting';
+import { MsgSuccess } from '@/utils/message';
 import { ElMessageBox } from 'element-plus';
 import FireRouter from '@/views/host/firewall/index.vue';
 import NoSuchService from '@/components/layout-content/no-such-service.vue';
@@ -344,6 +343,8 @@ import WhiteList from '@/views/host/firewall/components/white-list.vue';
 import SnapshotDrawer from '@/views/host/firewall/components/snapshot-drawer.vue';
 import InitWizard from '@/views/host/firewall/overview/init-wizard.vue';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
+import { ensurePortsLoaded, panelPort, sshPort } from '@/views/host/firewall/composables/useFirewallRisk';
+import { parseFirewallWhiteList } from '@/views/host/firewall/composables/firewallHelpers';
 import { enterFireApplying, useFireSession } from '@/views/host/firewall/composables/useFireSession';
 
 const router = useRouter();
@@ -375,8 +376,6 @@ const loading = ref(false);
 const onPing = ref('Disable');
 const oldPing = ref('Disable');
 
-const sshPort = ref('22');
-const panelPort = ref('-');
 const http80 = ref(false);
 const https443 = ref(false);
 const whiteListRaw = ref('');
@@ -457,12 +456,6 @@ const rescueGroups: Record<string, string[]> = {
     '443': ['443/tcp', '443/udp'],
 };
 
-const parseWhiteList = (value: string): string[] =>
-    (value || '')
-        .split(/[\s,;]+/)
-        .map((item) => item.trim())
-        .filter((item) => item !== '');
-
 const load = async () => {
     loading.value = true;
     try {
@@ -475,26 +468,11 @@ const load = async () => {
     }
 };
 
+// ssh/panel 端口复用 useFirewallRisk 的共享缓存，白名单设置为本页独立请求，两者并行加载。
 const loadRescue = async () => {
-    try {
-        const ssh = await getSSHInfo();
-        sshPort.value = ssh.data.port || '22';
-    } catch {
-        sshPort.value = '22';
-    }
-    try {
-        const setting = await getSettingInfo();
-        panelPort.value = String(setting.data.serverPort || '-');
-    } catch {
-        panelPort.value = '-';
-    }
-    try {
-        const agent = await getAgentSettingInfo();
-        whiteListRaw.value = agent.data.firewallPortWhiteList ?? '';
-    } catch {
-        whiteListRaw.value = '';
-    }
-    const list = parseWhiteList(whiteListRaw.value).map((item) => item.split('/')[0]);
+    const [, agentRes] = await Promise.allSettled([ensurePortsLoaded(), getAgentSettingInfo()]);
+    whiteListRaw.value = agentRes.status === 'fulfilled' ? (agentRes.value.data.firewallPortWhiteList ?? '') : '';
+    const list = parseFirewallWhiteList(whiteListRaw.value).map((item) => item.split('/')[0]);
     http80.value = list.includes('80');
     https443.value = list.includes('443');
 };
@@ -540,9 +518,8 @@ const onToggleStrict = async (val: boolean) => {
     try {
         await operateFilterChain('1PANEL_INPUT', val ? 'enable-strict' : 'disable-strict');
         if (val) {
-            MsgWarning(i18n.global.t('firewall.applying'));
-            // 开启严格=会话型（后端 BeginSession 武装 60s 确认窗口）：即时进入应用中过渡态，
-            // 不必等 3s 轮询拉起确认卡。
+            // 开启严格=会话型（后端 BeginSession 武装 60s 确认窗口）：即时进入应用中过渡态
+            //（含「应用中…」提示），不必等 3s 轮询拉起确认卡。
             enterFireApplying();
         } else {
             MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
@@ -638,7 +615,7 @@ const onPingOperate = (val: string) => {
 };
 
 const saveWhiteList = async (port: string, open: boolean) => {
-    let list = parseWhiteList(whiteListRaw.value);
+    let list = parseFirewallWhiteList(whiteListRaw.value);
     const group = rescueGroups[port];
     list = list.filter((item) => !group.includes(item) && item.split('/')[0] !== port);
     if (open) {
@@ -684,7 +661,7 @@ const onOpenWizard = () => {
     wizardRef.value.acceptParams({
         rescuePorts: [
             { name: 'SSH', port: sshPort.value },
-            { name: i18n.global.t('firewall.rescuePanel'), port: panelPort.value },
+            { name: i18n.global.t('firewall.rescuePanel'), port: panelPort.value || '-' },
         ],
     });
 };

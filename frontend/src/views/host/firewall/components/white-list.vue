@@ -53,11 +53,12 @@
 
 <script lang="ts" setup>
 import { ref } from 'vue';
-import { getAgentSettingInfo, getSettingInfo, updateAgentSetting } from '@/api/modules/setting';
-import { getSSHInfo } from '@/api/modules/host';
+import { getAgentSettingInfo, updateAgentSetting } from '@/api/modules/setting';
 import i18n from '@/lang';
 import { MsgError, MsgSuccess } from '@/utils/message';
 import { checkPort } from '@/utils/validate';
+import { ensurePortsLoaded, panelPort, sshPort } from '@/views/host/firewall/composables/useFirewallRisk';
+import { parseFirewallWhiteList } from '@/views/host/firewall/composables/firewallHelpers';
 
 interface WhiteListItem {
     port: string;
@@ -76,46 +77,31 @@ const defaultWhiteList = '80/tcp,443/tcp,443/udp';
 const acceptParams = async (): Promise<void> => {
     drawerVisible.value = true;
     loading.value = true;
-    loadRequiredPorts();
-    await getAgentSettingInfo()
-        .then((res) => {
-            data.value = parseWhiteList(res.data.firewallPortWhiteList ?? defaultWhiteList);
-        })
-        .finally(() => {
-            loading.value = false;
-        });
+    const [, agentRes] = await Promise.allSettled([loadRequiredPorts(), getAgentSettingInfo()]);
+    if (agentRes.status === 'fulfilled') {
+        data.value = parseWhiteList(agentRes.value.data.firewallPortWhiteList ?? defaultWhiteList);
+    }
+    loading.value = false;
 };
 
-// 保底端口（SSH / 面板）由防火墙自动放行，此处仅只读展示，不可编辑/删除。
+// 保底端口（SSH / 面板）由防火墙自动放行，此处仅只读展示，不可编辑/删除；
+// 端口复用 useFirewallRisk 的共享缓存。面板端口获取失败时跳过展示，保底端口仍由后端自动放行。
 const loadRequiredPorts = async () => {
-    const result: { name: string; port: string }[] = [];
-    try {
-        const ssh = await getSSHInfo();
-        result.push({ name: 'SSH', port: `${ssh.data.port || '22'}/tcp` });
-    } catch {
-        result.push({ name: 'SSH', port: '22/tcp' });
-    }
-    try {
-        const setting = await getSettingInfo();
-        if (setting.data.serverPort) {
-            result.push({ name: '1Panel', port: `${setting.data.serverPort}/tcp` });
-        }
-    } catch {
-        // 面板端口获取失败时跳过展示，保底端口仍由后端自动放行。
+    await ensurePortsLoaded();
+    const result: { name: string; port: string }[] = [{ name: 'SSH', port: `${sshPort.value || '22'}/tcp` }];
+    if (panelPort.value) {
+        result.push({ name: '1Panel', port: `${panelPort.value}/tcp` });
     }
     requiredPorts.value = result;
 };
 
 const parseWhiteList = (value: string): WhiteListItem[] => {
-    return value
-        .split(/[\s,;]+/)
-        .filter((item) => item !== '')
-        .map((item) => ({
-            port: item,
-            oldPort: item,
-            edit: false,
-            isNew: false,
-        }));
+    return parseFirewallWhiteList(value).map((item) => ({
+        port: item,
+        oldPort: item,
+        edit: false,
+        isNew: false,
+    }));
 };
 
 const openCreate = () => {

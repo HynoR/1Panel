@@ -173,6 +173,7 @@ import { Host } from '@/api/interface/host';
 import i18n from '@/lang';
 import { MsgSuccess } from '@/utils/message';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
+import { chainDirectionLabel, singleFlight } from '@/views/host/firewall/composables/firewallHelpers';
 
 const { capabilities, isActive, isReady, name, loadBaseInfo } = useFireBaseInfo('advance');
 
@@ -215,11 +216,7 @@ const goOverview = () => {
     router.push({ path: '/hosts/firewall/overview' });
 };
 
-const chainLabel = () => {
-    return selectedChain.value === '1PANEL_OUTPUT'
-        ? i18n.global.t('firewall.outboundDirection')
-        : i18n.global.t('firewall.inboundDirection');
-};
+const chainLabel = () => chainDirectionLabel(selectedChain.value);
 
 const search = async () => {
     if (!isActive.value) {
@@ -352,31 +349,22 @@ const onDelete = async (row: Host.IptablesRules | null) => {
     });
 };
 
-// fu-input-rw-switch 的 @enter 会随即触发 @blur，两次都会调 onChange；
-// 用 in-flight 标志忽略第二次触发，避免描述行内编辑重复提交。
-let descChangeInFlight = false;
-const onChange = async (row: Host.IptablesRules) => {
-    if (descChangeInFlight) return;
-    descChangeInFlight = true;
-    try {
-        let params = {
-            type: 'advance',
-            chain: selectedChain.value,
-            srcIP: row.srcIP,
-            dstIP: row.dstIP,
-            srcPort: row.srcPort,
-            dstPort: row.dstPort,
-            protocol: row.protocol,
-            strategy: row.strategy,
+const onChange = singleFlight(async (row: Host.IptablesRules) => {
+    let params = {
+        type: 'advance',
+        chain: selectedChain.value,
+        srcIP: row.srcIP,
+        dstIP: row.dstIP,
+        srcPort: row.srcPort,
+        dstPort: row.dstPort,
+        protocol: row.protocol,
+        strategy: row.strategy,
 
-            description: row.description,
-        };
-        await updateFirewallDescription(params);
-        MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
-    } finally {
-        descChangeInFlight = false;
-    }
-};
+        description: row.description,
+    };
+    await updateFirewallDescription(params);
+    MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+});
 
 const buttons = [
     {

@@ -3813,7 +3813,6 @@ const message = {
     },
     firewall: {
         create: 'Crear regla',
-        cookieBlockList: 'Lista negra de cookies',
         dockerHelper:
             'El firewall actual no puede deshabilitar el mapeo de puertos de contenedores. Las aplicaciones instaladas pueden ir a la página [Instaladas] para editar los parámetros de la aplicación y configurar reglas de liberación de puertos.',
         iptablesHelper:

@@ -78,9 +78,14 @@ func ReadFilterRulesByChain(chain string) ([]FilterRules, error) {
 	if err != nil {
 		return rules, fmt.Errorf("load filter fules by chain %s failed, %v", chain, err)
 	}
-	lines := strings.Split(stdout, "\n")
-	for i := 0; i < len(lines); i++ {
-		fields := strings.Fields(lines[i])
+	return parseFilterRules(chain, stdout), nil
+}
+
+// parseFilterRules 解析 `-nL <chain>` 输出中的 accept/drop/reject 规则（v4/v6 共用）。
+func parseFilterRules(chain, stdout string) []FilterRules {
+	var rules []FilterRules
+	for _, line := range strings.Split(stdout, "\n") {
+		fields := strings.Fields(line)
 		if len(fields) < 5 {
 			continue
 		}
@@ -88,7 +93,7 @@ func ReadFilterRulesByChain(chain string) ([]FilterRules, error) {
 		if strategy != "accept" && strategy != "drop" && strategy != "reject" {
 			continue
 		}
-		itemRule := FilterRules{
+		rules = append(rules, FilterRules{
 			Chain:    chain,
 			Protocol: loadProtocol(fields[1]),
 			SrcPort:  loadPort("src", fields),
@@ -96,10 +101,9 @@ func ReadFilterRulesByChain(chain string) ([]FilterRules, error) {
 			SrcIP:    loadIP(fields[3]),
 			DstIP:    loadIP(fields[4]),
 			Strategy: strategy,
-		}
-		rules = append(rules, itemRule)
+		})
 	}
-	return rules, nil
+	return rules
 }
 
 func LoadDefaultStrategy(chain string) (string, error) {

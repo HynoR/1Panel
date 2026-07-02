@@ -78,6 +78,7 @@ import { MsgError, MsgSuccess } from '@/utils/message';
 import i18n from '@/lang';
 import { operateForwardRule, searchFireRule, getNetworkOptions } from '@/api/modules/host';
 import { Host } from '@/api/interface/host';
+import { getErrorMessage } from '@/utils/misc';
 
 const emit = defineEmits<{ (e: 'search'): void }>();
 
@@ -98,7 +99,7 @@ const paginationConfig = reactive({
     total: 0,
 });
 
-const acceptParams = async (_fireName: string, impl?: string): Promise<void> => {
+const acceptParams = async (impl?: string): Promise<void> => {
     visible.value = true;
     displayData.value = [];
     selects.value = [];
@@ -156,7 +157,7 @@ const fileOnChange = (_uploadFile: UploadFile, uploadFiles: UploadFiles) => {
             compareRules(parsed);
             loading.value = false;
         } catch (error) {
-            MsgError(i18n.global.t('commons.msg.errImport') + error.message);
+            MsgError(i18n.global.t('commons.msg.errImport') + getErrorMessage(error));
             loading.value = false;
         }
     };
@@ -199,7 +200,6 @@ const normForwardIface = (v: string | undefined | null): string => {
 
 const compareRules = (importedRules: any[]) => {
     const newRules: any[] = [];
-    const conflictRules: any[] = [];
     const duplicateRules: any[] = [];
 
     for (const importedRule of importedRules) {
@@ -217,7 +217,7 @@ const compareRules = (importedRules: any[]) => {
         }
     }
 
-    displayData.value = [...newRules, ...conflictRules, ...duplicateRules];
+    displayData.value = [...newRules, ...duplicateRules];
     paginationConfig.total = displayData.value.length;
     search();
 };

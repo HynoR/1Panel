@@ -224,7 +224,7 @@
                             <el-table-column label="Docker" :min-width="80">
                                 <template #default="{ row }">
                                     <el-tooltip
-                                        v-if="row.dockerPublished"
+                                        v-if="row.applyToDocker"
                                         :content="$t('firewall.dockerPublished')"
                                         placement="top"
                                     >
@@ -305,28 +305,38 @@ import ProcessDetail from '@/views/host/process/process/detail/index.vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import {
     batchOperateRule,
-    getSSHInfo,
     searchFireRule,
     updateAddrRule,
     updateFirewallDescription,
     updatePortRule,
 } from '@/api/modules/host';
-import { getAgentSettingInfo, getSettingInfo } from '@/api/modules/setting';
+import { getAgentSettingInfo } from '@/api/modules/setting';
 import { getListeningProcess } from '@/api/modules/process';
 import { Host } from '@/api/interface/host';
 import { Process } from '@/api/interface/process';
 import i18n from '@/lang';
-import { MsgSuccess, MsgWarning } from '@/utils/message';
+import { MsgSuccess } from '@/utils/message';
 import { ElMessageBox } from 'element-plus';
 import { Expand, Lock } from '@element-plus/icons-vue';
 import { routerToName } from '@/utils/router';
 import { downloadWithContent } from '@/utils/file';
 import { getCurrentDateFormatted } from '@/utils/date';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
-import { computeFirewallRisk, ensurePortsLoaded } from '@/views/host/firewall/composables/useFirewallRisk';
+import {
+    computeFirewallRisk,
+    ensurePortsLoaded,
+    panelPort,
+    sshPort,
+} from '@/views/host/firewall/composables/useFirewallRisk';
+import {
+    expandPortRule,
+    parseFirewallWhiteList,
+    portRuleIncludes,
+    singleFlight,
+} from '@/views/host/firewall/composables/firewallHelpers';
 import { enterFireApplying } from '@/views/host/firewall/composables/useFireSession';
 
-const { capabilities, mode, name, isReady, isActive, strictMode, loadBaseInfo } = useFireBaseInfo('base');
+const { mode, name, isReady, isActive, strictMode, loadBaseInfo } = useFireBaseInfo('base');
 
 const loading = ref(false);
 const selects = ref<InboundRow[]>([]);
@@ -353,7 +363,6 @@ type ProcessInfoDisplay = Partial<Process.ListeningProcess> & {
 
 type InboundRow = Host.InboundRule & {
     expand?: boolean;
-    processInfo?: Process.ListeningProcess;
     processInfos?: ProcessInfoDisplay[];
 };
 
@@ -390,35 +399,25 @@ const goOverview = () => {
 };
 
 // ---- rescue port set (panel port + whitelist 80/443 + SSH port) for baseline tagging ----
+// ssh/panel 端口复用 useFirewallRisk 的共享缓存（面板端口取核心设置，与概览保底端口一致），
+// 仅白名单设置为本页独立请求，与端口加载并行。
 const loadRescuePorts = async () => {
     const set = new Set<number>();
-    // 面板端口取核心设置（与概览保底端口一致）：agent 设置无 serverPort 字段，
-    // 之前用 getAgentSettingInfo().serverPort 恒为 undefined → 面板端口从未进保底集，导致面板规则被误判为可删的「放行」。
-    try {
-        const res = await getSettingInfo();
-        const panelPort = Number(res.data.serverPort);
-        if (!isNaN(panelPort)) set.add(panelPort);
-    } catch (error) {
-        console.error('Failed to load panel port:', error);
+    const [, agentRes] = await Promise.allSettled([ensurePortsLoaded(), getAgentSettingInfo()]);
+    const panel = Number(panelPort.value);
+    if (panelPort.value && !isNaN(panel)) {
+        set.add(panel);
     }
-    try {
-        const res = await getAgentSettingInfo();
-        const whiteList = res.data.firewallPortWhiteList || '';
-        whiteList
-            .split(/[\s,;]+/)
+    if (agentRes.status === 'fulfilled') {
+        parseFirewallWhiteList(agentRes.value.data.firewallPortWhiteList || '')
             .map((item) => parseInt(item))
             .filter((port) => !isNaN(port))
             .forEach((port) => set.add(port));
-    } catch (error) {
-        console.error('Failed to load firewall whitelist:', error);
+    } else {
+        console.error('Failed to load firewall whitelist:', agentRes.reason);
     }
-    try {
-        const ssh = await getSSHInfo();
-        const sshPort = parseInt(ssh.data.port);
-        set.add(isNaN(sshPort) ? 22 : sshPort);
-    } catch (error) {
-        set.add(22);
-    }
+    const ssh = parseInt(sshPort.value);
+    set.add(isNaN(ssh) ? 22 : ssh);
     rescuePorts.value = set;
 };
 
@@ -426,7 +425,7 @@ const loadRescuePorts = async () => {
 const isRescueRow = (row: InboundRow): boolean => {
     if (row.ruleType !== 'port') return false;
     if (row.address && row.address !== 'Anywhere') return false;
-    return extractPortsFromRule(row.port).some((port) => rescuePorts.value.has(port));
+    return expandPortRule(row.port).some((port) => rescuePorts.value.has(port));
 };
 
 const deriveLevel = (row: InboundRow): Host.InboundRuleLevel => {
@@ -440,30 +439,6 @@ const extractPortsFromObject = (portObj: { [key: string]: {} }): number[] => {
     return Object.keys(portObj)
         .map((portStr) => parseInt(portStr))
         .filter((port) => !isNaN(port));
-};
-
-const isPortInRule = (rulePort: string, port: number): boolean => {
-    const segments = rulePort.split(',');
-    for (const segment of segments) {
-        const portSegment = segment.trim();
-        if (!portSegment) {
-            continue;
-        }
-
-        const rangeDelimiter = portSegment.includes('-') && !portSegment.startsWith('-') ? '-' : ':';
-        if (portSegment.includes(rangeDelimiter) && !portSegment.startsWith(rangeDelimiter)) {
-            const [startPort, endPort] = portSegment.split(rangeDelimiter).map((item) => parseInt(item.trim()));
-            if (!isNaN(startPort) && !isNaN(endPort) && port >= startPort && port <= endPort) {
-                return true;
-            }
-            continue;
-        }
-
-        if (parseInt(portSegment) === port) {
-            return true;
-        }
-    }
-    return false;
 };
 
 const formatProcessInfo = (process: ProcessInfoDisplay): string => {
@@ -503,40 +478,12 @@ const parseUsedStatus = (usedStatus: string, rulePort: string): ProcessInfoDispl
                 };
             }
 
-            const rulePorts = extractPortsFromRule(rulePort);
+            const rulePorts = expandPortRule(rulePort);
             return {
                 Name: item,
                 ports: rulePorts.length === 1 ? rulePorts : [],
             };
         });
-};
-
-const extractPortsFromRule = (rulePort: string): number[] => {
-    const ports: number[] = [];
-    const segments = (rulePort || '').split(',');
-    for (const segment of segments) {
-        const portSegment = segment.trim();
-        if (!portSegment) {
-            continue;
-        }
-
-        const rangeDelimiter = portSegment.includes('-') && !portSegment.startsWith('-') ? '-' : ':';
-        if (portSegment.includes(rangeDelimiter) && !portSegment.startsWith(rangeDelimiter)) {
-            const [startPort, endPort] = portSegment.split(rangeDelimiter).map((item) => parseInt(item.trim()));
-            if (!isNaN(startPort) && !isNaN(endPort)) {
-                for (let port = startPort; port <= endPort; port++) {
-                    ports.push(port);
-                }
-            }
-            continue;
-        }
-
-        const port = parseInt(portSegment);
-        if (!isNaN(port)) {
-            ports.push(port);
-        }
-    }
-    return ports;
 };
 
 const getProtocolNums = (protocol: string): number[] => {
@@ -563,7 +510,7 @@ const loadMatchedListeningProcesses = (rule: InboundRow): ProcessInfoDisplay[] =
         }
 
         const matchedPorts = extractPortsFromObject(proc.Port)
-            .filter((port) => isPortInRule(rule.port, port))
+            .filter((port) => portRuleIncludes(rule.port, port))
             .sort((a, b) => a - b);
         if (matchedPorts.length > 0) {
             matchedProcesses.push({
@@ -642,14 +589,12 @@ const loadListeningProcesses = async () => {
                 item.processInfos = parseUsedStatus(item.usedStatus, item.port);
                 applyProcessPID(item.processInfos, matchedProcesses);
                 mergeListeningProcesses(item.processInfos, matchedProcesses);
-                item.processInfo = item.processInfos.find((proc) => proc.PID) as Process.ListeningProcess;
                 continue;
             }
 
             if (matchedProcesses.length > 0) {
                 item.expand = false;
                 item.usedStatus = matchedProcesses.map((proc) => proc.Name).join(', ');
-                item.processInfo = matchedProcesses[0] as Process.ListeningProcess;
                 item.processInfos = matchedProcesses;
             }
         }
@@ -685,7 +630,6 @@ const loadData = async () => {
         await loadListeningProcesses();
         for (const row of allRows.value) {
             row.level = deriveLevel(row);
-            row.dockerPublished = row.applyToDocker;
         }
         applyAndSlice();
     } finally {
@@ -736,8 +680,6 @@ const onOpenDialog = (
         title,
         objectType,
         rowData,
-        capabilities: capabilities.value,
-        mode: mode.value,
     });
 };
 
@@ -757,36 +699,27 @@ const onEdit = (row: InboundRow) => {
         protocol: row.protocol,
         strategy: row.strategy,
         family: row.family,
-        applyToDocker: row.dockerPublished,
+        applyToDocker: row.applyToDocker,
         description: row.description,
     });
 };
 
-// fu-input-rw-switch 的 @enter 会随即触发 @blur，两次都会调 onChange；
-// 用 in-flight 标志忽略第二次触发，避免描述行内编辑重复提交。
-let descChangeInFlight = false;
-const onChange = async (row: InboundRow) => {
-    if (descChangeInFlight) return;
-    descChangeInFlight = true;
-    try {
-        const params: Host.UpdateDescription = {
-            type: row.ruleType,
-            chain: '',
-            srcIP: row.address,
-            dstIP: '',
-            srcPort: '',
-            dstPort: row.ruleType === 'port' ? row.port : '',
-            protocol: row.ruleType === 'port' ? row.protocol : '',
-            strategy: row.strategy,
-            family: row.family,
-            description: row.description,
-        };
-        await updateFirewallDescription(params);
-        MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
-    } finally {
-        descChangeInFlight = false;
-    }
-};
+const onChange = singleFlight(async (row: InboundRow) => {
+    const params: Host.UpdateDescription = {
+        type: row.ruleType,
+        chain: '',
+        srcIP: row.address,
+        dstIP: '',
+        srcPort: '',
+        dstPort: row.ruleType === 'port' ? row.port : '',
+        protocol: row.ruleType === 'port' ? row.protocol : '',
+        strategy: row.strategy,
+        family: row.family,
+        description: row.description,
+    };
+    await updateFirewallDescription(params);
+    MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+});
 
 const submitChangeStatus = async (row: InboundRow, status: string) => {
     loading.value = true;
@@ -801,7 +734,7 @@ const submitChangeStatus = async (row: InboundRow, status: string) => {
                   protocol: row.protocol,
                   strategy: row.strategy,
                   family: row.family,
-                  applyToDocker: row.dockerPublished,
+                  applyToDocker: row.applyToDocker,
                   description: row.description,
               },
               newRule: {
@@ -812,7 +745,7 @@ const submitChangeStatus = async (row: InboundRow, status: string) => {
                   protocol: row.protocol,
                   strategy: status,
                   family: row.family,
-                  applyToDocker: row.dockerPublished,
+                  applyToDocker: row.applyToDocker,
                   description: row.description,
               },
           })
@@ -822,7 +755,7 @@ const submitChangeStatus = async (row: InboundRow, status: string) => {
                   address: row.address,
                   strategy: row.strategy,
                   family: row.family,
-                  applyToDocker: row.dockerPublished,
+                  applyToDocker: row.applyToDocker,
                   description: row.description,
               },
               newRule: {
@@ -830,7 +763,7 @@ const submitChangeStatus = async (row: InboundRow, status: string) => {
                   address: row.address,
                   strategy: status,
                   family: row.family,
-                  applyToDocker: row.dockerPublished,
+                  applyToDocker: row.applyToDocker,
                   description: row.description,
               },
           });
@@ -838,8 +771,7 @@ const submitChangeStatus = async (row: InboundRow, status: string) => {
         .then(() => {
             if (status === 'drop') {
                 // 翻转为 drop=会话型候选（后端对触及保底端口的 drop 武装确认窗口）：
-                // 即时进入应用中过渡态，不在确认前显示最终成功。
-                MsgWarning(i18n.global.t('firewall.applying'));
+                // 即时进入应用中过渡态（含「应用中…」提示），不在确认前显示最终成功。
                 enterFireApplying();
             } else {
                 MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
@@ -911,7 +843,7 @@ const buildDeleteRule = (row: InboundRow) => ({
     protocol: row.ruleType === 'port' ? row.protocol : '',
     strategy: row.strategy,
     family: row.family,
-    applyToDocker: row.dockerPublished,
+    applyToDocker: row.applyToDocker,
 });
 
 const ruleName = (row: InboundRow): string => {
@@ -982,7 +914,7 @@ const onExport = () => {
                         port: item.port,
                         protocol: item.protocol,
                         strategy: item.strategy,
-                        applyToDocker: item.dockerPublished,
+                        applyToDocker: item.applyToDocker,
                         description: item.description,
                     };
                 }
@@ -991,7 +923,7 @@ const onExport = () => {
                     family: item.family,
                     address: item.address,
                     strategy: item.strategy,
-                    applyToDocker: item.dockerPublished,
+                    applyToDocker: item.applyToDocker,
                     description: item.description,
                 };
             });
@@ -1008,7 +940,7 @@ const showProcessDetail = (pid: number) => {
 
 onMounted(async () => {
     await loadBaseInfo('base');
-    await Promise.all([loadRescuePorts(), ensurePortsLoaded()]);
+    await loadRescuePorts();
     await loadData();
 });
 </script>

@@ -79,6 +79,7 @@ import { MsgSuccess } from '@/utils/message';
 import { Host } from '@/api/interface/host';
 import { operateFilterRule } from '@/api/modules/host';
 import { checkCidr, checkCidrV6, checkIpV4V6 } from '@/utils/validate';
+import { chainDirectionLabel } from '@/views/host/firewall/composables/firewallHelpers';
 const loading = ref();
 
 interface DialogProps {
@@ -103,11 +104,7 @@ const acceptParams = (params: DialogProps): void => {
 };
 const emit = defineEmits<{ (e: 'search'): void }>();
 
-const directionLabel = computed(() =>
-    dialogData.value.rowData?.chain === '1PANEL_OUTPUT'
-        ? i18n.global.t('firewall.outboundDirection')
-        : i18n.global.t('firewall.inboundDirection'),
-);
+const directionLabel = computed(() => chainDirectionLabel(dialogData.value.rowData?.chain));
 
 const handleClose = () => {
     drawerVisible.value = false;
