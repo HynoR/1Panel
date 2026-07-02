@@ -108,15 +108,17 @@ func runBootReplay() string {
 			}
 		}
 	}
-	panelPort := service.LoadPanelPort()
-	if len(panelPort) == 0 {
-		global.LOG.Errorf("[firewall-boot] find 1panel service port failed")
-		return "failed:find panel port"
+	baselinePorts := service.LoadBaselinePorts()
+	if len(baselinePorts) == 0 {
+		global.LOG.Errorf("[firewall-boot] find baseline ports (ssh/panel) failed")
+		return "failed:find baseline ports"
 	}
-	// 保底注入：面板端口 ACCEPT 进 BASELINE（回读校验见下）。
-	if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelBaseline, "-p", "tcp", "-m", "tcp", "--dport", panelPort, "-j", "ACCEPT"); err != nil {
-		global.LOG.Errorf("[firewall-boot] add panel port accept rule %v failed, err: %v", panelPort, err)
-		return "failed:inject baseline"
+	// 保底注入：全部保底端口（SSH+面板）ACCEPT 进 BASELINE（AddRule 自带去重；回读校验见下）。
+	for _, p := range baselinePorts {
+		if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelBaseline, "-p", "tcp", "-m", "tcp", "--dport", p, "-j", "ACCEPT"); err != nil {
+			global.LOG.Errorf("[firewall-boot] add baseline port accept rule %v failed, err: %v", p, err)
+			return "failed:inject baseline"
+		}
 	}
 	global.LOG.Infof("[firewall-boot] loaded iptables base chains from file successfully")
 
@@ -124,13 +126,29 @@ func runBootReplay() string {
 	iptablesStatus, _ := settingRepo.GetValueByKey("IptablesStatus")
 	bootStatus := "ok"
 	if iptablesStatus == constant.StatusEnable {
+		// R2 fail-open 守卫：AFTER 链（存量机天然白名单尾规则 DROP-all）一旦随文件加载并绑定，
+		// BASELINE 若未放行全部保底端口即会在绑定瞬间把 SSH/面板 DROP 锁外。故绑定前先断言，
+		// 断言失败宁可清空 AFTER（v4+v6）退回宽松布局也不锁外，随后仍继续绑定（此时布局是安全的）。
+		if afterChainHasDrop() && !baselinePortsAllAccepted(baselinePorts) {
+			global.LOG.Errorf("[firewall-boot] baseline verify failed while AFTER holds DROP-all; suspending strict layout (clearing AFTER)")
+			if err := iptables.ClearChain(iptables.FilterTab, iptables.Chain1PanelAfter); err != nil {
+				global.LOG.Errorf("[firewall-boot] clear v4 AFTER chain failed, err: %v", err)
+			}
+			if iptables.HasIP6tables() {
+				if err := iptables.ClearChain6(iptables.FilterTab, iptables.Chain1PanelAfter); err != nil {
+					global.LOG.Warnf("[firewall-boot] clear v6 AFTER chain failed, err: %v", err)
+				}
+			}
+			bootStatus = "degraded:strict-suspended (baseline verify failed)"
+		}
 		if err := iptablesService.Operate(dto.IptablesOp{Operate: "bind-base-without-init"}); err != nil {
 			global.LOG.Errorf("[firewall-boot] bind base chains failed, err: %v", err)
 			return "failed:bind base"
 		}
-		// L4：回读校验 BASELINE 面板端口 ACCEPT 是否存在；缺失则降级告警（不阻断，但 UI 横幅提示）。
-		if !iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelBaseline, "-p", "tcp", "-m", "tcp", "--dport", panelPort, "-j", "ACCEPT") {
-			global.LOG.Warnf("[firewall-boot] baseline panel port accept verification failed")
+		// L4：绑定后回读校验 BASELINE 是否放行全部保底端口；缺失则降级告警（不阻断，UI 横幅提示）。
+		// 不覆盖已置的更严重 strict-suspended。
+		if bootStatus == "ok" && !baselinePortsAllAccepted(baselinePorts) {
+			global.LOG.Warnf("[firewall-boot] baseline ports accept verification failed")
 			bootStatus = "degraded:baseline verify failed"
 		}
 	}
@@ -158,7 +176,37 @@ func runBootReplay() string {
 			return "failed:bind output"
 		}
 	}
+	// R1：迁移把"广源且覆盖保底端口"的旧 DENY 规则隔离进 deny.quarantine（未加载进内核）。
+	// 仅在其余检查均正常（ok）时提示：failed 已提前 return，strict-suspended 更严重故不覆盖。
+	if n := quarantinedDenyCount(); n > 0 && bootStatus == "ok" {
+		bootStatus = fmt.Sprintf("degraded:quarantined %d legacy deny rules", n)
+	}
 	return bootStatus
+}
+
+// afterChainHasDrop 报告 v4 AFTER 内核链是否含任何 -j DROP 规则。
+// 读失败按"存在 DROP"处理：宁可多触发一次保底端口断言（最坏是清空本就为空的 AFTER），不漏判锁外风险。
+func afterChainHasDrop() bool {
+	stdout, err := iptables.RunWithStd(iptables.FilterTab, "-S", iptables.Chain1PanelAfter)
+	if err != nil {
+		return true
+	}
+	for _, line := range strings.Split(stdout, "\n") {
+		if strings.Contains(line, "-j DROP") {
+			return true
+		}
+	}
+	return false
+}
+
+// baselinePortsAllAccepted 回读断言 v4 BASELINE 链是否为全部保底端口都有 tcp ACCEPT 放行。
+func baselinePortsAllAccepted(ports []string) bool {
+	for _, p := range ports {
+		if !iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelBaseline, "-p", "tcp", "-m", "tcp", "--dport", p, "-j", "ACCEPT") {
+			return false
+		}
+	}
+	return true
 }
 
 // recordBootStatus 把开机自检结果写入 firewall_state 单行表，供 /firewall/base 横幅展示（设计稿 §3.8）。
