@@ -39,6 +39,19 @@ func loadFirewallPortWhiteList() ([]firewallPortWhitelist, error) {
 	return normalizeFirewallPortWhiteList(append(portWhiteList, requiredPorts...)), nil
 }
 
+// LoadBaselinePorts 返回不可移除保底端口（SSH + 面板），供开机敌对 policy 防护直接注入 ACCEPT。
+func LoadBaselinePorts() []string {
+	ports, err := loadRequiredFirewallPortWhiteList()
+	if err != nil {
+		return nil
+	}
+	result := make([]string, 0, len(ports))
+	for _, item := range ports {
+		result = append(result, item.Port)
+	}
+	return result
+}
+
 func loadRequiredFirewallPortWhiteList() ([]firewallPortWhitelist, error) {
 	panelPort := LoadPanelPort()
 	if panelPort == "" {

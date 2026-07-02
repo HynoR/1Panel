@@ -8,9 +8,11 @@ import (
 
 	"github.com/1Panel-dev/1Panel/agent/app/dto"
 	"github.com/1Panel-dev/1Panel/agent/app/model"
+	"github.com/1Panel-dev/1Panel/agent/buserr"
 	"github.com/1Panel-dev/1Panel/agent/constant"
 	"github.com/1Panel-dev/1Panel/agent/global"
 	"github.com/1Panel-dev/1Panel/agent/utils/cmd"
+	"github.com/1Panel-dev/1Panel/agent/utils/firewall"
 	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client"
 	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client/iptables"
 )
@@ -163,34 +165,31 @@ func (s *IptablesService) Operate(req dto.IptablesOp) error {
 		if ok := cmd.Which("iptables"); !ok {
 			return fmt.Errorf("failed to find iptables")
 		}
-		if err := iptables.AddChain(iptables.FilterTab, iptables.Chain1PanelBasicBefore); err != nil {
-			return err
+		for _, chain := range baseChainOrder {
+			if err := iptables.AddChain(iptables.FilterTab, chain); err != nil {
+				return err
+			}
 		}
-		if err := iptables.AddChain(iptables.FilterTab, iptables.Chain1PanelBasic); err != nil {
-			return err
-		}
-		if err := iptables.AddChain(iptables.FilterTab, iptables.Chain1PanelBasicAfter); err != nil {
+		// v6：先建链（让白名单镜像能写 BASELINE6/ALLOW6），再渲染固定规则、绑定、持久化。
+		if err := setupBaseChains6(); err != nil {
 			return err
 		}
 		if err := initPreRules(); err != nil {
 			return err
 		}
-		if err := iptables.BindChain(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelBasicBefore, 1); err != nil {
+		if err := renderGuardAfter6(); err != nil {
 			return err
 		}
-		if err := iptables.BindChain(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelBasic, 2); err != nil {
+		if err := bindBaseChainsInOrder(); err != nil {
 			return err
 		}
-		if err := iptables.BindChain(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelBasicAfter, 3); err != nil {
+		if err := bindBaseChainsInOrder6(); err != nil {
 			return err
 		}
-		if err := iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelBasicBefore, iptables.BasicBeforeFileName); err != nil {
+		if err := saveBaseChains(); err != nil {
 			return err
 		}
-		if err := iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelBasic, iptables.BasicFileName); err != nil {
-			return err
-		}
-		if err := iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelBasicAfter, iptables.BasicAfterFileName); err != nil {
+		if err := saveBaseChains6(); err != nil {
 			return err
 		}
 		_ = settingRepo.Update("IptablesStatus", constant.StatusEnable)
@@ -219,51 +218,41 @@ func (s *IptablesService) Operate(req dto.IptablesOp) error {
 		_ = settingRepo.Update("IptablesOutputStatus", constant.StatusEnable)
 		return nil
 	case "bind-base":
+		if err := setupBaseChains6(); err != nil {
+			return err
+		}
 		if err := initPreRules(); err != nil {
 			return err
 		}
-		if err := iptables.BindChain(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelBasicBefore, 1); err != nil {
+		if err := renderGuardAfter6(); err != nil {
 			return err
 		}
-		if err := iptables.BindChain(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelBasic, 2); err != nil {
+		if err := bindBaseChainsInOrder(); err != nil {
 			return err
 		}
-		if err := iptables.BindChain(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelBasicAfter, 3); err != nil {
+		if err := bindBaseChainsInOrder6(); err != nil {
 			return err
 		}
-		if err := iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelBasicBefore, iptables.BasicBeforeFileName); err != nil {
+		if err := saveBaseChains(); err != nil {
 			return err
 		}
-		if err := iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelBasic, iptables.BasicFileName); err != nil {
-			return err
-		}
-		if err := iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelBasicAfter, iptables.BasicAfterFileName); err != nil {
+		if err := saveBaseChains6(); err != nil {
 			return err
 		}
 		_ = settingRepo.Update("IptablesStatus", constant.StatusEnable)
 		return nil
 	case "bind-base-without-init":
-		if err := iptables.BindChain(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelBasicBefore, 1); err != nil {
+		if err := bindBaseChainsInOrder(); err != nil {
 			return err
 		}
-		if err := iptables.BindChain(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelBasic, 2); err != nil {
-			return err
-		}
-		if err := iptables.BindChain(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelBasicAfter, 3); err != nil {
+		if err := bindBaseChainsInOrder6(); err != nil {
 			return err
 		}
 		_ = settingRepo.Update("IptablesStatus", constant.StatusEnable)
 		return nil
 	case "unbind-base":
-		if err := iptables.UnbindChain(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelBasicAfter); err != nil {
-			return err
-		}
-		if err := iptables.UnbindChain(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelBasicBefore); err != nil {
-			return err
-		}
-		if err := iptables.UnbindChain(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelBasic); err != nil {
-			return err
-		}
+		unbindBaseChains()
+		unbindBaseChains6()
 		_ = settingRepo.Update("IptablesStatus", constant.StatusDisable)
 		return nil
 	case "bind":
@@ -288,8 +277,107 @@ func (s *IptablesService) Operate(req dto.IptablesOp) error {
 			_ = settingRepo.Update("IptablesOutputStatus", constant.StatusDisable)
 		}
 		return nil
+	case "enable-strict":
+		return enableStrictMode()
+	case "disable-strict":
+		return disableStrictMode()
 	}
 	return nil
+}
+
+// enableStrictMode 开启白名单（严格）模式：向已绑定的 AFTER 链注入 DROP all tcp/udp（v4+v6），
+// 未列出端口将被拒绝。高危（可能锁外）→ 先 BeginSession 武装提交-确认窗口（60s 未确认自动还原）。
+func enableStrictMode() (retErr error) {
+	// 先武装提交-确认会话（拍快照=空 AFTER），再注入 DROP；不在此落盘、也不写 IptablesStrictMode setting
+	// ——遵守"确认前不落定"：用户点「确认保留」时 ConfirmSession 会 persistManagedChains（含 AFTER），超时/崩溃
+	// 则 RevertSession 还原为空 AFTER 并落盘，自动回到宽松，杜绝误开严格把人锁外。StrictMode 以内核为准
+	// （isStrictMode 读 AFTER 链），setting 不在确认前写盘，避免 DB/内核分裂（修 B7）。
+	// 幽灵会话撤销 / 半写入保留的取舍见 firewall.SessionGuard（D2）。
+	guard, err := firewall.BeginSessionGuard(firewall.StrictModeSessionSummary)
+	if err != nil {
+		return err
+	}
+	defer func() { guard.Finish("enable strict", retErr) }()
+	applied, err := ensureAfterDropRules()
+	if applied {
+		guard.MarkApplied()
+	}
+	return err
+}
+
+// disableStrictMode 关闭白名单模式：清空 AFTER 链（v4+v6），未列出端口落回 INPUT(ACCEPT) 即宽松放行。
+func disableStrictMode() error {
+	if firewall.SessionStatus().Active {
+		// 活动会话若不是"仅开启白名单"这一笔，直接 Revert 会把窗口内另一笔无关的待确认变更（如某条待确认
+		// 的 DROP 规则）连带回滚（D3/A4 误伤）。仅当活动会话是严格启用会话时才走 Revert（用户"开启白名单→
+		// 60s 内反悔点关闭"的主保留场景）；否则要求用户先确认或撤销当前待确认变更。
+		// SessionStatus/ActiveSessionIsStrictOnly/RevertSession 顺序取 mu、不嵌套，无死锁。
+		if !firewall.ActiveSessionIsStrictOnly() {
+			return buserr.New("ErrFirewallSessionBusy")
+		}
+		if err := firewall.RevertSession(); err != nil {
+			return err
+		}
+	}
+	if err := iptables.ClearChain(iptables.FilterTab, iptables.Chain1PanelAfter); err != nil {
+		return err
+	}
+	if err := iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelAfter, iptables.AfterFileName); err != nil {
+		return err
+	}
+	if iptables.HasIP6tables() {
+		if err := iptables.ClearChain6(iptables.FilterTab, iptables.Chain1PanelAfter); err != nil {
+			return err
+		}
+		if err := iptables.SaveRulesToFile6(iptables.FilterTab, iptables.Chain1PanelAfter, iptables.AfterFileName); err != nil {
+			return err
+		}
+	}
+	// 不写 IptablesStrictMode setting：该 setting 全仓无读取方，StrictMode 以内核为准（isStrictMode），
+	// 不在变更点写盘可避免 enable/disable/会话回滚间的 DB/内核分裂（修 B7）。
+	return nil
+}
+
+// ensureAfterDropRules 幂等地向 AFTER 链（v4+v6）注入 DROP all tcp/udp。
+// v6 关键操作失败必须上抛（修 B6）：否则 enableStrictMode 仍返回 nil，造成"v4 严格/v6 宽松"不对称，
+// IPv6 旁路绕过白名单；上抛后上层会话（BeginSession 已武装）会在超时/崩溃时 RevertSession 还原 v4+v6。
+// 返回 applied 标记本次是否真的向内核写入过 DROP：供 enableStrictMode 区分"失败前零写入"（可安全撤销
+// 幽灵会话）与"已部分写入"（须保留会话让 Revert 兜底），见 D2。
+func ensureAfterDropRules() (applied bool, err error) {
+	// 已显式 CheckRuleExist 去重，直接 -A 追加（AddRule 内部会再跑一次同样的 -C，纯浪费）。
+	for _, proto := range []string{"tcp", "udp"} {
+		if !iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP") {
+			if err := iptables.Run(iptables.FilterTab, "-A", iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP"); err != nil {
+				return applied, err
+			}
+			applied = true
+		}
+		if iptables.HasIP6tables() && !iptables.CheckRuleExist6(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP") {
+			if err := iptables.Run6(iptables.FilterTab, "-A", iptables.Chain1PanelAfter, "-p", proto, "-j", "DROP"); err != nil {
+				return applied, err
+			}
+			applied = true
+		}
+	}
+	return applied, nil
+}
+
+// isStrictMode 判断当前是否白名单模式：AFTER 链需"已 jump 到 INPUT 且含 DROP all tcp"才算生效（注入时 tcp/udp 成对，检 tcp 即可）。
+// v4 与 v6（若可用）都满足才算启用；unbind-base 解绑后链内残留 DROP 时返回 false（与"实际未生效"一致，修 B5）；
+// v4/v6 仅一侧严格视为不一致，返回 false 避免 UI 误报"严格已开"并 warn 暴露 IPv6 旁路风险（修 B6）。
+func isStrictMode() bool {
+	v4Bind, _ := iptables.CheckChainBind(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelAfter)
+	v4Strict := v4Bind && iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", "tcp", "-j", "DROP")
+	if !iptables.HasIP6tables() {
+		return v4Strict
+	}
+	v6Strict := iptables.FindChainNum6(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelAfter) > 0 &&
+		iptables.CheckRuleExist6(iptables.FilterTab, iptables.Chain1PanelAfter, "-p", "tcp", "-j", "DROP")
+	if v4Strict != v6Strict {
+		global.LOG.Warnf("[firewall] strict mode inconsistent: v4=%v v6=%v, treating as disabled to avoid false \"strict on\"", v4Strict, v6Strict)
+		return false
+	}
+	return v4Strict
 }
 
 func (s *IptablesService) LoadChainStatus(req dto.OperationWithName) dto.IptablesChainStatus {
@@ -360,31 +448,192 @@ func loadBindNumber(chain string) int {
 	if chain == iptables.Chain1PanelOutput {
 		return 1
 	}
-	number := 1
-	if exist, _ := iptables.CheckChainExist(iptables.FilterTab, iptables.Chain1PanelBasicBefore); exist {
-		number++
+	// 1PANEL_INPUT（高级过滤）插在 ALLOW 之后、AFTER 之前（设计稿 §3.4 位置 5）。
+	if num, _ := iptables.FindChainNum(iptables.FilterTab, iptables.ChainInput, iptables.Chain1PanelAfter); num > 0 {
+		return num
 	}
-	if exist, _ := iptables.CheckChainExist(iptables.FilterTab, iptables.Chain1PanelBasic); exist {
-		number++
+	// AFTER 未绑定（非严格）→ 追加到已绑定基础链之后。
+	count := 0
+	for _, c := range []string{
+		iptables.Chain1PanelGuard,
+		iptables.Chain1PanelDeny,
+		iptables.Chain1PanelBaseline,
+		iptables.Chain1PanelAllow,
+	} {
+		if num, _ := iptables.FindChainNum(iptables.FilterTab, iptables.ChainInput, c); num > 0 {
+			count++
+		}
 	}
-	return number
+	return count + 1
 }
 
 func initPreRules() error {
-	if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelBasicBefore, "-i", "lo", "-j", "ACCEPT", "-m", "comment", "--comment", "Loopback Whitelist"); err != nil {
+	// GUARD：lo + ESTABLISHED 放行（每包都过，放最前）。caller-IP 紧急放行由 L2 中间件动态插 INPUT 顶。
+	if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelGuard, "-i", "lo", "-j", "ACCEPT", "-m", "comment", "--comment", "Loopback Whitelist"); err != nil {
 		return err
 	}
-	if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelBasicBefore, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT", "-m", "comment", "--comment", "ESTABLISHED Whitelist"); err != nil {
+	if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelGuard, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT", "-m", "comment", "--comment", "ESTABLISHED Whitelist"); err != nil {
 		return err
 	}
+	// 渲染保底集（SSH/面板 → BASELINE）与白名单（80/443 → ALLOW）。
 	if err := syncIptablesFirewallPortWhiteList(false); err != nil {
 		return err
 	}
-	if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelBasicAfter, "-p", "tcp", "-j", "DROP"); err != nil {
+	// AFTER 默认留空（宽松模式：未列出端口落回 INPUT(ACCEPT)，面向小白默认放行）。
+	// 白名单（严格）模式由用户通过 enable-strict 显式开启，届时再向 AFTER 注入 DROP all。
+	return nil
+}
+
+// bindBaseChainsInOrder 按固定顺序 GUARD(1) DENY(2) BASELINE(3) ALLOW(4) AFTER(5) 绑定到 INPUT，
+// 先全部解绑再按序插入，最后回读断言顺序（根治 #12476 链顺序错乱，修 C9）。
+func bindBaseChainsInOrder() error {
+	unbindBaseChains()
+	for i, chain := range baseChainOrder {
+		if err := iptables.InsertChain(iptables.FilterTab, iptables.ChainInput, chain, i+1); err != nil {
+			return fmt.Errorf("bind base chain %s failed: %w", chain, err)
+		}
+	}
+	return assertBaseOrder()
+}
+
+// unbindBaseChains 解绑 INPUT 上全部新布局基础链（循环删，处理重复绑定）。
+// 同时解绑旧 BASIC 布局残留的 INPUT jump：升级机器上 INPUT 仍可能挂着 BASIC_BEFORE/BASIC/BASIC_AFTER，
+// 不一并解绑则旧严格 DROP 路径在绑定新链后依然生效，且 unbind-base 关闭防火墙时无法真正停用旧路径（评审 P1）。
+// 迁移完成后这些旧链已不在 INPUT，FindChainNum 返回 0，循环立即跳过，对存量机为无害幂等操作。
+func unbindBaseChains() {
+	chains := append([]string{}, baseChainOrder...)
+	chains = append(chains,
+		iptables.Chain1PanelBasicBefore,
+		iptables.Chain1PanelBasic,
+		iptables.Chain1PanelBasicAfter,
+	)
+	for _, chain := range chains {
+		iptables.UnbindChainAll(iptables.FilterTab, iptables.ChainInput, chain)
+	}
+}
+
+// assertBaseOrder 回读 INPUT，断言 GUARD/DENY/BASELINE/ALLOW/AFTER 的相对顺序正确（忽略可选的 1PANEL_INPUT）。
+func assertBaseOrder() error {
+	jumps := orderedPanelJumps()
+	expected := baseChainOrder
+	var got []string
+	expectedSet := map[string]struct{}{}
+	for _, c := range expected {
+		expectedSet[c] = struct{}{}
+	}
+	for _, j := range jumps {
+		if _, ok := expectedSet[j]; ok {
+			got = append(got, j)
+		}
+	}
+	if len(got) != len(expected) {
+		return fmt.Errorf("base chain order assertion failed: expected %v, got %v", expected, got)
+	}
+	for i := range expected {
+		if got[i] != expected[i] {
+			return fmt.Errorf("base chain order assertion failed: expected %v, got %v", expected, got)
+		}
+	}
+	return nil
+}
+
+// orderedPanelJumps 返回 INPUT 中所有跳向 1PANEL_* 链的目标（按出现顺序）。
+func orderedPanelJumps() []string {
+	out, err := iptables.RunWithStd(iptables.FilterTab, "-S", iptables.ChainInput)
+	if err != nil {
+		return nil
+	}
+	var jumps []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "-A "+iptables.ChainInput+" -j 1PANEL_") {
+			continue
+		}
+		fields := strings.Fields(line)
+		jumps = append(jumps, fields[len(fields)-1])
+	}
+	return jumps
+}
+
+var baseChainOrder = []string{
+	iptables.Chain1PanelGuard,
+	iptables.Chain1PanelDeny,
+	iptables.Chain1PanelBaseline,
+	iptables.Chain1PanelAllow,
+	iptables.Chain1PanelAfter,
+}
+
+// setupBaseChains6 在 ip6tables 上建链 + 渲染 GUARD6/AFTER6 固定规则（BASELINE6/ALLOW6 由白名单同步镜像写入），
+// 须在 initPreRules 之前建好链（否则白名单镜像 AddRule6 找不到链）。设计稿 §3.7。
+func setupBaseChains6() error {
+	if !iptables.HasIP6tables() {
+		return nil
+	}
+	for _, chain := range baseChainOrder {
+		if err := iptables.AddChain6(iptables.FilterTab, chain); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// renderGuardAfter6 写入 v6 的 GUARD（lo + ICMPv6/NDP + ESTABLISHED）与 AFTER（DROP all）。
+// ICMPv6 必放行，否则 NDP 被丢导致 IPv6 不通。
+func renderGuardAfter6() error {
+	if !iptables.HasIP6tables() {
+		return nil
+	}
+	if err := iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelGuard, "-i", "lo", "-j", "ACCEPT"); err != nil {
 		return err
 	}
-	if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelBasicAfter, "-p", "udp", "-j", "DROP"); err != nil {
+	if err := iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelGuard, "-p", "ipv6-icmp", "-j", "ACCEPT"); err != nil {
 		return err
+	}
+	// AFTER6 默认留空（宽松模式）；严格模式由 enable-strict 注入 DROP（与 v4 对称）。
+	return iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelGuard, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT")
+}
+
+func bindBaseChainsInOrder6() error {
+	if !iptables.HasIP6tables() {
+		return nil
+	}
+	for _, chain := range baseChainOrder {
+		iptables.UnbindChain6(iptables.FilterTab, iptables.ChainInput, chain)
+	}
+	for i, chain := range baseChainOrder {
+		if err := iptables.InsertChain6(iptables.FilterTab, iptables.ChainInput, chain, i+1); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func unbindBaseChains6() {
+	if !iptables.HasIP6tables() {
+		return
+	}
+	for _, chain := range baseChainOrder {
+		iptables.UnbindChain6(iptables.FilterTab, iptables.ChainInput, chain)
+	}
+}
+
+func saveBaseChains6() error {
+	if !iptables.HasIP6tables() {
+		return nil
+	}
+	for _, chain := range baseChainOrder {
+		if err := iptables.SaveRulesToFile6(iptables.FilterTab, chain, iptables.ChainFileName(chain)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func saveBaseChains() error {
+	for _, chain := range baseChainOrder {
+		if err := iptables.SaveRulesToFile(iptables.FilterTab, chain, iptables.ChainFileName(chain)); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -405,36 +654,51 @@ func syncIptablesFirewallPortWhiteList(withSave bool, oldConfiguredPortWhiteList
 }
 
 func applyRequiredFirewallPortWhiteListRules(portWhiteList []firewallPortWhitelist, withSave bool) error {
+	// 保底集（SSH/面板）渲染进 BASELINE 链（不可移除），镜像写 v6（修 C7）。
 	if err := syncRequiredFirewallPortWhiteListRules(portWhiteList); err != nil {
 		return err
 	}
 	for _, item := range portWhiteList {
-		if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelBasicBefore, "-p", item.Protocol, "-m", item.Protocol, "--dport", item.Port, "-j", "ACCEPT"); err != nil {
+		if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelBaseline, "-p", item.Protocol, "-m", item.Protocol, "--dport", item.Port, "-j", "ACCEPT"); err != nil {
 			return err
+		}
+		if iptables.HasIP6tables() {
+			_ = iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelBaseline, "-p", item.Protocol, "-m", item.Protocol, "--dport", item.Port, "-j", "ACCEPT")
 		}
 	}
 	if !withSave {
 		return nil
 	}
-	if err := iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelBasicBefore, iptables.BasicBeforeFileName); err != nil {
+	if err := iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelBaseline, iptables.BaselineFileName); err != nil {
 		return err
 	}
-	return iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelBasicAfter, iptables.BasicAfterFileName)
+	if iptables.HasIP6tables() {
+		_ = iptables.SaveRulesToFile6(iptables.FilterTab, iptables.Chain1PanelBaseline, iptables.BaselineFileName)
+		_ = iptables.SaveRulesToFile6(iptables.FilterTab, iptables.Chain1PanelAfter, iptables.AfterFileName)
+	}
+	return iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelAfter, iptables.AfterFileName)
 }
 
 func applyFirewallPortWhiteListRules(portWhiteList []firewallPortWhitelist, withSave bool, oldConfiguredPortWhiteList ...[]firewallPortWhitelist) error {
+	// 用户白名单（80/443 默认在此，可删）渲染进 ALLOW 链——位于 DENY 之后，故黑名单可压过它（根治 #12897）。
 	if err := syncFirewallPortWhiteListRules(portWhiteList, oldConfiguredPortWhiteList...); err != nil {
 		return err
 	}
 	for _, item := range portWhiteList {
-		if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelBasic, "-p", item.Protocol, "-m", item.Protocol, "--dport", item.Port, "-j", "ACCEPT"); err != nil {
+		if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelAllow, "-p", item.Protocol, "-m", item.Protocol, "--dport", item.Port, "-j", "ACCEPT"); err != nil {
 			return err
+		}
+		if iptables.HasIP6tables() {
+			_ = iptables.AddRule6(iptables.FilterTab, iptables.Chain1PanelAllow, "-p", item.Protocol, "-m", item.Protocol, "--dport", item.Port, "-j", "ACCEPT")
 		}
 	}
 	if !withSave {
 		return nil
 	}
-	return iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelBasic, iptables.BasicFileName)
+	if iptables.HasIP6tables() {
+		_ = iptables.SaveRulesToFile6(iptables.FilterTab, iptables.Chain1PanelAllow, iptables.AllowFileName)
+	}
+	return iptables.SaveRulesToFile(iptables.FilterTab, iptables.Chain1PanelAllow, iptables.AllowFileName)
 }
 
 func syncRequiredFirewallPortWhiteListRules(portWhiteList []firewallPortWhitelist) error {
@@ -448,13 +712,13 @@ func syncRequiredFirewallPortWhiteListRules(portWhiteList []firewallPortWhitelis
 		tcpWhitelist[item.Port] = struct{}{}
 	}
 
-	if err := cleanExtraFirewallPortRules(iptables.Chain1PanelBasicBefore, "tcp", tcpWhitelist); err != nil {
+	if err := cleanExtraFirewallPortRules(iptables.Chain1PanelBaseline, "tcp", tcpWhitelist); err != nil {
 		return err
 	}
-	if err := cleanExtraFirewallPortRules(iptables.Chain1PanelBasicBefore, "udp", udpWhitelist); err != nil {
+	if err := cleanExtraFirewallPortRules(iptables.Chain1PanelBaseline, "udp", udpWhitelist); err != nil {
 		return err
 	}
-	return cleanExtraFirewallPortRules(iptables.Chain1PanelBasicAfter, "udp", map[string]struct{}{})
+	return nil
 }
 
 func syncFirewallPortWhiteListRules(portWhiteList []firewallPortWhitelist, oldConfiguredPortWhiteList ...[]firewallPortWhitelist) error {
@@ -466,18 +730,39 @@ func syncFirewallPortWhiteListRules(portWhiteList []firewallPortWhitelist, oldCo
 		if _, ok := portWhitelist[firewallPortWhiteListKey(item)]; ok {
 			continue
 		}
-		if !iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelBasic, "-p", item.Protocol, "--dport", item.Port, "-j", "ACCEPT") {
-			continue
+		if iptables.CheckRuleExist(iptables.FilterTab, iptables.Chain1PanelAllow, "-p", item.Protocol, "--dport", item.Port, "-j", "ACCEPT") {
+			if err := iptables.DeleteRule(iptables.FilterTab, iptables.Chain1PanelAllow, "-p", item.Protocol, "--dport", item.Port, "-j", "ACCEPT"); err != nil {
+				return err
+			}
 		}
-		if err := iptables.DeleteRule(iptables.FilterTab, iptables.Chain1PanelBasic, "-p", item.Protocol, "--dport", item.Port, "-j", "ACCEPT"); err != nil {
-			return err
+		// 删除时必须同步清掉 v6 镜像：添加白名单端口会镜像写 ip6tables ALLOW，
+		// 仅删 v4 会让端口在 IPv6 上持续放行（且随后又被 SaveRulesToFile6 落盘）（评审 P2）。
+		if iptables.HasIP6tables() && iptables.CheckRuleExist6(iptables.FilterTab, iptables.Chain1PanelAllow, "-p", item.Protocol, "--dport", item.Port, "-j", "ACCEPT") {
+			if err := iptables.DeleteRule6(iptables.FilterTab, iptables.Chain1PanelAllow, "-p", item.Protocol, "--dport", item.Port, "-j", "ACCEPT"); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
 func cleanExtraFirewallPortRules(chain, protocol string, whitelist map[string]struct{}) error {
-	rules, err := iptables.ReadFilterRulesByChain(chain)
+	if err := cleanExtraPortRulesByFamily(chain, protocol, whitelist, iptables.ReadFilterRulesByChain, iptables.DeleteRule); err != nil {
+		return err
+	}
+	// v6 镜像同样清理：保底集（SSH/面板端口）由 applyRequiredFirewallPortWhiteListRules 镜像写入 v6 BASELINE，
+	// 若只清 v4，端口变更后旧端口会在 IPv6 上持续放行并被 SaveRulesToFile6 再次落盘（评审 P2，与 ALLOW 链 v6 删除同源）。
+	// 独立扫一遍 v6 链，可一并自愈本修复前已残留的 v6-only 陈旧项。
+	if !iptables.HasIP6tables() {
+		return nil
+	}
+	return cleanExtraPortRulesByFamily(chain, protocol, whitelist, iptables.ReadFilterRulesByChain6, iptables.DeleteRule6)
+}
+
+// cleanExtraPortRulesByFamily 按指定地址族（由 read/del 决定 v4 或 v6）清掉某链中不在白名单内的多余端口 ACCEPT，
+// 同名端口仅保留首条。沿用本包既有的 reader 函数值传参风格（见 appendPortRules）。
+func cleanExtraPortRulesByFamily(chain, protocol string, whitelist map[string]struct{}, read func(string) ([]iptables.FilterRules, error), del func(string, string, ...string) error) error {
+	rules, err := read(chain)
 	if err != nil {
 		return err
 	}
@@ -492,7 +777,7 @@ func cleanExtraFirewallPortRules(chain, protocol string, whitelist map[string]st
 				continue
 			}
 		}
-		if err := iptables.DeleteRule(iptables.FilterTab, chain, "-p", protocol, "-m", protocol, "--dport", rule.DstPort, "-j", "ACCEPT"); err != nil {
+		if err := del(iptables.FilterTab, chain, "-p", protocol, "-m", protocol, "--dport", rule.DstPort, "-j", "ACCEPT"); err != nil {
 			return err
 		}
 	}

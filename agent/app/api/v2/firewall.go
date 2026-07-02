@@ -3,8 +3,22 @@ package v2
 import (
 	"github.com/1Panel-dev/1Panel/agent/app/api/v2/helper"
 	"github.com/1Panel-dev/1Panel/agent/app/dto"
+	"github.com/1Panel-dev/1Panel/agent/utils/callerip"
 	"github.com/gin-gonic/gin"
 )
+
+// firewallCallerIP 返回调用方真实客户端 IP（B9 单 IP 自锁检测用）。
+// 优先读 FirewallEmergency 中间件解析并写入 context 的结果（单点解析）；
+// 未挂该中间件的路由回退自行解析。信任模型见 callerip.Resolve：
+// unix socket 采信 core 注入的受信头，TCP 用 RemoteAddr。
+func firewallCallerIP(c *gin.Context) string {
+	if v, ok := c.Get(callerip.ContextKey); ok {
+		if ip, ok := v.(string); ok && ip != "" {
+			return ip
+		}
+	}
+	return callerip.Resolve(c.Request)
+}
 
 // @Tags Firewall
 // @Summary Load firewall base info
@@ -137,6 +151,7 @@ func (b *BaseApi) OperateIPRule(c *gin.Context) {
 	if err := helper.CheckBindAndValidate(&req, c); err != nil {
 		return
 	}
+	req.CallerIP = firewallCallerIP(c)
 
 	if err := firewallService.OperateAddressRule(req, true); err != nil {
 		helper.InternalServer(c, err)
@@ -158,6 +173,7 @@ func (b *BaseApi) BatchOperateRule(c *gin.Context) {
 	if err := helper.CheckBindAndValidate(&req, c); err != nil {
 		return
 	}
+	req.CallerIP = firewallCallerIP(c)
 
 	if err := firewallService.BatchOperateRule(req); err != nil {
 		helper.InternalServer(c, err)
@@ -221,8 +237,166 @@ func (b *BaseApi) UpdateAddrRule(c *gin.Context) {
 	if err := helper.CheckBindAndValidate(&req, c); err != nil {
 		return
 	}
+	callerIP := firewallCallerIP(c)
+	req.OldRule.CallerIP = callerIP
+	req.NewRule.CallerIP = callerIP
 
 	if err := firewallService.UpdateAddrRule(req); err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.Success(c)
+}
+
+// @Tags Firewall
+// @Summary Clean orphan firewall rule descriptions
+// @Accept json
+// @Success 200
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/clean [post]
+func (b *BaseApi) CleanOrphanFirewallRecords(c *gin.Context) {
+	if err := firewallService.CleanOrphanFirewallRecords(); err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.Success(c)
+}
+
+// @Tags Firewall
+// @Summary List quarantined legacy deny rules
+// @Accept json
+// @Success 200 {array} string
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/quarantine [get]
+func (b *BaseApi) ListFirewallQuarantine(c *gin.Context) {
+	list, err := firewallService.ListQuarantineRules()
+	if err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.SuccessWithData(c, list)
+}
+
+// @Tags Firewall
+// @Summary Clean quarantined legacy deny rules
+// @Accept json
+// @Success 200
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/quarantine/clean [post]
+func (b *BaseApi) CleanFirewallQuarantine(c *gin.Context) {
+	if err := firewallService.CleanQuarantineRules(); err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.Success(c)
+}
+
+// @Tags Firewall
+// @Summary Load commit-confirm session status
+// @Accept json
+// @Success 200 {object} dto.FirewallSessionInfo
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/session/status [post]
+func (b *BaseApi) LoadFirewallSession(c *gin.Context) {
+	helper.SuccessWithData(c, firewallService.SessionStatus())
+}
+
+// @Tags Firewall
+// @Summary Confirm commit-confirm session
+// @Accept json
+// @Success 200
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/session/confirm [post]
+func (b *BaseApi) ConfirmFirewallSession(c *gin.Context) {
+	if err := firewallService.ConfirmSession(); err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.Success(c)
+}
+
+// @Tags Firewall
+// @Summary Revert commit-confirm session
+// @Accept json
+// @Success 200
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/session/revert [post]
+func (b *BaseApi) RevertFirewallSession(c *gin.Context) {
+	if err := firewallService.RevertSession(); err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.Success(c)
+}
+
+// @Tags Firewall
+// @Summary Allow the new panel port (core delegates here on port change)
+// @Accept json
+// @Param request body dto.PanelPortUpdate true "request"
+// @Success 200
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/panel-port [post]
+func (b *BaseApi) UpdateFirewallPanelPort(c *gin.Context) {
+	var req dto.PanelPortUpdate
+	if err := helper.CheckBindAndValidate(&req, c); err != nil {
+		return
+	}
+	if err := firewallService.UpdatePanelPort(req); err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.Success(c)
+}
+
+// @Tags Firewall
+// @Summary Docker protection status
+// @Accept json
+// @Success 200 {object} dto.FirewallDockerStatus
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/docker/status [post]
+func (b *BaseApi) LoadFirewallDockerStatus(c *gin.Context) {
+	helper.SuccessWithData(c, firewallService.DockerStatus())
+}
+
+// @Tags Firewall
+// @Summary List firewall snapshots
+// @Accept json
+// @Success 200 {array} dto.FirewallSnapshot
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/snapshot/list [post]
+func (b *BaseApi) ListFirewallSnapshot(c *gin.Context) {
+	list, err := firewallService.ListSnapshots()
+	if err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.SuccessWithData(c, list)
+}
+
+// @Tags Firewall
+// @Summary Restore a firewall snapshot
+// @Accept json
+// @Param request body dto.FirewallSnapshotRestore true "request"
+// @Success 200
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /hosts/firewall/snapshot/restore [post]
+// @x-panel-log {"bodyKeys":["name"],"paramKeys":[],"BeforeFunctions":[],"formatZH":"恢复防火墙快照 [name]","formatEN":"restore firewall snapshot [name]"}
+func (b *BaseApi) RestoreFirewallSnapshot(c *gin.Context) {
+	var req dto.FirewallSnapshotRestore
+	if err := helper.CheckBindAndValidate(&req, c); err != nil {
+		return
+	}
+	if err := firewallService.RestoreSnapshot(req); err != nil {
 		helper.InternalServer(c, err)
 		return
 	}
