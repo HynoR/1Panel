@@ -3792,15 +3792,6 @@ const message = {
     },
     firewall: {
         create: 'ルールを作成します',
-        edit: 'ルールを編集します',
-        ccDeny: 'CC保護',
-        ipWhiteList: 'IP AllowList',
-        ipBlockList: 'IPブロックリスト',
-        fileExtBlockList: 'ファイル拡張ブロックリスト',
-        urlWhiteList: 'URL AllowList',
-        urlBlockList: 'URLブロックリスト',
-        argsCheck: 'パラメーターチェックを取得します',
-        postCheck: 'パラメーターの検証を投稿します',
         cookieBlockList: 'クッキーブロックリスト',
         dockerHelper:
             '現在のファイアウォールではコンテナのポートマッピングを無効にできません。インストール済みアプリケーションは【インストール済み】ページでアプリケーションパラメータを編集し、ポート開放ルールを設定できます。',

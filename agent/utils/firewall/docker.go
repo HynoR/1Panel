@@ -17,7 +17,7 @@ var dockerReplayPending atomic.Bool
 
 // dockerMu 串行化对 1PANEL_DOCKER 的所有变更（用户增删+持久化、开机/巡检重放的清空+重放），
 // 避免巡检的 LoadDockerRules（-F 清空后重放旧文件）与并发的用户 AddRule+persist 交错，
-// 导致刚加的规则既不在内核也不在文件中而静默丢失（P3）。EnsureDockerChain 为内部 helper，
+// 导致刚加的规则既不在内核也不在文件中而静默丢失（P3）。ensureDockerChain 为内部 helper，
 // 仅在已持锁路径中调用，自身不再加锁（非可重入）。
 var dockerMu sync.Mutex
 
@@ -37,9 +37,9 @@ func DockerProtectionAvailable() bool {
 	return exist
 }
 
-// EnsureDockerChain 确保 1PANEL_DOCKER 链存在，且 DOCKER-USER 第一条规则跳向它。
+// ensureDockerChain 确保 1PANEL_DOCKER 链存在，且 DOCKER-USER 第一条规则跳向它。
 // Docker 重启会重建 DOCKER-USER，故开机、每分钟巡检、每次操作都重新断言这个 jump。
-func EnsureDockerChain() {
+func ensureDockerChain() {
 	if !DockerProtectionAvailable() {
 		return
 	}
@@ -80,7 +80,7 @@ func ApplyDockerIPRule(ip, operation string) error {
 	defer dockerMu.Unlock()
 	args := []string{"-s", ip, "-j", "DROP"}
 	if operation == "add" {
-		EnsureDockerChain()
+		ensureDockerChain()
 		if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelDocker, args...); err != nil {
 			return err
 		}
@@ -127,7 +127,7 @@ func ApplyDockerPortRule(port, protocol, srcException, operation string) error {
 	}
 	args = append(args, "-p", protocol, "-m", "conntrack", "--ctorigdstport", port, "--ctdir", "ORIGINAL", "-j", "DROP")
 	if operation == "add" {
-		EnsureDockerChain()
+		ensureDockerChain()
 		if err := iptables.AddRule(iptables.FilterTab, iptables.Chain1PanelDocker, args...); err != nil {
 			return err
 		}
@@ -330,7 +330,7 @@ func LoadDockerRules() {
 	if err := iptables.LoadRulesFromFile(iptables.FilterTab, iptables.Chain1PanelDocker, iptables.DockerFileName); err != nil {
 		global.LOG.Warnf("[firewall-docker] load docker rules failed: %v", err)
 	}
-	EnsureDockerChain()
+	ensureDockerChain()
 	dockerReplayPending.Store(false)
 }
 
@@ -342,7 +342,7 @@ func ReconcileDockerChain() {
 		return
 	}
 	dockerMu.Lock()
-	EnsureDockerChain()
+	ensureDockerChain()
 	dockerMu.Unlock()
 }
 

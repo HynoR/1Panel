@@ -28,7 +28,6 @@ type IHostRepo interface {
 	DeleteFirewallRecordByID(id uint) error
 	DeleteFirewallRecordByTuple(record model.Firewall) error
 
-	GetFirewallMeta(fingerprint string) (model.FirewallRuleMeta, error)
 	ListFirewallMeta(opts ...DBOption) ([]model.FirewallRuleMeta, error)
 	SaveFirewallMeta(meta *model.FirewallRuleMeta) error
 	DeleteFirewallMeta(fingerprint string) error
@@ -198,12 +197,6 @@ func (h *HostRepo) DeleteFirewallRecordByTuple(record model.Firewall) error {
 			record.Chain, record.SrcPort, record.DstPort, record.Protocol, record.SrcIP, record.DstIP)
 	}
 	return db.Delete(&model.Firewall{}).Error
-}
-
-func (h *HostRepo) GetFirewallMeta(fingerprint string) (model.FirewallRuleMeta, error) {
-	var meta model.FirewallRuleMeta
-	err := global.DB.Where("fingerprint = ?", fingerprint).First(&meta).Error
-	return meta, err
 }
 
 func (h *HostRepo) ListFirewallMeta(opts ...DBOption) ([]model.FirewallRuleMeta, error) {

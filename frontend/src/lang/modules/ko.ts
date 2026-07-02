@@ -3709,15 +3709,6 @@ const message = {
     },
     firewall: {
         create: '규칙 만들기',
-        edit: '규칙 수정',
-        ccDeny: 'CC 보호',
-        ipWhiteList: 'IP 허용 목록',
-        ipBlockList: 'IP 차단 목록',
-        fileExtBlockList: '파일 확장자 차단 목록',
-        urlWhiteList: 'URL 허용 목록',
-        urlBlockList: 'URL 차단 목록',
-        argsCheck: 'GET 파라미터 검사',
-        postCheck: 'POST 파라미터 검사',
         cookieBlockList: '쿠키 차단 목록',
         dockerHelper:
             '현재 방화벽은 컨테이너 포트 매핑을 비활성화할 수 없습니다. 설치된 애플리케이션은 [설치됨] 페이지에서 애플리케이션 매개변수를 편집하고 포트 해제 규칙을 구성할 수 있습니다.',

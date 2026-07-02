@@ -3487,7 +3487,6 @@ const message = {
     },
     firewall: {
         create: '创建规则',
-        edit: '编辑规则',
         confirmTitle: '确认防火墙变更',
         confirmTip: '已应用 {count} 处变更，{seconds} 秒内未确认将自动撤销。',
         confirmKeep: '确认保留',
@@ -3508,14 +3507,6 @@ const message = {
         familyBoth: 'IPv4 + IPv6',
         advancedControl: '高级控制',
         advancedControlNotAvailable: '当前使用 {0} 防火墙，高级规则仅支持 iptables',
-        ccDeny: 'CC 防护',
-        ipWhiteList: 'IP 白名单',
-        ipBlockList: 'IP 黑名单',
-        fileExtBlockList: '文件扩展名黑名单',
-        urlWhiteList: 'URL 白名单',
-        urlBlockList: 'URL 黑名单',
-        argsCheck: 'GET 参数校验',
-        postCheck: 'POST 参数校验',
         cookieBlockList: 'Cookie 黑名单',
 
         dockerHelper: '当前防火墙无法禁用容器端口映射，已安装应用可前往【已安装】页面编辑应用参数，配置端口放行规则。',

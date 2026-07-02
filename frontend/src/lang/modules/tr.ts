@@ -3836,15 +3836,6 @@ const message = {
     },
     firewall: {
         create: 'Kural oluştur',
-        edit: 'Kuralı düzenle',
-        ccDeny: 'CC Koruması',
-        ipWhiteList: 'IP izin listesi',
-        ipBlockList: 'IP engelleme listesi',
-        fileExtBlockList: 'Dosya uzantısı engelleme listesi',
-        urlWhiteList: 'URL izin listesi',
-        urlBlockList: 'URL engelleme listesi',
-        argsCheck: 'GET parametre kontrolü',
-        postCheck: 'POST parametre doğrulaması',
         cookieBlockList: 'Çerez engelleme listesi',
         dockerHelper:
             'Mevcut güvenlik duvarı konteyner port eşlemesini devre dışı bırakamaz. Yüklü uygulamalar, uygulama parametrelerini düzenlemek ve port serbest bırakma kurallarını yapılandırmak için [Yüklü] sayfasına gidebilir.',

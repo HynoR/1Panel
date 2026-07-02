@@ -3979,15 +3979,6 @@ const message = {
     },
     firewall: {
         create: 'Criar regra',
-        edit: 'Editar regra',
-        ccDeny: 'Proteção contra CC',
-        ipWhiteList: 'Lista de IPs permitidos',
-        ipBlockList: 'Lista de IPs bloqueados',
-        fileExtBlockList: 'Lista de extensões de arquivo bloqueadas',
-        urlWhiteList: 'Lista de URLs permitidas',
-        urlBlockList: 'Lista de URLs bloqueadas',
-        argsCheck: 'Verificação de parâmetros GET',
-        postCheck: 'Verificação de parâmetros POST',
         cookieBlockList: 'Lista de cookies bloqueados',
         dockerHelper:
             'O firewall atual não pode desativar o mapeamento de porta de contêiner. Aplicativos instalados podem ir para a página [Instalados] para editar parâmetros do aplicativo e configurar regras de liberação de porta.',

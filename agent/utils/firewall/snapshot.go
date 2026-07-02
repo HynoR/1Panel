@@ -27,7 +27,7 @@ const panelChainPrefix = "1PANEL_"
 
 var baseChainsByTable = map[string][]string{
 	// 刻意不含 DOCKER-USER：Docker 防护（1PANEL_DOCKER 链 + DOCKER-USER 跳转 + 持久化文件）与
-	// 提交-确认会话/快照完全解耦，统一由 docker.go（persistDocker / LoadDockerRules / EnsureDockerChain，
+	// 提交-确认会话/快照完全解耦，统一由 docker.go（persistDocker / LoadDockerRules / ensureDockerChain，
 	// dockerMu 串行）维护。快照恢复既不增删 1PANEL_DOCKER 链内容（applyScoped step2/3 跳过），也不动
 	// DOCKER-USER 上的跳转——否则会与巡检/用户操作跨 goroutine 竞争，并可能误删独立维护的容器封禁规则（P1）。
 	// 代价：commit-confirm 回滚 / 手动恢复快照不会回滚 Docker 封禁规则，但其本属"只增加拦截"的兜底动作、

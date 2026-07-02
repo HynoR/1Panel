@@ -3843,15 +3843,6 @@ const message = {
     },
     firewall: {
         create: 'Buat peraturan',
-        edit: 'Edit peraturan',
-        ccDeny: 'Perlindungan CC',
-        ipWhiteList: 'Senarai putih IP',
-        ipBlockList: 'Senarai blok IP',
-        fileExtBlockList: 'Senarai blok sambungan fail',
-        urlWhiteList: 'Senarai putih URL',
-        urlBlockList: 'Senarai blok URL',
-        argsCheck: 'Pengesahan parameter GET',
-        postCheck: 'Pengesahan parameter POST',
         cookieBlockList: 'Senarai blok Cookie',
         dockerHelper:
             'Firewall semasa tidak boleh melumpuhkan pemetaan port bekas. Aplikasi yang dipasang boleh pergi ke halaman [Dipasang] untuk mengedit parameter aplikasi dan mengkonfigurasi peraturan pelepasan port.',

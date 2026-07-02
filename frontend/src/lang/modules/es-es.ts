@@ -3805,15 +3805,6 @@ const message = {
     },
     firewall: {
         create: 'Crear regla',
-        edit: 'Editar regla',
-        ccDeny: 'Protección CC',
-        ipWhiteList: 'Lista blanca de IP',
-        ipBlockList: 'Lista negra de IP',
-        fileExtBlockList: 'Lista negra de extensiones de archivo',
-        urlWhiteList: 'Lista blanca de URL',
-        urlBlockList: 'Lista negra de URL',
-        argsCheck: 'Verificación de parámetros GET',
-        postCheck: 'Verificación de parámetros POST',
         cookieBlockList: 'Lista negra de cookies',
         dockerHelper:
             'El firewall actual no puede deshabilitar el mapeo de puertos de contenedores. Las aplicaciones instaladas pueden ir a la página [Instaladas] para editar los parámetros de la aplicación y configurar reglas de liberación de puertos.',

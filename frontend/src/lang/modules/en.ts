@@ -3750,7 +3750,6 @@ const message = {
     },
     firewall: {
         create: 'Create rule',
-        edit: 'Edit rule',
         confirmTitle: 'Confirm firewall changes',
         confirmTip: '{count} change(s) applied. Auto-revert in {seconds}s if not confirmed.',
         confirmKeep: 'Keep changes',
@@ -3775,14 +3774,6 @@ const message = {
         familyBoth: 'IPv4 + IPv6',
         advancedControl: 'Advanced Control',
         advancedControlNotAvailable: 'Currently using {0} firewall, advanced rules only support iptables',
-        ccDeny: 'CC Protection',
-        ipWhiteList: 'IP allowlist',
-        ipBlockList: 'IP blocklist',
-        fileExtBlockList: 'File extension blocklist',
-        urlWhiteList: 'URL allowlist',
-        urlBlockList: 'URL blocklist',
-        argsCheck: 'GET parameter check',
-        postCheck: 'POST parameter verification',
         cookieBlockList: 'Cookie blocklist',
         dockerHelper:
             'The current firewall cannot disable container port mapping. Installed applications can go to the [Installed] page to edit application parameters and configure port release rules.',

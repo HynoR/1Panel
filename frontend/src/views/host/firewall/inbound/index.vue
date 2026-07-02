@@ -303,8 +303,7 @@ import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseIn
 import { computeFirewallRisk, ensurePortsLoaded } from '@/views/host/firewall/composables/useFirewallRisk';
 import { enterFireApplying } from '@/views/host/firewall/composables/useFireSession';
 
-const { capabilities, mode, name, isReady, isActive, strictMode, loadBaseInfo, dockerRules, loadDockerStatus } =
-    useFireBaseInfo('base');
+const { capabilities, mode, name, isReady, isActive, strictMode, loadBaseInfo } = useFireBaseInfo('base');
 
 const loading = ref(false);
 const selects = ref<InboundRow[]>([]);
@@ -411,44 +410,6 @@ const deriveLevel = (row: InboundRow): Host.InboundRuleLevel => {
     if (row.strategy === 'drop') return 'deny';
     if (isRescueRow(row)) return 'baseline';
     return 'allow';
-};
-
-// ---- docker badge（优先用后端回显的 applyToDocker；matchDocker 为兜底，修正为支持 address 规则 + strategy + 归一化地址）----
-const normDockerAddr = (v: string): string => {
-    const s = (v || '').trim().toLowerCase();
-    if (s === '' || s === '0.0.0.0/0') return '';
-    if (s === '::/0' || s.startsWith('anywhere (v6)')) return 'v6-anywhere';
-    if (s.startsWith('anywhere')) return '';
-    return s;
-};
-
-const matchDocker = (row: InboundRow): boolean => {
-    if (row.strategy !== 'drop') return false;
-    const addr = normDockerAddr(row.address);
-    if (row.ruleType === 'address') {
-        return dockerRules.value.some(
-            (rule) =>
-                !rule.port &&
-                !rule.protocol &&
-                (rule.strategy || '').toLowerCase() === 'drop' &&
-                normDockerAddr(rule.address) === addr,
-        );
-    }
-    const protos = (row.protocol || '')
-        .toLowerCase()
-        .split('/')
-        .filter((p) => p === 'tcp' || p === 'udp');
-    const port = (row.port || '').replace(/:/g, '-');
-    if (protos.length === 0 || !port) return false;
-    return protos.every((proto) =>
-        dockerRules.value.some(
-            (rule) =>
-                (rule.strategy || '').toLowerCase() === 'drop' &&
-                (rule.port || '').replace(/:/g, '-') === port &&
-                (rule.protocol || '').toLowerCase() === proto &&
-                normDockerAddr(rule.address) === addr,
-        ),
-    );
 };
 
 // ---- listening process merge (carried from port/index.vue) ----
@@ -701,7 +662,7 @@ const loadData = async () => {
         await loadListeningProcesses();
         for (const row of allRows.value) {
             row.level = deriveLevel(row);
-            row.dockerPublished = row.applyToDocker ?? matchDocker(row);
+            row.dockerPublished = row.applyToDocker;
         }
         applyAndSlice();
     } finally {
@@ -1044,7 +1005,7 @@ const buttons = [
 
 onMounted(async () => {
     await loadBaseInfo('base');
-    await Promise.all([loadRescuePorts(), loadDockerStatus(), ensurePortsLoaded()]);
+    await Promise.all([loadRescuePorts(), ensurePortsLoaded()]);
     await loadData();
 });
 </script>
