@@ -1,13 +1,26 @@
 # 1Panel 防火墙重构 CHANGELOG（feat/dev2）
 
-> 生成日期：2026-06-29
-> 范围：`feat/dev2` 相对 `dev-v2` 的防火墙模块重构（PR-1 ~ PR-8 + 7 个评审修复 commit + 1 个文档 commit）
-> 事实基准：三点 diff `dev-v2...feat/dev2`（48 文件，+4447 / -314），逐 commit 校读源码；issue 号取自同目录 `firewall-refactor-report.md`，设计对照取自 `firewall-refactor-design.md`
+> 生成日期：2026-07-02
+> 范围：`feat/dev2` 相对 `dev-v2` 的防火墙模块重构（PR-1 ~ PR-8 + 2026-06-29 后续修复与 T1-T7 收尾；T8 合并 `dev-v2` 尚未执行）
+> 事实基准：三点 diff `dev-v2...feat/dev2` + `de23d7259..bed2c75ab` 后续提交谱系，逐 commit 校读源码；issue 号取自同目录 `firewall-refactor-report.md`，设计对照取自 `firewall-refactor-design.md`
 > 性质：双读者文档 —— 上半部分（一~四节）面向用户/发布说明，下半部分（五~九节）面向工程交接与代码评审
 
 ---
 
-## ⚠️ 0. 合并前置阻断（最高优先，必须先读）
+## ⚠️ 0. 升级须知（发布公告草稿）
+
+1. **拒绝规则现在优先于保底端口生效。** 旧版中部分拒绝规则因为排在保底放行之后，可能长期处于“看起来存在但实际未生效”的休眠状态；升级到新链顺序后，拒绝规则会在保底端口前求值。升级迁移会自动隔离“广源且覆盖 SSH/面板等保底端口”的危险旧拒绝规则，并在概览页显示 degraded 横幅与“查看被隔离规则”入口。
+2. **原 iptables 默认拒绝语义在界面中显示为「白名单模式」。** 这是命名统一：只有已列入放行规则的端口可访问，其余入站默认拒绝。语义不变，名称从“默认拒绝/严格”调整为更直观的“白名单模式”。
+3. **看到 degraded 横幅时不要忽略。** 若提示 quarantined，可打开“查看被隔离规则”抽屉审阅原始规则；确认不需要恢复后点“清除全部”隐藏提示。若提示 baseline verify / strict-suspended / failed，请先确认 SSH、面板端口仍可达，再按横幅信息修复配置或回滚快照。
+4. **失联自救命令。** 通过云厂商 VNC / 串口登录后执行 `1pctl firewall rescue --restore-latest` 可用最近快照恢复 1Panel 防火墙链；这是末路自救路径，可能覆盖窗口期第三方规则。
+
+## 0A. 2026-07-02 状态修订
+
+- 2026-06-29 文档中的若干“未完成/高风险”结论已被后续提交修复：`a93f72862` 修复迁移 fail-open、80/443 归类和危险旧 DENY 隔离；`319ce2b22` + `d379b1702` 落地 external 锁外保护与真实 caller IP；`7985a75b2` + `6b680d4a8` 修复批量错误聚合与会话状态机；`5c3a8e4b2`、`d75ca6c08`、`bed2c75ab` 补齐/本地化前端 i18n。
+- 评审编号 **B1-B9/B12/B13** 在后续修复批次中已处理；仍需要 Linux 真机完成 S1-S10、S6 升级演练和锁外演练，不能把本地编译/单元测试视为发布门禁。
+- 本任务书状态：T1-T6 已完成并分别提交；T7 为本文档更新；T8（merge `dev-v2`）仍是最后一个待执行高风险步骤。
+
+## ⚠️ 0B. 合并前置阻断（最高优先，必须先读）
 
 `feat/dev2` 当前**落后 `dev-v2` 共 14 个 commit**（PR #13045 ~ #13071：MCP Server `protocolVersion`、website_ssl 证书同步、runtime 容器配置、alert 调整、image 同步等）。这带来一个会误导 changelog 与合并操作的陷阱：
 
@@ -124,7 +137,7 @@
 
 **偏离/缺失（详见第七节）**
 - ❌ **「确认前不落盘」被破坏**：`client.Port`/`RichRules` 每次操作即时 `SaveRulesToFile`（`iptables.go:184,283`），会话窗口内规则已写盘，安全完全依赖 `ReclaimSession` 还原成功。
-- ❌ **external 模式 commit-confirm 完全缺失**：`BeginSession` 被 `isManagedMode()` 门控，§3.5.1 第5点的「逆操作日志」零实现。
+- ✅ **2026-07-02 修订：external 锁外保护已实现。** external 模式不走 commit-confirm，而是在降低可达性且触及保底端口/调用方 IP 时直接拒绝高风险操作；core 经受信 unix socket 注入真实 caller IP，agent 仅在 unix socket 场景采信该内部头，恢复 L2 临时放行与单 IP 自锁检测（`319ce2b22` + `d379b1702`）。
 - ❌ I1/I2 是单笔请求浅检查，非设计要求的「会话最终状态静态求值」；I2 分级表未实现且偏严。
 
 ## PR-3 · iptables 链布局重写（最高风险点）
@@ -154,8 +167,8 @@ filter/INPUT 固定五段（按序号 1..5 绑定 + 回读断言）：
 - ✅ 五链全部存在，DENY 真正排在 BASELINE 之前且黑名单可压过 SSH/面板/80-443（根治 #12897）；固定序号绑定 + 回读断言（根治 #12476）；80/443 改为可删白名单默认值；`conntrack -D -s` 清连接；ip6tables 镜像链。
 - ⚠️ 设计稿写「6 段固定」，代码把高级过滤做成**可绑/可解绑的 `1PANEL_INPUT`**（非固定基础段）—— 语义等价但措辞与实现不符。
 - ⚠️ 严格模式 AFTER 为「DROP tcp + DROP udp」而非设计 §3.4 的「DROP all」（ICMP/SCTP 仍放行）。
-- ❌ **升级迁移把 80/443 错误归入不可删的 BASELINE**：`classifyLegacyRule`（`migrate.go:92-107`）对旧 `BASIC_BEFORE` 只把 lo/ESTABLISHED 归 GUARD，其余一律归 BASELINE。存量机升级后 **80/443 落进 BASELINE（不可删）**，与「80/443 可删」目标直接冲突（详见第八节）。
-- ❌ **迁移/重放失败不自动从快照整体还原**（设计 §3.4 step5）：`migrateLegacyChains` 只做文件转换 + 拍快照 + 留 .bak，`runBootReplay` 失败仅记 `failed:` 状态，从不 `RestoreSnapshot` 回滚（high）。
+- ✅ **2026-07-02 修订：80/443 迁移归类已修复。** `a93f72862` 将旧 `BASIC_BEFORE` 中精确匹配的 80/443 ACCEPT 归入可编辑 ALLOW，而非只读 BASELINE。
+- ✅ **2026-07-02 修订：迁移 fail-open 已加固。** 预迁移快照失败会中止迁移；广源且覆盖保底端口的旧 DENY 规则写入 `deny.quarantine` 且不加载；BASELINE 回读失败时会清空 AFTER 暂停严格布局并记录 degraded。
 
 ## PR-4 · 数据层（指纹 + 两张新表 + 删除 cleanUnUsedData）
 
@@ -223,7 +236,7 @@ filter/INPUT 固定五段（按序号 1..5 绑定 + 回读断言）：
 
 **设计对照**
 - ✅ 落地了「安全栈接入 + 字段管线打通」：commit-confirm 卡片、mode 徽章、冲突/开机横幅、快照抽屉、Docker 勾选、port family 选择器、capabilities 部分驱动渲染（`advance.filter`/`forward.forwardImpl`）。
-- ❌ **设计 §9 真正改善「理解成本/恐惧成本」的交互层基本未动工**（详见第九节）：状态页三卡片（保底通道可见性）、规则生效顺序可视化（§9.2 自称性价比最高）、风险预检对话框（§9.3）、初始化向导（§9.4）、快照 diff 预览、确认卡片 2s「应用中」过渡态、白名单 required/可编辑分区 —— **全部缺失**。
+- ✅ **2026-07-02 修订：核心交互层已补齐到可验收状态。** 后续前端提交重做概览四区仪表盘、入站评估顺序可视化、风险预检、初始化向导、保底/可编辑端口区分、未激活态 CTA、隔离规则抽屉与安全提示文案。快照 diff 预览仍未做，留作后续增强。
 - ❌ `fireName` 硬判断**残留 30 处**（设计目标 0-2），`fireName!=='-'` 仍是「防火墙是否就绪」的事实判断主力，未改为读 capabilities。
 - ❌ **Bug**：`status/index.vue` 的 `onInit()` switch 缺 `break`，存在 fall-through —— `chainName` 永远落为 `'1PANEL_INPUT'`、msg 永远是 advance 文案（`status/index.vue:281-294`）。
 - ❌ **「清理失效描述」按钮被移除**（commit `5078e20af` 删了前端 API 绑定），但后端 `/firewall/clean` 端点仍保留 —— 当前用户**无 UI 入口触发清理**，与设计 §9.4 要求不符。
@@ -256,6 +269,8 @@ filter/INPUT 固定五段（按序号 1..5 绑定 + 回读断言）：
 | `/hosts/firewall/snapshot/list` | POST | 快照列表 | `ListFirewallSnapshot` |
 | `/hosts/firewall/snapshot/restore` | POST | 恢复快照（进会话） | `RestoreFirewallSnapshot` |
 | `/hosts/firewall/docker/status` | POST | DOCKER-USER 可用性 + 纳管规则 | `LoadFirewallDockerStatus` |
+| `/hosts/firewall/quarantine` | GET | 查看升级迁移隔离的旧 DENY 原文规则 | `ListFirewallQuarantine` |
+| `/hosts/firewall/quarantine/clean` | POST | 清除隔离文件并在 quarantined 状态下恢复 boot status | `CleanFirewallQuarantine` |
 | `/hosts/firewall/panel-port` | POST | core 委托单写者改面板端口 | `UpdateFirewallPanelPort` |
 | `/hosts/firewall/clean` | POST | 显式清理失效描述（替代 cleanUnUsedData，前端无入口） | `CleanOrphanFirewallRecords` |
 | `/hosts/firewall/filter/rule/{search,operate,batch}` `/filter/operate` `/filter/chain/status` | POST | iptables 高级 filter 规则 | `firewall.go` |
@@ -276,8 +291,8 @@ filter/INPUT 固定五段（按序号 1..5 绑定 + 回读断言）：
 
 ## 7. i18n 变化
 
-- **仅新增 zh + en 两种语言**：agent `en.yaml`/`zh.yaml` 各 +3，frontend `en.ts` +22 / `zh.ts` +18。
-- ❌ **偏离设计 §9.4/§8.2**（要求 9 语言、zh/en 先行其余机翻）：`es-ES/ja/ko/ms/pt-BR/ru/tr/zh-Hant` **8 种语言完全未补**防火墙新文案，非中英环境会显示英文或暴露 i18n key。
+- **2026-07-02 修订：前端 10 个语言包 key 集合已补齐。** `5c3a8e4b2` 回填 `es-ES/ja/ko/ms/pt-BR/ru/tr/zh-Hant` 的防火墙 key；T4/T5 新增文案同步写入全部 10 个前端语言包；T6 将 `zh-Hant` firewall 命名空间英文占位手工繁化。
+- **后端 agent i18n 新 key 已按 10 个 yaml 补齐。** 批量错误聚合、会话状态机等后端错误文案在 `en/zh/zh-Hant/es-ES/ja/ko/ms/pt-BR/ru/tr` 均有 key，非中英文语言目前以英文占位为主。
 
 ---
 
@@ -288,7 +303,8 @@ filter/INPUT 固定五段（按序号 1..5 绑定 + 回读断言）：
 ### B1（critical）· 存量机升级触发一次性活体链迁移
 - 旧 `BASIC*` 三链 → 新五链布局，旧文件存为 `.bak`。
 - commit `bc75d3f6d` 通过 `legacyMigrationPending` 修复了「旧布局未迁移时因 `/run` 引导标记跳过重放导致防火墙失效直到重启」的 P1。
-- **风险**：迁移函数本身不换绑、不回读、不失败还原（设计 §3.4 step3/4/5 被推迟到 `runBootReplay`，而后者失败只记 `failed:` 状态、**从不回滚到 pre-migration 快照**）。`writeChainRules` 失败仅 `Errorf` 续跑后无条件把旧文件改名 `.bak`，可能留下「新布局不完整 + 旧文件已移走」的半成品。
+- commit `a93f72862` 后迁移 fail-open 加固：预迁移快照失败直接中止；任一新链文件写失败不会改名旧文件；广源且覆盖保底端口的旧 DENY 隔离到 `deny.quarantine`；80/443 ACCEPT 归入可编辑 ALLOW。
+- **剩余风险**：设计 §3.4 step5 的“失败时自动整体 RestoreSnapshot”仍未实现，开机重放失败主要依赖 `failed:`/`degraded:` 状态与 fail-open 分支提示；必须通过 S6 升级演练确认存量机语义。
 - **必须做 S6 升级演练**，禁止仅凭编译上线。
 
 ### B2（high）· 黑名单语义反转：DENY 先于 BASELINE
@@ -297,14 +313,14 @@ filter/INPUT 固定五段（按序号 1..5 绑定 + 回读断言）：
 
 ### B3（high）· 80/443 从硬编码保底改为可关闭
 - 新装机器：80/443 是可删白名单默认值。
-- ⚠️ **升级机器有 bug**：迁移把旧 80/443 误归入**不可删的 BASELINE**（见 PR-3 设计对照），与「80/443 可删」目标冲突 —— 升级用户反而删不掉 80/443，并可能与默认白名单在 ALLOW 中重复放行。**发布前应修复或在说明中告知**。
+- ✅ **2026-07-02 修订：升级归类 bug 已修。** `a93f72862` 将旧 80/443 ACCEPT 归入可编辑 ALLOW；仍需 S6 升级演练确认存量机实际规则语义。
 
 ### B4（high）· 提交-确认窗口改变操作流
 - 降低可达性的变更默认 60 秒内不确认即自动回滚。用户需理解「应用后要点确认」。
 
-### B5（medium）· external 模式锁外保护弱于 managed
-- external（ufw/firewalld）**无 commit-confirm、无逆操作日志、红线检查不覆盖 remove+accept**（`BeginSession` 被 `isManagedMode()` 门控）。
-- **发布说明必须明确**：external 模式锁外保护弱于 managed，误封需依赖云控制台 / `rescue` 自救。
+### B5（medium）· external 模式采用“拒绝高风险操作”而非 commit-confirm
+- external（ufw/firewalld）不做 60 秒 commit-confirm；`319ce2b22` 改为在高风险降低可达性操作命中保底端口或当前 caller IP 时直接拒绝，避免进入不可自动回滚的状态。
+- `d379b1702` 修复 unix socket 代理下 caller IP 丢失问题，L2 临时放行和单 IP 自锁检测可拿到真实浏览器 IP。external 仍建议在云控制台保留备用登录路径。
 
 ### B6（medium）· 改面板端口语义变为「只增不删」
 - 旧端口不会被立即删除，需用新端口登录后由白名单同步或手动关闭。
@@ -318,7 +334,7 @@ filter/INPUT 固定五段（按序号 1..5 绑定 + 回读断言）：
 |---|---|---|
 | 1 | rebase `dev-v2` 后无冲突、不回退 14 个上游 PR、防火墙改动完整 | 第 0 节 |
 | 2 | 从带黑名单+白名单+严格模式+转发+高级规则+中文描述的 v2.x 存量机升级（S6）：逐条语义等价、SSH/面板可达、无新增开放端口、描述保留率 | B1 |
-| 3 | 80/443 升级后是否落入不可删 BASELINE（当前为 bug） | B3 |
+| 3 | 80/443 升级后应归入可编辑 ALLOW，不能落入不可删 BASELINE | B3 |
 | 4 | 锁外演练 S1-S10（force 红线、60s 自动回滚、坏链文件重启、敌对 `iptables -P DROP`、S9③ 即时落盘断电重启复活路径） | B1/B2 |
 | 5 | Docker 重启后 `1PANEL_DOCKER` jump 自动恢复 + 容器端口封禁生效 | PR-6 |
 | 6 | ip6tables 缺失机优雅降级 | PR-5 |
@@ -329,11 +345,12 @@ filter/INPUT 固定五段（按序号 1..5 绑定 + 回读断言）：
 | 缺口 | 严重度 | 说明 |
 |---|---|---|
 | nftables「零改动接入」留缝不成立 | high | service 大量 `Name()=="iptables"` 硬分支 + 直接引用 `iptables.Chain*` 链常量，接入 nftables 必然要改 `detect()` 与 service（详见第六节理由） |
-| 迁移/重放失败不自动整体还原（§3.4 step5） | high | `runBootReplay` 失败只记状态、从不 `RestoreSnapshot` |
+| 迁移/重放失败不自动整体还原（§3.4 step5） | medium | `a93f72862` 已做 fail-open 与隔离，但 `runBootReplay` 失败仍不自动 `RestoreSnapshot`，需真机门禁验证 |
 | `1pctl firewall doctor` 未实现 | low | 设计 §6/§7.2 建议项，仅 `rescue` 存在 |
 | 测试矩阵 S1-S10 + 测试工具（probe/seed/比对器） + 自动化测试 | high | 完全未交付；整个 firewall 子系统无任何 `*_test.go`；commit message 反复声明「compiles but NOT release-ready」 |
-| i18n 7 种语言未补 | medium | 见第 7 节 |
-| 前端 §9 交互层（三卡片/流向可视化/风险预检/初始化向导） | medium | 见 PR-7 |
+| 真机升级/锁外演练未完成 | high | S1-S10、S6 升级演练、Docker 重启、ip6tables 缺失机等仍需 Linux/VNC 环境验证 |
+| 快照 diff 预览未实现 | low | 快照列表/恢复已有，恢复前 diff 预览仍是后续增强 |
+| 非 zh/en/zh-Hant 语言多为英文占位 | low | key 已补齐，不再暴露 i18n key；高质量本地化可后续逐语种完善 |
 | `cleanUnUsedData` 替代物前端无入口 | low | 后端 `/firewall/clean` 保留，前端按钮被移除 |
 
 ---
@@ -371,3 +388,24 @@ filter/INPUT 固定五段（按序号 1..5 绑定 + 回读断言）：
 | `11d78ad68` | 修复：Docker 规则管理 + 快照恢复加固 |
 | `ddb10ac8d` | 修复：会话 revert/reclaim 错误处理 |
 | `5d2e62354` | 文档：firewall-refactor-design.md + report.md（开发依据，非交付物，合并前考虑移除） |
+| `108a3b39f` | 后续：代理目标、路由与语言支持整理 |
+| `54387f90e` | 后续：端口/IP 规则确认逻辑、UI 提示与翻译增强 |
+| `9e6d861f` | 后续：严格/白名单模式引入 |
+| `f6ca9e95` | 后续：旧链迁移与 session revert 加固 |
+| `76b1fa63` | 后续：规则管理与 Docker 集成增强 |
+| `4a723767` | 后续：入站/转发规则 UI 与翻译增强 |
+| `923f0ffd` | 后续：概览页重构为四区运维仪表盘 |
+| `80e81d4f` | 后续：Phase B 前端清理完成 |
+| `319ce2b2` | 修复：external 模式锁外检查加固 |
+| `5c3a8e4` | 修复：前端 8 个非 zh/en 语言包防火墙 key 回填 |
+| `a93f7286` | 核心修复：迁移隔离、开机 fail-open、80/443 归类 |
+| `d379b170` | 核心修复：unix socket 受信 caller IP 通道 |
+| `7985a75` | 核心修复：批量操作逐条错误聚合 |
+| `6b680d4` | 核心修复：提交确认会话状态机加固 |
+| `5f79db8` | T1：概览页待确认横幅去重 |
+| `54a4069` | T2：后端小修（IPv6 日志、迁移源判定、保护链清单等） |
+| `a90a993` | T3：死代码与孤儿 i18n 清理 |
+| `2b3a43e` | T4：隔离规则 quarantine 最小 UI 闭环 |
+| `d75ca6c` | T5：防火墙安全 UX 文案与 CTA 增强 |
+| `bed2c75` | T6：zh-Hant firewall 命名空间手工繁化 |
+| 本提交 | T7：更新 changelog 与升级公告；T8 merge `dev-v2` 待执行 |
