@@ -11,9 +11,22 @@
                 :type="topAlert.type"
                 :closable="false"
                 show-icon
-                :title="topAlert.title"
                 :description="topAlert.description"
-            />
+            >
+                <template #title>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span>{{ topAlert.title }}</span>
+                        <el-link
+                            v-if="showQuarantineEntry"
+                            type="primary"
+                            :underline="false"
+                            @click.stop="onOpenQuarantine"
+                        >
+                            {{ $t('firewall.quarantineView') }}
+                        </el-link>
+                    </div>
+                </template>
+            </el-alert>
 
             <!-- 区1：状态总览条 -->
             <el-card shadow="never">
@@ -277,6 +290,30 @@
         <WhiteList ref="whiteListRef" @search="onReload" />
         <SnapshotDrawer ref="snapshotRef" />
         <InitWizard ref="wizardRef" @done="onReload" />
+        <el-drawer v-model="quarantineDrawerVisible" :title="$t('firewall.quarantineTitle')" size="50%">
+            <div class="flex h-full flex-col gap-3">
+                <el-alert :closable="false" type="warning" :title="$t('firewall.quarantineHelper')" />
+                <el-empty v-if="!quarantineRules.length" :description="$t('firewall.quarantineEmpty')" />
+                <el-scrollbar v-else>
+                    <div class="flex flex-col gap-2">
+                        <el-text v-for="(rule, index) in quarantineRules" :key="index" tag="pre">
+                            {{ rule }}
+                        </el-text>
+                    </div>
+                </el-scrollbar>
+                <div class="mt-auto flex justify-end">
+                    <el-button
+                        v-permission
+                        v-node-admin
+                        type="danger"
+                        :loading="quarantineLoading"
+                        @click="onCleanQuarantine"
+                    >
+                        {{ $t('firewall.quarantineClean') }}
+                    </el-button>
+                </div>
+            </div>
+        </el-drawer>
     </div>
 </template>
 
@@ -286,7 +323,14 @@ import { useRouter } from 'vue-router';
 import i18n from '@/lang';
 import { Host } from '@/api/interface/host';
 import { dateFormat } from '@/utils/date';
-import { operateFire, operateFilterChain, listFireSnapshot, getSSHInfo } from '@/api/modules/host';
+import {
+    cleanFireQuarantine,
+    getSSHInfo,
+    listFireQuarantine,
+    listFireSnapshot,
+    operateFire,
+    operateFilterChain,
+} from '@/api/modules/host';
 import { QuestionFilled } from '@element-plus/icons-vue';
 import { getAgentSettingInfo, getSettingInfo, updateAgentSetting } from '@/api/modules/setting';
 import { MsgSuccess, MsgWarning } from '@/utils/message';
@@ -335,6 +379,9 @@ const panelPort = ref('-');
 const http80 = ref(false);
 const https443 = ref(false);
 const whiteListRaw = ref('');
+const quarantineDrawerVisible = ref(false);
+const quarantineLoading = ref(false);
+const quarantineRules = ref<string[]>([]);
 
 const snapshots = ref<Host.FirewallSnapshot[]>([]);
 
@@ -346,6 +393,10 @@ const operation = ref('restart');
 const withDockerRestart = ref(false);
 
 const showDefaultPolicy = computed(() => mode.value === 'managed' && capabilities.value.defaultDrop && readyBase.value);
+const bootQuarantined = computed(() => (baseInfo.value.bootStatus || '').startsWith('degraded:quarantined'));
+const showQuarantineEntry = computed(
+    () => bootDegraded.value && bootQuarantined.value && readyBase.value && isActive.value,
+);
 
 // 顶部 alert 按可行动优先级取最高者：未初始化 > 未激活 > 开机降级 > 冲突。
 // 待确认会话由全局 SessionConfirm 呈现，Docker/IPv6 能力归入区3 保护汇总，
@@ -456,6 +507,16 @@ const loadSnapshots = async () => {
     }
 };
 
+const loadQuarantine = async () => {
+    quarantineLoading.value = true;
+    try {
+        const res = await listFireQuarantine();
+        quarantineRules.value = res.data || [];
+    } finally {
+        quarantineLoading.value = false;
+    }
+};
+
 // 白名单（严格）模式开关：开启=向 AFTER 链注入 DROP（未列出端口拒绝），关闭=清空 AFTER（默认放行）。
 // 开启高危（可能锁外），后端用 60s 提交-确认窗口兜底。:model-value 单向绑定，取消时开关不会误翻。
 const onToggleStrict = async (val: boolean) => {
@@ -495,6 +556,37 @@ const onToggleStrict = async (val: boolean) => {
 
 const onReload = () => {
     load();
+};
+
+const onOpenQuarantine = async () => {
+    quarantineDrawerVisible.value = true;
+    await loadQuarantine();
+};
+
+const onCleanQuarantine = async () => {
+    try {
+        await ElMessageBox.confirm(
+            i18n.global.t('firewall.quarantineCleanConfirm'),
+            i18n.global.t('firewall.quarantineClean'),
+            {
+                confirmButtonText: i18n.global.t('commons.button.confirm'),
+                cancelButtonText: i18n.global.t('commons.button.cancel'),
+                type: 'warning',
+            },
+        );
+    } catch {
+        return;
+    }
+    quarantineLoading.value = true;
+    try {
+        await cleanFireQuarantine();
+        quarantineRules.value = [];
+        quarantineDrawerVisible.value = false;
+        MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+        await load();
+    } finally {
+        quarantineLoading.value = false;
+    }
 };
 
 const onOperate = async (op: string) => {

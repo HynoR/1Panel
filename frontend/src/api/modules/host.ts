@@ -62,6 +62,12 @@ export const restoreFireSnapshot = (name: string) => {
 export const loadFireDockerStatus = () => {
     return http.post<Host.FirewallDockerStatus>(`/hosts/firewall/docker/status`, {});
 };
+export const listFireQuarantine = () => {
+    return http.get<string[]>(`/hosts/firewall/quarantine`);
+};
+export const cleanFireQuarantine = () => {
+    return http.post(`/hosts/firewall/quarantine/clean`, {}, TimeoutEnum.T_40S);
+};
 
 // Iptables Filter
 export const searchFilterRules = (params: Host.IptablesFilterRuleSearch) => {

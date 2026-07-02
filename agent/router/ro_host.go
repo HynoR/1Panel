@@ -35,6 +35,8 @@ func (s *HostRouter) InitRouter(Router *gin.RouterGroup) {
 		hostRouter.POST("/firewall/update/addr", fwEmergency, baseApi.UpdateAddrRule)
 		hostRouter.POST("/firewall/update/description", baseApi.UpdateFirewallDescription)
 		hostRouter.POST("/firewall/clean", baseApi.CleanOrphanFirewallRecords)
+		hostRouter.GET("/firewall/quarantine", baseApi.ListFirewallQuarantine)
+		hostRouter.POST("/firewall/quarantine/clean", baseApi.CleanFirewallQuarantine)
 
 		hostRouter.POST("/firewall/filter/rule/search", baseApi.SearchFilterRules)
 		hostRouter.POST("/firewall/filter/rule/operate", fwEmergency, baseApi.OperateFilterRule)

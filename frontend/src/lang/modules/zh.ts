@@ -3499,6 +3499,13 @@ const message = {
         modeExternalTip: '{0} 由系统管理，1Panel 代为操作、不修改其启动行为。',
         conflictHelper: '检测到 firewalld 与 ufw 同时运行，请停用其中之一以避免冲突。',
         bootDegraded: '防火墙开机自检：{0}，部分规则可能未生效，请检查配置。',
+        quarantineView: '查看被隔离规则',
+        quarantineTitle: '被隔离的旧版拒绝规则',
+        quarantineHelper:
+            '这些旧版拒绝规则在旧布局中从未生效。升级时已隔离，避免激活后把你锁在服务器外。本版本不支持单条恢复；如需保留，请审核后手动新增拒绝规则。',
+        quarantineEmpty: '暂无被隔离规则',
+        quarantineClean: '清除全部',
+        quarantineCleanConfirm: '清除全部被隔离规则并隐藏降级提示？',
         snapshot: '快照',
         snapshotHelper: '快照全量备份规则；恢复只重建 1Panel 链（保留 Docker 等其它规则），并进入提交-确认窗口。',
         snapshotTag: '标签',

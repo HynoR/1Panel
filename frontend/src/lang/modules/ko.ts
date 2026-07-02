@@ -3816,6 +3816,13 @@ const message = {
             '{0} is managed by the system; 1Panel operates on your behalf without changing its boot behavior.',
         conflictHelper: 'Both firewalld and ufw are running. Please disable one of them to avoid conflicts.',
         bootDegraded: 'Firewall boot self-check: {0}. Some rules may not be active — check the configuration.',
+        quarantineView: 'View quarantined rules',
+        quarantineTitle: 'Quarantined legacy deny rules',
+        quarantineHelper:
+            'These legacy deny rules never took effect in older versions. They were quarantined during upgrade to avoid locking you out. This release does not restore a single rule; add reviewed deny rules manually if needed.',
+        quarantineEmpty: 'No quarantined rules',
+        quarantineClean: 'Clear all',
+        quarantineCleanConfirm: 'Clear all quarantined rules and hide the degraded warning?',
         snapshot: 'Snapshots',
         snapshotHelper:
             'Snapshots back up the full ruleset; restore only rebuilds the 1Panel chains (Docker/other rules are kept) and enters a commit-confirm window.',

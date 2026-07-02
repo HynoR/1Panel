@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/1Panel-dev/1Panel/agent/app/dto"
 	"github.com/1Panel-dev/1Panel/agent/app/model"
@@ -24,6 +27,8 @@ import (
 
 type FirewallService struct{}
 
+const firewallDenyQuarantineFileName = "deny.quarantine"
+
 type IFirewallService interface {
 	LoadBaseInfo(tab string) (dto.FirewallBaseInfo, error)
 	SearchWithPage(search dto.RuleSearch) (int64, interface{}, error)
@@ -36,6 +41,8 @@ type IFirewallService interface {
 	UpdateDescription(req dto.UpdateFirewallDescription) error
 	BatchOperateRule(req dto.BatchRuleOperate) error
 	CleanOrphanFirewallRecords() error
+	ListQuarantineRules() ([]string, error)
+	CleanQuarantineRules() error
 	UpdatePanelPort(req dto.PanelPortUpdate) error
 
 	SessionStatus() dto.FirewallSessionInfo
@@ -969,6 +976,41 @@ func (u *FirewallService) CleanOrphanFirewallRecords() error {
 		}
 	}
 	return nil
+}
+
+func (u *FirewallService) ListQuarantineRules() ([]string, error) {
+	data, err := os.ReadFile(path.Join(global.Dir.FirewallDir, firewallDenyQuarantineFileName))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+	rules := make([]string, 0)
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			rules = append(rules, line)
+		}
+	}
+	return rules, nil
+}
+
+func (u *FirewallService) CleanQuarantineRules() error {
+	if err := os.Remove(path.Join(global.Dir.FirewallDir, firewallDenyQuarantineFileName)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	state, err := hostRepo.GetFirewallState()
+	if err != nil {
+		return nil
+	}
+	if !strings.HasPrefix(state.LastBootStatus, "degraded:quarantined") {
+		return nil
+	}
+	state.LastBootStatus = "ok"
+	state.Consistent = true
+	state.LastCheckAt = time.Now()
+	return hostRepo.SaveFirewallState(&state)
 }
 
 func (u *FirewallService) addPortsBeforeStart(client firewall.FirewallClient) error {
