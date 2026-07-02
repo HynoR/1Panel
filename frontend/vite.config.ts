@@ -85,7 +85,7 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
             },
             proxy: {
                 '/api/v2': {
-                    target: 'http://localhost:9999/',
+                    target: env.VITE_PROXY_TARGET || 'http://localhost:9999/',
                     changeOrigin: true,
                     ws: true,
                 },
