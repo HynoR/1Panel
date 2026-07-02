@@ -32,25 +32,18 @@ type FirewallClient interface {
 	EnableForward() error
 }
 
+// NewFirewallClient 是所有"操作型"调用的入口：返回当前选定 driver。
+// 它复用 Detect() 的缓存探测（修 C12），并在 ufw+firewalld 同时运行时拒绝执行（修 C11）。
+// 只读型/展示型调用（如 LoadBaseInfo）应直接用 Detect()，以便在冲突时仍能返回基础信息。
 func NewFirewallClient() (FirewallClient, error) {
-	firewalld := cmd.Which("firewalld")
-	ufw := cmd.Which("ufw")
-
-	if firewalld && ufw {
-		return nil, errors.New("It is detected that the system has both firewalld and ufw services. To avoid conflicts, please uninstall and try again!")
+	provider, err := Detect()
+	if err != nil {
+		return nil, err
 	}
-	if firewalld {
-		return client.NewFirewalld()
+	if provider.Conflict().HasConflict {
+		return nil, errors.New(provider.Conflict().Message)
 	}
-	if ufw {
-		return client.NewUfw()
-	}
-
-	iptables := cmd.Which("iptables")
-	if iptables {
-		return client.NewIptables()
-	}
-	return nil, errors.New("No system firewall service detected (firewalld/ufw/iptables), please check and try again!")
+	return provider.Client(), nil
 }
 
 func LoadPingStatus() string {

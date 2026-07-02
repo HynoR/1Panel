@@ -1,0 +1,354 @@
+package firewall
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path"
+	"sync"
+	"time"
+
+	"github.com/1Panel-dev/1Panel/agent/buserr"
+	"github.com/1Panel-dev/1Panel/agent/global"
+	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client/iptables"
+)
+
+// 安全栈 L3：提交-确认事务（commit-confirm，设计稿 §3.5.1）。
+//
+// 时序：降低可达性的变更 → 立即应用 + 自动拍快照 + 武装确认窗口（默认 60s）
+//      → 用户在面板点"确认保留"（HTTP 请求本身即可达性证明）→ 落定
+//      → 窗口超时无人确认（被锁外的人点不到）→ 自动整体还原到会话前。
+//
+// 计时器在 agent 服务端，与前端存活无关；agent 启动时若发现未确认会话标记 → 视同超时立即还原，
+// 堵死"变更后 agent 崩溃/重启"的逃逸路径。
+
+const sessionMarkerFile = "session.lock"
+
+const defaultConfirmWindow = 60
+
+// 自动回滚失败后的缩短重试窗口与最大重试次数：避免 RestoreSnapshot 失败后会话卡死 active、
+// 定时器不再 armed；同时防止无限重试。超过上限后保留 marker 停止自动重试，留待进程重启时
+// ReclaimSession 兜底（或人工介入）。
+const revertRetryWindowSec = 15
+const maxRevertRetries = 3
+
+// StrictModeSessionSummary 是开启白名单（严格）模式时登记的会话摘要，作为该会话的可辨识标记。
+// 关闭白名单（disableStrictMode）据此判定"当前活动会话是否只是这一笔严格变更"，
+// 只有这种会话才允许被关闭动作整体 Revert，避免连带回滚窗口内另一笔无关的待确认变更（D3）。
+const StrictModeSessionSummary = "enable strict (whitelist) mode"
+
+type SessionChange struct {
+	Summary string `json:"summary"`
+	At      string `json:"at"`
+}
+
+type SessionInfo struct {
+	Active        bool            `json:"active"`
+	Changes       []SessionChange `json:"changes"`
+	RemainSeconds int             `json:"remainSeconds"`
+	Since         string          `json:"since"`
+	Snapshot      string          `json:"snapshot"`
+}
+
+type sessionMarker struct {
+	Snapshot string          `json:"snapshot"`
+	Changes  []SessionChange `json:"changes"`
+	Deadline int64           `json:"deadline"`
+	Since    int64           `json:"since"`
+}
+
+type sessionState struct {
+	mu          sync.Mutex
+	active      bool
+	snapshot    string
+	changes     []SessionChange
+	since       time.Time
+	deadline    time.Time
+	windowSec   int
+	timer       *time.Timer
+	revertFails int
+}
+
+var session = &sessionState{windowSec: defaultConfirmWindow}
+
+// BeginSession 登记一笔"降低可达性"的变更并武装/刷新确认窗口。
+// 若当前无会话则先拍快照作为还原点；窗口内的后续变更并入同一会话并刷新计时器。
+// 调用方应先登记会话再应用规则；若应用失败且尚未改动规则，由调用方 CancelSession 清理本次会话。
+func BeginSession(summary string) error {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
+	if !session.active {
+		snap, err := TakeSnapshot("commit-confirm")
+		if err != nil {
+			return err
+		}
+		session.active = true
+		session.snapshot = snap
+		session.changes = nil
+		session.since = time.Now()
+	}
+	session.changes = append(session.changes, SessionChange{
+		Summary: summary,
+		At:      time.Now().Format("2006-01-02 15:04:05"),
+	})
+	session.deadline = time.Now().Add(time.Duration(session.windowSec) * time.Second)
+	session.persistMarkerLocked()
+	session.armTimerLocked()
+	global.LOG.Infof("[firewall-session] armed confirm window %ds, change: %s", session.windowSec, summary)
+	return nil
+}
+
+// SessionGuard 封装"武装提交-确认会话 + 失败时撤销幽灵会话"的样板（服务层三处复用）。
+// BeginSessionGuard 成功后，若整个操作失败（Finish 收到非 nil 错误）、本会话是新武装的、
+// 且期间没有任何内核写入（未 MarkApplied），则 CancelSession 清理，避免"武装会话→写规则前
+// 就失败"残留一张 60s 幽灵确认卡片；已有待确认会话或已部分写入时不取消——前者不属于本次，
+// 后者需保留会话在超时/崩溃时 RevertSession 兜底。
+type SessionGuard struct {
+	wasActive bool
+	applied   bool
+}
+
+// BeginSessionGuard 登记一笔变更并武装/刷新确认窗口（见 BeginSession），返回守卫对象。
+func BeginSessionGuard(summary string) (*SessionGuard, error) {
+	wasActive := SessionStatus().Active
+	if err := BeginSession(summary); err != nil {
+		return nil, err
+	}
+	return &SessionGuard{wasActive: wasActive}, nil
+}
+
+// MarkApplied 标记本次操作已向内核写入过规则（此后失败不再撤销会话，交由超时 Revert 兜底）。
+// nil 安全：未武装会话（guard 为 nil）时为 no-op。
+func (g *SessionGuard) MarkApplied() {
+	if g != nil {
+		g.applied = true
+	}
+}
+
+// Finish 在操作结束时调用（defer）：失败且本会话为新武装、失败前零写入时撤销会话。
+// reason 为取消日志的操作描述前缀。nil 安全。
+func (g *SessionGuard) Finish(reason string, retErr error) {
+	if g == nil || retErr == nil || g.wasActive || g.applied {
+		return
+	}
+	CancelSession(fmt.Sprintf("%s failed before any rule was applied: %v", reason, retErr))
+}
+
+func (s *sessionState) armTimerLocked() {
+	if s.timer != nil {
+		s.timer.Stop()
+	}
+	d := time.Until(s.deadline)
+	if d < 0 {
+		d = 0
+	}
+	s.timer = time.AfterFunc(d, func() {
+		global.LOG.Warn("[firewall-session] confirm window expired, auto-reverting")
+		if err := RevertSession(); err != nil {
+			global.LOG.Errorf("[firewall-session] auto-revert failed: %v", err)
+		}
+	})
+}
+
+// ConfirmSession 确认保留：写持久化、清空会话（请求本身即可达性证明）。
+func ConfirmSession() error {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if !session.active {
+		return nil
+	}
+	// 自动回滚已连续失败到上限：会话仍 active，但内核处于半还原危险态、定时器不再武装、marker 保留待兜底。
+	// 此时绝不能确认——persistManagedChains 会把这份半还原状态落盘并覆盖上次确认的良好持久化文件，
+	// 令危险规则集在重启/重放后复活（D1）。拒绝确认，指引用户重启 agent 或用 1pctl firewall rescue 恢复。
+	if session.revertFails >= maxRevertRetries {
+		return buserr.New("ErrFirewallRevertExhausted")
+	}
+	persistManagedChains()
+	global.LOG.Infof("[firewall-session] confirmed %d change(s)", len(session.changes))
+	session.clearLocked()
+	return nil
+}
+
+// CancelSession 丢弃尚未发生实际规则写入的新会话，用于写规则前置检查或首次写入失败后的清理。
+// 只应在调用方确认本次会话没有任何内核规则变更时使用；已有待确认会话不应被失败的后续请求取消。
+func CancelSession(reason string) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if !session.active {
+		return
+	}
+	global.LOG.Warnf("[firewall-session] cancel pending session: %s", reason)
+	session.clearLocked()
+}
+
+// RevertSession 立即撤销：限定恢复会话前的 1PANEL 链快照，并重写持久化文件。
+// 全程持锁（与 ConfirmSession 一致）：还原窗口内并发 BeginSession 只会追加到当前会话而非拍新快照，
+// 否则可能出现"SSH accept 已删但新会话被 clearLocked 一并清掉、再无自动回滚"的永久锁外竞态。
+// RestoreSnapshot/persistManagedChains 的调用链均不获取 session.mu，持锁执行不会自死锁。
+func RevertSession() error {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if !session.active {
+		return nil
+	}
+	snap := session.snapshot
+	if snap != "" {
+		if err := RestoreSnapshot(snap); err != nil {
+			// 恢复未完整完成（RestoreSnapshot 现会 fail-fast 上报）：此时绝不能把半还原的内核状态写盘，
+			// 否则会覆盖上次确认的良好持久化文件并在重启/重放后复活危险规则集；也保留会话标记。
+			// 重装一个缩短的重试窗口做有限次自动重试，避免会话卡死 active、定时器不再 armed；
+			// 超过上限后保留 marker 停止自动重试，留待进程重启时 ReclaimSession 兜底（或人工介入）。
+			global.LOG.Errorf("[firewall-session] revert failed, keeping marker for retry, not persisting partial state: %v", err)
+			session.revertFails++
+			if session.revertFails >= maxRevertRetries {
+				global.LOG.Errorf("[firewall-session] revert failed %d times, stop auto-retry; keep marker for manual intervention / ReclaimSession on restart", session.revertFails)
+				return err
+			}
+			session.deadline = time.Now().Add(time.Duration(revertRetryWindowSec) * time.Second)
+			session.persistMarkerLocked()
+			session.armTimerLocked()
+			global.LOG.Warnf("[firewall-session] revert failed %d/%d, re-armed retry window %ds", session.revertFails, maxRevertRetries, revertRetryWindowSec)
+			return err
+		}
+	}
+	// 还原成功后才重写持久化文件，使确认前不落盘的承诺即便经历崩溃也成立。
+	persistManagedChains()
+	global.LOG.Infof("[firewall-session] reverted %d change(s)", len(session.changes))
+	session.clearLocked()
+	return nil
+}
+
+// SessionStatus 返回未确认会话状态供前端确认卡片轮询。
+func SessionStatus() SessionInfo {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	info := SessionInfo{Active: session.active, Changes: session.changes, Snapshot: session.snapshot}
+	if session.active {
+		info.Since = session.since.Format("2006-01-02 15:04:05")
+		remain := int(time.Until(session.deadline).Seconds())
+		if remain < 0 {
+			remain = 0
+		}
+		info.RemainSeconds = remain
+	}
+	return info
+}
+
+// ActiveSessionIsStrictOnly 判定当前活动会话是否"仅由开启白名单（严格）模式"这一/这些变更组成。
+// 仅取 mu 读快照、不嵌套其他会话函数，故与 Begin/Confirm/Revert/Status 顺序取锁不会死锁。
+// 关闭白名单时据此决定能否整体 Revert：窗口内若混入了别的待确认变更（如某条待确认的 DROP 规则），
+// Revert 会把它一并撤销（D3/A4 误伤），此时返回 false 让上层要求用户先确认或撤销。
+func ActiveSessionIsStrictOnly() bool {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if !session.active || len(session.changes) == 0 {
+		return false
+	}
+	for _, c := range session.changes {
+		if c.Summary != StrictModeSessionSummary {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *sessionState) clearLocked() {
+	if s.timer != nil {
+		s.timer.Stop()
+		s.timer = nil
+	}
+	s.active = false
+	s.snapshot = ""
+	s.changes = nil
+	s.deadline = time.Time{}
+	s.since = time.Time{}
+	s.revertFails = 0
+	_ = os.Remove(markerPath())
+}
+
+func (s *sessionState) persistMarkerLocked() {
+	marker := sessionMarker{
+		Snapshot: s.snapshot,
+		Changes:  s.changes,
+		Deadline: s.deadline.Unix(),
+		Since:    s.since.Unix(),
+	}
+	data, err := json.Marshal(marker)
+	if err != nil {
+		return
+	}
+	if err := os.WriteFile(markerPath(), data, 0600); err != nil {
+		global.LOG.Warnf("[firewall-session] persist marker failed: %v", err)
+	}
+}
+
+// ReclaimSession 在 agent 启动时调用：若存在未确认会话标记，视同超时立即还原（堵死崩溃逃逸路径）。
+func ReclaimSession() {
+	data, err := os.ReadFile(markerPath())
+	if err != nil {
+		return
+	}
+	var marker sessionMarker
+	if err := json.Unmarshal(data, &marker); err != nil || marker.Snapshot == "" {
+		_ = os.Remove(markerPath())
+		return
+	}
+	global.LOG.Warnf("[firewall-session] found unconfirmed session on startup, reverting snapshot %s", marker.Snapshot)
+	if err := RestoreSnapshot(marker.Snapshot); err != nil {
+		// 启动还原失败：保留标记、不落盘，下次启动再试（评审 P2）。进程重启时 runBootReplay 会跳过，
+		// ReclaimSession 是唯一兜底；若此处落盘半还原状态并删标记，则危险规则集既被持久化又永失重试。
+		global.LOG.Errorf("[firewall-session] startup revert failed, keeping marker for retry, not persisting partial state: %v", err)
+		return
+	}
+	persistManagedChains()
+	_ = os.Remove(markerPath())
+}
+
+func markerPath() string {
+	return path.Join(global.Dir.FirewallDir, sessionMarkerFile)
+}
+
+// persistManagedChains 把当前 managed 模式下的全部 1PANEL 链回写到持久化文件
+// （文件名统一由 iptables.ChainFileName 派生，单一真源）。
+func persistManagedChains() {
+	type chainRef struct {
+		tab   string
+		chain string
+	}
+	items := []chainRef{
+		{iptables.FilterTab, iptables.Chain1PanelGuard},
+		{iptables.FilterTab, iptables.Chain1PanelDeny},
+		{iptables.FilterTab, iptables.Chain1PanelBaseline},
+		{iptables.FilterTab, iptables.Chain1PanelAllow},
+		{iptables.FilterTab, iptables.Chain1PanelAfter},
+		{iptables.FilterTab, iptables.Chain1PanelInput},
+		{iptables.FilterTab, iptables.Chain1PanelOutput},
+		{iptables.FilterTab, iptables.Chain1PanelForward},
+		{iptables.NatTab, iptables.Chain1PanelPreRouting},
+		{iptables.NatTab, iptables.Chain1PanelPostRouting},
+	}
+	// 注意：1PANEL_DOCKER 刻意不在此列表内。Docker 规则由 persistDocker（写）+ LoadDockerRules（开机重放）
+	// 独立维护，与提交-确认会话/快照解耦。若让会话机制读内核 docker 链回写文件，会在开机"链已建空但
+	// 尚未 LoadDockerRules"的窗口里用空内容覆盖文件而永久丢规则（P1），且与巡检/用户操作存在跨 goroutine
+	// 竞争。解耦后内核与文件始终由 docker.go（dockerMu 串行）保持一致，不会出现陈旧文件复活。
+	for _, item := range items {
+		file := iptables.ChainFileName(item.chain)
+		if exist, _ := iptables.CheckChainExist(item.tab, item.chain); !exist {
+			// 链已不存在（如 revert 删掉了本会话新建的转发链）→ 删掉其残留持久化文件，
+			// 否则下次开机重放会把已撤销的规则复活，破坏"确认前不落盘"承诺。
+			_ = os.Remove(path.Join(global.Dir.FirewallDir, file))
+			if item.tab == iptables.FilterTab {
+				_ = os.Remove(path.Join(global.Dir.FirewallDir, file+".v6"))
+			}
+			continue
+		}
+		if err := iptables.SaveRulesToFile(item.tab, item.chain, file); err != nil {
+			global.LOG.Warnf("[firewall-session] persist chain %s failed: %v", item.chain, err)
+		}
+		// 镜像写 v6（filter 表的链才有 v6 镜像）。
+		if item.tab == iptables.FilterTab && iptables.HasIP6tables() && iptables.CheckChainExist6(item.tab, item.chain) {
+			_ = iptables.SaveRulesToFile6(item.tab, item.chain, file)
+		}
+	}
+}

@@ -1046,6 +1046,74 @@ var InitFirewallPortWhiteList = &gormigrate.Migration{
 	},
 }
 
+// AddFirewallMetaTables 新增按指纹关联的规则元数据表与单行状态表（设计稿 §3.8，修 C3）。
+// additive：只新增表 + 保守回填，不触碰旧 firewalls 表（旧表保留两个版本后再清理）。
+var AddFirewallMetaTables = &gormigrate.Migration{
+	ID: "20260621-add-firewall-meta-tables",
+	Migrate: func(tx *gorm.DB) error {
+		if err := tx.AutoMigrate(&model.FirewallRuleMeta{}, &model.FirewallState{}); err != nil {
+			return err
+		}
+		var firewalls []model.Firewall
+		if err := tx.Find(&firewalls).Error; err != nil {
+			global.LOG.Warnf("backfill firewall meta skipped, list legacy records failed: %v", err)
+			return nil
+		}
+		for _, item := range firewalls {
+			if strings.TrimSpace(item.Description) == "" {
+				continue
+			}
+			key, known := legacyFirewallRuleKey(item)
+			source := "panel"
+			if !known {
+				source = "legacy"
+			}
+			fp := firewall.Fingerprint(key)
+			var existing model.FirewallRuleMeta
+			if err := tx.Where("fingerprint = ?", fp).First(&existing).Error; err == nil {
+				continue
+			}
+			if err := tx.Create(&model.FirewallRuleMeta{
+				Fingerprint: fp,
+				Kind:        legacyFirewallKind(item.Type),
+				Family:      "ipv4",
+				Description: item.Description,
+				Source:      source,
+			}).Error; err != nil {
+				global.LOG.Warnf("backfill firewall meta for record %d failed: %v", item.ID, err)
+			}
+		}
+		return nil
+	},
+}
+
+func legacyFirewallKind(t string) string {
+	switch t {
+	case "port":
+		return "port"
+	case "address":
+		return "address"
+	default:
+		return "filter"
+	}
+}
+
+// legacyFirewallRuleKey 把旧 firewalls 行映射为指纹输入。第二个返回值表示是否为已知类型。
+func legacyFirewallRuleKey(item model.Firewall) (firewall.RuleKey, bool) {
+	switch item.Type {
+	case "port":
+		return firewall.RuleKey{Family: "ipv4", Scope: "input", Kind: "port", Action: item.Strategy, Protocol: item.Protocol, SrcIP: item.SrcIP, DstPort: item.DstPort}, true
+	case "address":
+		return firewall.RuleKey{Family: "ipv4", Scope: "input", Kind: "address", Action: item.Strategy, SrcIP: item.SrcIP}, true
+	default:
+		scope := "input"
+		if strings.Contains(strings.ToUpper(item.Chain), "OUTPUT") {
+			scope = "output"
+		}
+		return firewall.RuleKey{Family: "ipv4", Scope: scope, Kind: "filter", Action: item.Strategy, Protocol: item.Protocol, SrcIP: item.SrcIP, SrcPort: item.SrcPort, DstIP: item.DstIP, DstPort: item.DstPort}, true
+	}
+}
+
 var UpdateWebsite = &gormigrate.Migration{
 	ID: "20251203-update-website",
 	Migrate: func(tx *gorm.DB) error {
