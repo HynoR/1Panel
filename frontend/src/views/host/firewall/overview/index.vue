@@ -61,45 +61,6 @@
                     </div>
                 </template>
                 <div class="flex flex-col gap-4">
-                    <!-- 待确认会话卡：视觉优先级高于静态 tag，复用 useFireSession 单例状态与动作 -->
-                    <el-alert
-                        v-if="applying"
-                        :closable="false"
-                        type="info"
-                        show-icon
-                        :title="$t('firewall.applying')"
-                    />
-                    <el-alert v-else-if="session.active" :closable="false" type="warning" show-icon>
-                        <template #title>
-                            <div class="flex w-full flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                                <div>
-                                    <span class="font-bold">{{ $t('firewall.confirmTitle') }}</span>
-                                    <span class="ml-2">
-                                        {{
-                                            $t('firewall.confirmTip', {
-                                                count: session.changes.length,
-                                                seconds: remain,
-                                            })
-                                        }}
-                                    </span>
-                                </div>
-                                <div>
-                                    <el-button type="success" size="small" :loading="sessionLoading" @click="onConfirm">
-                                        {{ $t('firewall.confirmKeep') }}
-                                    </el-button>
-                                    <el-button type="danger" size="small" :loading="sessionLoading" @click="onRevert">
-                                        {{ $t('firewall.revertNow') }}
-                                    </el-button>
-                                </div>
-                            </div>
-                        </template>
-                        <ul v-if="session.changes.length" class="mt-2 list-disc pl-5 text-xs">
-                            <li v-for="(item, index) in session.changes" :key="index">
-                                {{ item.at }} — {{ item.summary }}
-                            </li>
-                        </ul>
-                    </el-alert>
-
                     <!-- 启停 / 重启 / 初始化 -->
                     <div class="flex flex-wrap items-center gap-2">
                         <template v-if="mode === 'external'">
@@ -363,7 +324,7 @@ const {
 // 概览页固定按 base 钉住就绪态：不被其它 tab 的后台 loadBaseInfo 改写 activeTab 影响。
 const readyBase = isReadyFor('base');
 
-const { session, remain, applying, loading: sessionLoading, onConfirm, onRevert } = useFireSession();
+const { session, remain, applying } = useFireSession();
 
 const loading = ref(false);
 const onPing = ref('Disable');
@@ -387,7 +348,7 @@ const withDockerRestart = ref(false);
 const showDefaultPolicy = computed(() => mode.value === 'managed' && capabilities.value.defaultDrop && readyBase.value);
 
 // 顶部 alert 按可行动优先级取最高者：未初始化 > 未激活 > 开机降级 > 冲突。
-// 待确认会话由区2 内联卡呈现（视觉优先级高于静态 tag），Docker/IPv6 能力归入区3 保护汇总，
+// 待确认会话由全局 SessionConfirm 呈现，Docker/IPv6 能力归入区3 保护汇总，
 // 避免在无 Docker 主机上误报"Docker 不可用"。
 const topAlert = computed<{ type: 'warning' | 'error'; title: string; description?: string } | null>(() => {
     if (!readyBase.value) {
