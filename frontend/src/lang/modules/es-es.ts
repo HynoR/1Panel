@@ -1373,6 +1373,12 @@ const message = {
                 'Por ejemplo: /mcp, tenga en cuenta que no debe superponerse con otros servidores',
             npxHelper: 'Adecuado para mcp iniciado con npx o binario',
             uvxHelper: 'Adecuado para mcp iniciado con uvx',
+            protocolVersion: 'Protocol Version',
+            protocolVersionHelper:
+                'Only used by stateless Streamable HTTP to auto-initialize the downstream stdio MCP Server',
+            testConnection: 'Test Connection',
+            connectionSuccess: 'Connection succeeded',
+            connectionFailed: 'Connection failed',
         },
         tensorRT: {
             llm: 'TensorRT LLM',
@@ -2962,6 +2968,8 @@ const message = {
             'Asegúrate de que haya suficiente espacio en disco en el servidor (Tamaño del archivo de instantánea: {0}, Espacio disponible: {1})',
         recoverHelper3:
             'Asegúrate de que la arquitectura del servidor coincida con la del servidor donde se creó la instantánea (Arquitectura actual: {0})',
+        recoverHelper4:
+            'Esta operación solo revierte el nodo principal. Si existen nodos secundarios actualizados, reviértelos primero antes de continuar.',
         rollback: 'Reversión',
         rollbackHelper:
             'Revertir esta recuperación reemplazará todos los archivos de esta recuperación y puede requerir reiniciar Docker y los servicios de 1Panel. ¿Deseas continuar?',
@@ -4993,7 +5001,9 @@ const message = {
                 'Las IP bloqueadas se guardan temporalmente en OpenResty y se liberan tras reinicio. Para bloqueo permanente usa reglas',
             addWhiteUrlHelper: '¿Añadir URL {0} a la whitelist?',
             dashHelper: 'La versión community también soporta configuraciones globales y de sitio',
-            wafStatusHelper: 'WAF no está activo, habilítalo en Configuración Global',
+            wafStatusHelper:
+                'El firewall no está activado. La protección de seguridad del sitio web está pausada. Actívalo cuanto antes.',
+            enableProtection: 'Activar protección',
             ccMode: 'Modo',
             global: 'Modo global',
             uriMode: 'Modo URL',
@@ -5143,7 +5153,7 @@ const message = {
             theworld: 'TheWorld Browser',
             edge: 'Microsoft Edge',
             maxthon: 'Maxthon Browser',
-            monitorStatusHelper: 'Monitorización no habilitada, actívala en Configuración',
+            monitorStatusHelper: 'La monitorización del sitio web está deshabilitada. Actívala ahora',
             excludeIp: 'Excluir IPs',
             excludeUa: 'Excluir User-Agent',
             remotePort: 'Puerto remoto',
@@ -5729,9 +5739,46 @@ const message = {
             setDefaultHelper: 'La paleta de colores volverá al estado inicial. ¿Continuar?',
             setHelper: 'Se guardará la paleta actual como tema. ¿Continuar?',
         },
-        exchange: {
-            exchange: 'Intercambio de archivos',
-            exchangeConfirm: '¿Quieres transferir {1} de {0} a {2}:{3}?',
+        sync: {
+            menu: 'Sincronización de Recursos',
+            file: 'Transferencia de archivos',
+            fileSyncConfirm: '¿Transferir el archivo/carpeta {1} del nodo {0} al directorio {3} del nodo {2}?',
+
+            image: 'Transferencia de imágenes',
+            imageBatchDesc:
+                'Seleccione primero el nodo de origen y las imágenes de origen, luego elija los nodos de destino para reenviar.',
+            imageBatchConfirmPrefix: 'Se enviarán {0} imágenes a {1} nodos, creando {2} tareas.',
+
+            cert: 'Sincronización de certificados',
+            certBatchDesc:
+                'Después de seleccionar el nodo de origen, los certificados especificados pueden sincronizarse con el entorno actual del panel.',
+            certBatchConfirmPrefix: 'Se sincronizarán {0} certificados a {1} nodos, creando {2} tareas.',
+
+            app: 'Transferencia de Aplicaciones',
+            appBatchDesc:
+                'Seleccione el nodo de origen, la aplicación y los nodos de destino, luego confirme las dependencias de recursos y ejecute la tarea de transferencia de aplicaciones.',
+            appSelectedApp: 'Aplicación seleccionada:',
+            appPreviewTitle: 'Vista previa de transferencia',
+            appPreviewDesc:
+                'Confirme los nodos de destino y los recursos dependientes antes de iniciar la transferencia de aplicaciones.',
+            appDatabaseDependency: 'Dependencia de base de datos',
+            appResourceRequired: 'Seleccione primero todos los recursos asociados requeridos.',
+            appUnsupportedMultipleResources:
+                'Actualmente solo se admite la migración de aplicaciones asociadas con un máximo de un recurso.',
+            appUnsupportedResourceType:
+                'Actualmente solo se admite la migración de aplicaciones sin dependencias de recursos o que dependan únicamente de MySQL, MariaDB o PostgreSQL.',
+
+            targetTitle: 'Nodos de destino',
+            targetDesc: 'El nodo de origen se excluye automáticamente. Puede seleccionar uno o más nodos de destino.',
+            targetSearchPlaceholder: 'Buscar nombre o dirección del nodo',
+            noTargetNodes: 'No hay nodos de destino disponibles',
+            noSourceNode: 'Seleccione primero un nodo de origen',
+            reviewTargets: 'Nodos de destino',
+            reviewEmpty: 'Seleccione primero los recursos y los nodos de destino',
+            selectSourceFirst: 'Seleccione primero un nodo de origen.',
+            selectResourceFirst: 'Seleccione primero un recurso para sincronizar.',
+            selectTargetFirst: 'Seleccione al menos un nodo de destino.',
+            submitSuccess: 'La tarea de sincronización se ha enviado correctamente.',
         },
         cluster: {
             cluster: 'Alta disponibilidad de aplicaciones',

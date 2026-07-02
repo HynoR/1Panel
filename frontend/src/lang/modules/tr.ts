@@ -1367,6 +1367,12 @@ const message = {
             streamableHttpPathHelper: 'Örneğin: /mcp, diğer Sunucularla çakışmaması gerektiğine dikkat edin',
             npxHelper: 'npx veya ikili dosya ile başlatılan mcp için uygundur',
             uvxHelper: 'uvx ile başlatılan mcp için uygundur',
+            protocolVersion: 'Protocol Version',
+            protocolVersionHelper:
+                'Only used by stateless Streamable HTTP to auto-initialize the downstream stdio MCP Server',
+            testConnection: 'Test Connection',
+            connectionSuccess: 'Connection succeeded',
+            connectionFailed: 'Connection failed',
         },
         tensorRT: {
             llm: 'TensorRT LLM',
@@ -2949,6 +2955,8 @@ const message = {
             'Sunucuda yeterli disk alanının olduğundan emin olun (Anlık görüntü dosyası boyutu: {0}, Mevcut alan: {1})',
         recoverHelper3:
             'Sunucu mimarisinin, anlık görüntünün oluşturulduğu sunucu mimarisiyle eşleştiğinden emin olun (Geçerli sunucu mimarisi: {0})',
+        recoverHelper4:
+            'Bu işlem yalnızca ana düğümü geri alır. Yükseltilmiş alt düğümler varsa, devam etmeden önce önce bunları geri alın.',
         rollback: 'Geri al',
         rollbackHelper:
             'Bu kurtarmayı geri almak, bu kurtarmadan gelen tüm dosyaları değiştirecek ve Docker ile 1Panel servislerinin yeniden başlatılmasını gerektirebilir. Devam etmek istiyor musunuz?',
@@ -5016,7 +5024,9 @@ const message = {
                 'Engellenen IP’ler geçici olarak OpenResty’de saklanır ve OpenResty yeniden başlatıldığında engel kaldırılır. Engelleme fonksiyonu ile kalıcı olarak engellenebilir',
             addWhiteUrlHelper: 'URL {0}’ı beyaz listeye eklemek mi?',
             dashHelper: 'Topluluk sürümü, genel ayarlar ve web sitesi ayarlarındaki işlevleri de kullanabilir',
-            wafStatusHelper: 'WAF etkin değil, lütfen genel ayarlarda etkinleştirin',
+            wafStatusHelper:
+                'Güvenlik duvarı etkin değil. Web sitesi güvenlik koruması duraklatıldı. En kısa sürede etkinleştirmeniz önerilir.',
+            enableProtection: 'Korumayı Etkinleştir',
             ccMode: 'Mod',
             global: 'Genel Mod',
             uriMode: 'URL Modu',
@@ -5171,7 +5181,7 @@ const message = {
             theworld: 'TheWorld Tarayıcı',
             edge: 'Microsoft Edge',
             maxthon: 'Maxthon Tarayıcı',
-            monitorStatusHelper: 'İzleme etkin değil, lütfen ayarlarda etkinleştirin',
+            monitorStatusHelper: 'Web sitesi izleme şu anda devre dışı. Şimdi etkinleştirin',
             excludeIp: 'IP Adreslerini Hariç Tut',
             excludeUa: 'Kullanıcı-Aracısını Hariç Tut',
             remotePort: 'Uzak Port',
@@ -5766,9 +5776,43 @@ const message = {
             setDefaultHelper: 'Tema renk şeması başlangıç durumuna geri yüklenecek. Devam etmek istiyor musunuz?',
             setHelper: 'Seçilen tema renk şeması kaydedilecek. Devam etmek istiyor musunuz?',
         },
-        exchange: {
-            exchange: 'Dosya Değişimi',
-            exchangeConfirm: '{0} düğümünden {1} dosya/klasörünü {2} düğümünün {3} dizinine aktarmak istiyor musunuz?',
+        sync: {
+            menu: 'Kaynak Senkronizasyonu',
+            file: 'Dosya Aktarımı',
+            fileSyncConfirm: '{0} düğümündeki {1} dosya/klasörü {2} düğümündeki {3} dizinine aktarmak istiyor musunuz?',
+
+            image: 'İmaj Aktarımı',
+            imageBatchDesc: 'Önce kaynak düğümü ve kaynak imajları seçin, ardından iletim için hedef düğümleri seçin.',
+            imageBatchConfirmPrefix: '{0} imaj {1} düğüme aktarılacak, toplam {2} görev oluşturulacak.',
+
+            cert: 'Sertifika Senkronizasyonu',
+            certBatchDesc:
+                'Kaynak düğüm seçildikten sonra belirtilen sertifikalar mevcut panel ortamına senkronize edilebilir.',
+            certBatchConfirmPrefix: '{0} sertifika {1} düğüme senkronize edilecek, toplam {2} görev oluşturulacak.',
+
+            app: 'Uygulama Aktarımı',
+            appBatchDesc:
+                'Kaynak düğümü, uygulamayı ve hedef düğümleri seçin, ardından kaynak bağımlılıklarını doğrulayarak uygulama aktarım görevini başlatın.',
+            appSelectedApp: 'Seçilen Uygulama:',
+            appPreviewTitle: 'Aktarım Önizlemesi',
+            appPreviewDesc: 'Uygulama aktarımını başlatmadan önce hedef düğümleri ve bağımlı kaynakları doğrulayın.',
+            appDatabaseDependency: 'Veritabanı Bağımlılığı',
+            appResourceRequired: 'Lütfen önce gerekli tüm ilişkili kaynakları seçin.',
+            appUnsupportedMultipleResources: 'Şu anda yalnızca en fazla bir kaynakla ilişkili uygulamalar taşınabilir.',
+            appUnsupportedResourceType:
+                'Şu anda yalnızca kaynak bağımlılığı olmayan veya yalnızca MySQL, MariaDB ya da PostgreSQL kullanan uygulamalar taşınabilir.',
+
+            targetTitle: 'Hedef Düğümler',
+            targetDesc: 'Kaynak düğüm otomatik olarak hariç tutulur. Bir veya daha fazla hedef düğüm seçebilirsiniz.',
+            targetSearchPlaceholder: 'Düğüm adı veya adres ara',
+            noTargetNodes: 'Kullanılabilir hedef düğüm yok',
+            noSourceNode: 'Lütfen önce bir kaynak düğüm seçin',
+            reviewTargets: 'Hedef Düğümler',
+            reviewEmpty: 'Lütfen önce kaynakları ve hedef düğümleri seçin',
+            selectSourceFirst: 'Lütfen önce bir kaynak düğüm seçin.',
+            selectResourceFirst: 'Lütfen önce senkronize edilecek kaynağı seçin.',
+            selectTargetFirst: 'Lütfen en az bir hedef düğüm seçin.',
+            submitSuccess: 'Senkronizasyon görevi başarıyla gönderildi.',
         },
         cluster: {
             cluster: 'Высокая доступность приложений',

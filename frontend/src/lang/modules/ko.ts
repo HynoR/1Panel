@@ -1340,6 +1340,12 @@ const message = {
             streamableHttpPathHelper: '예: /mcp, 다른 서버와 중복되지 않도록 주의하세요',
             npxHelper: 'npx 또는 바이너리로 시작하는 mcp에 적합',
             uvxHelper: 'uvx로 시작하는 mcp에 적합',
+            protocolVersion: 'Protocol Version',
+            protocolVersionHelper:
+                'Only used by stateless Streamable HTTP to auto-initialize the downstream stdio MCP Server',
+            testConnection: 'Test Connection',
+            connectionSuccess: 'Connection succeeded',
+            connectionFailed: 'Connection failed',
         },
         tensorRT: {
             llm: 'TensorRT LLM',
@@ -2834,6 +2840,8 @@ const message = {
         recoverHelper2: '서버에 충분한 디스크 공간이 있는지 확인하세요. (스냅샷 파일 크기: {0}, 사용 가능한 공간: {1})',
         recoverHelper3:
             '서버 아키텍처가 스냅샷이 생성된 서버의 아키텍처와 일치하는지 확인하세요. (현재 서버 아키텍처: {0})',
+        recoverHelper4:
+            '이 작업은 기본 노드만 롤백합니다. 업그레이드된 하위 노드가 있다면 먼저 하위 노드를 롤백한 후 계속 진행하세요.',
         rollback: '롤백',
         rollbackHelper:
             '이 복구를 롤백하면 해당 복구의 모든 파일이 대체되며 Docker 및 1Panel 서비스를 재시작해야 할 수 있습니다. 계속하시겠습니까?',
@@ -4870,7 +4878,9 @@ const message = {
                 '차단된 IP는 OpenResty 에 일시적으로 저장되며, OpenResty 재시작 시 차단이 해제됩니다. 차단 기능을 통해 영구적으로 차단할 수 있습니다.',
             addWhiteUrlHelper: 'URL {0}를 화이트리스트에 추가하시겠습니까?',
             dashHelper: '커뮤니티 버전은 전역 설정 및 웹사이트 설정에서 기능을 사용할 수 있습니다.',
-            wafStatusHelper: 'WAF 가 활성화되지 않았습니다. 전역 설정에서 활성화해 주세요.',
+            wafStatusHelper:
+                '방화벽이 활성화되지 않아 웹사이트 보안 보호가 일시 중지되었습니다. 가능한 한 빨리 활성화하세요.',
+            enableProtection: '보호 활성화',
             ccMode: '모드',
             global: '전역 모드',
             uriMode: 'URL 모드',
@@ -5024,7 +5034,7 @@ const message = {
             theworld: '더월드 브라우저',
             edge: '마이크로소프트 엣지',
             maxthon: '맥스톤 브라우저',
-            monitorStatusHelper: '모니터링이 활성화되지 않았습니다. 설정에서 활성화하세요',
+            monitorStatusHelper: '현재 웹사이트 모니터링이 비활성화되어 있습니다. 지금 활성화하세요',
             excludeIp: 'IP 주소 제외',
             excludeUa: '사용자 에이전트 제외',
             remotePort: '원격 포트',
@@ -5589,9 +5599,43 @@ const message = {
             setDefaultHelper: '테마 색상 스킴이 초기 상태로 복원됩니다. 계속하시겠습니까?',
             setHelper: '현재 선택한 테마 색상 스킴이 저장됩니다. 계속하시겠습니까?',
         },
-        exchange: {
-            exchange: '파일 교환',
-            exchangeConfirm: '{0} 노드의 파일/폴더 {1}을(를) {2} 노드의 {3} 디렉토리로 전송하시겠습니까?',
+        sync: {
+            menu: '리소스 동기화',
+            file: '파일 전송',
+            fileSyncConfirm: '{0} 노드의 파일/폴더 {1}을(를) {2} 노드의 디렉터리 {3}(으)로 전송하시겠습니까?',
+
+            image: '이미지 전송',
+            imageBatchDesc: '먼저 원본 노드와 원본 이미지를 선택한 후 대상 노드를 선택하여 전달합니다.',
+            imageBatchConfirmPrefix: '{0}개의 이미지를 {1}개 노드로 전달합니다. 총 {2}개의 작업이 생성됩니다.',
+
+            cert: '인증서 동기화',
+            certBatchDesc: '원본 노드를 선택한 후 지정된 인증서를 현재 패널 환경으로 동기화할 수 있습니다.',
+            certBatchConfirmPrefix: '{0}개의 인증서를 {1}개 노드로 동기화합니다. 총 {2}개의 작업이 생성됩니다.',
+
+            app: '애플리케이션 전송',
+            appBatchDesc:
+                '원본 노드, 애플리케이션 및 대상 노드를 선택한 후 리소스 종속성을 확인하고 애플리케이션 전송 작업을 실행합니다.',
+            appSelectedApp: '선택한 애플리케이션:',
+            appPreviewTitle: '전송 미리보기',
+            appPreviewDesc: '대상 노드와 종속 리소스를 확인한 후 애플리케이션 전송을 실행하세요.',
+            appDatabaseDependency: '데이터베이스 종속성',
+            appResourceRequired: '필수 연관 리소스를 모두 먼저 선택하세요.',
+            appUnsupportedMultipleResources:
+                '현재 최대 하나의 리소스만 연결된 애플리케이션만 마이그레이션할 수 있습니다.',
+            appUnsupportedResourceType:
+                '현재 리소스 종속성이 없거나 MySQL, MariaDB, PostgreSQL에만 의존하는 애플리케이션만 마이그레이션할 수 있습니다.',
+
+            targetTitle: '대상 노드',
+            targetDesc: '원본 노드는 자동으로 제외됩니다. 하나 이상의 대상 노드를 선택할 수 있습니다.',
+            targetSearchPlaceholder: '노드 이름 또는 주소 검색',
+            noTargetNodes: '선택 가능한 대상 노드가 없습니다',
+            noSourceNode: '먼저 원본 노드를 선택하세요',
+            reviewTargets: '대상 노드',
+            reviewEmpty: '먼저 리소스와 대상 노드를 선택하세요',
+            selectSourceFirst: '먼저 원본 노드를 선택하세요.',
+            selectResourceFirst: '먼저 동기화할 리소스를 선택하세요.',
+            selectTargetFirst: '최소 하나의 대상 노드를 선택하세요.',
+            submitSuccess: '동기화 작업이 제출되었습니다.',
         },
         cluster: {
             cluster: '애플리케이션 고가용성',

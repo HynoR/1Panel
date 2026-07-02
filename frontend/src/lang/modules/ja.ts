@@ -1359,6 +1359,12 @@ const message = {
             streamableHttpPathHelper: '例：/mcp、他のサーバーと重複しないように注意してください',
             npxHelper: 'npx またはバイナリで起動する mcp に適しています',
             uvxHelper: 'uvx で起動する mcp に適しています',
+            protocolVersion: 'Protocol Version',
+            protocolVersionHelper:
+                'Only used by stateless Streamable HTTP to auto-initialize the downstream stdio MCP Server',
+            testConnection: 'Test Connection',
+            connectionSuccess: 'Connection succeeded',
+            connectionFailed: 'Connection failed',
         },
         tensorRT: {
             llm: 'TensorRT LLM',
@@ -2894,6 +2900,8 @@ const message = {
             'サーバーに十分なディスクスペースがあることを確認してください（スナップショットファイルサイズ:{0}、利用可能なスペース:{1}）',
         recoverHelper3:
             'サーバーアーキテクチャが、スナップショットが作成されたサーバーのアーキテクチャと一致していることを確認してください（現在のサーバーアーキテクチャ:{0}）',
+        recoverHelper4:
+            'この操作はプライマリノードのみをロールバックします。アップグレード済みの子ノードがある場合は、先に子ノードをロールバックしてから続行してください。',
         rollback: 'ロールバック',
         rollbackHelper:
             'この回復をロールバックすると、この回復からすべてのファイルを置き換え、Dockerサービスと1パネルサービスを再起動する必要がある場合があります。続けたいですか？',
@@ -4967,7 +4975,9 @@ const message = {
                 'ブロックされたIPはOpenRestyに一時的に保存され、OpenRestyを再起動すると解除されます。ブロック機能で永久的にブロックできます',
             addWhiteUrlHelper: 'URL {0} をホワイトリストに追加しますか？',
             dashHelper: 'コミュニティバージョンでもグローバル設定とウェブサイト設定の機能を使用できます',
-            wafStatusHelper: 'WAFが有効ではありません。グローバル設定で有効にしてください',
+            wafStatusHelper:
+                'ファイアウォールが有効ではありません。Webサイトの安全保護は一時停止されています。早めに有効化してください。',
+            enableProtection: '保護を有効化',
             ccMode: 'モード',
             global: 'グローバルモード',
             uriMode: 'URLモード',
@@ -5121,7 +5131,7 @@ const message = {
             theworld: 'TheWorldブラウザ',
             edge: 'Microsoft Edge',
             maxthon: 'Maxthonブラウザ',
-            monitorStatusHelper: 'モニタリングは有効ではありません。設定で有効にしてください',
+            monitorStatusHelper: '現在、Webサイト監視は有効になっていません。今すぐ有効にしてください',
             excludeIp: 'IPアドレスを除外',
             excludeUa: 'ユーザーエージェントを除外',
             remotePort: 'リモートポート',
@@ -5704,9 +5714,43 @@ const message = {
             setDefaultHelper: 'テーマカラーを初期状態に戻そうとしています。続行しますか？',
             setHelper: '現在選択されているテーマカラーを保存しようとしています。続行しますか？',
         },
-        exchange: {
-            exchange: 'ファイル交換',
-            exchangeConfirm: '{0} ノードのファイル/フォルダ {1} を {2} ノードの {3} ディレクトリに転送しますか？',
+        sync: {
+            menu: 'リソース同期',
+            file: 'ファイル転送',
+            fileSyncConfirm: 'ノード {0} のファイル/フォルダ {1} をノード {2} のディレクトリ {3} に転送しますか？',
+
+            image: 'イメージ転送',
+            imageBatchDesc: 'まずソースノードとソースイメージを選択し、その後転送先ノードを選択してください。',
+            imageBatchConfirmPrefix:
+                '{0} 個のイメージを {1} 個のノードへ転送します。合計 {2} 件のタスクが作成されます。',
+
+            cert: '証明書同期',
+            certBatchDesc: 'ソースノードを選択すると、指定した証明書を現在のパネル環境へ同期できます。',
+            certBatchConfirmPrefix: '{0} 件の証明書を {1} 個のノードへ同期します。合計 {2} 件のタスクが作成されます。',
+
+            app: 'アプリ転送',
+            appBatchDesc:
+                'ソースノード、アプリケーション、ターゲットノードを選択し、リソース依存関係を確認してアプリ転送タスクを実行します。',
+            appSelectedApp: '選択したアプリ:',
+            appPreviewTitle: '転送プレビュー',
+            appPreviewDesc: 'ターゲットノードと依存リソースを確認してからアプリ転送を実行してください。',
+            appDatabaseDependency: 'データベース依存関係',
+            appResourceRequired: '必要な関連リソースをすべて選択してください。',
+            appUnsupportedMultipleResources: '現在、関連リソースが最大1つのアプリのみ移行できます。',
+            appUnsupportedResourceType:
+                '現在、リソース依存がないアプリ、または MySQL・MariaDB・PostgreSQL のみを利用するアプリのみ移行できます。',
+
+            targetTitle: 'ターゲットノード',
+            targetDesc: 'ソースノードは自動的に除外されます。1つ以上のターゲットノードを選択できます。',
+            targetSearchPlaceholder: 'ノード名またはアドレスを検索',
+            noTargetNodes: '利用可能なターゲットノードがありません',
+            noSourceNode: 'まずソースノードを選択してください',
+            reviewTargets: 'ターゲットノード',
+            reviewEmpty: 'まずリソースとターゲットノードを選択してください',
+            selectSourceFirst: 'まずソースノードを選択してください。',
+            selectResourceFirst: 'まず同期するリソースを選択してください。',
+            selectTargetFirst: '少なくとも1つのターゲットノードを選択してください。',
+            submitSuccess: '同期タスクが送信されました。',
         },
         cluster: {
             cluster: 'アプリケーションの高可用性',

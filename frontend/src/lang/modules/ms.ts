@@ -1371,6 +1371,12 @@ const message = {
             streamableHttpPathHelper: 'Contoh: /mcp, elakkan daripada bertindan dengan pelayan lain',
             npxHelper: 'Sesuai untuk mcp yang dimulakan dengan npx atau binari',
             uvxHelper: 'Sesuai untuk mcp yang dimulakan dengan uvx',
+            protocolVersion: 'Protocol Version',
+            protocolVersionHelper:
+                'Only used by stateless Streamable HTTP to auto-initialize the downstream stdio MCP Server',
+            testConnection: 'Test Connection',
+            connectionSuccess: 'Connection succeeded',
+            connectionFailed: 'Connection failed',
         },
         tensorRT: {
             llm: 'TensorRT LLM',
@@ -2946,6 +2952,8 @@ const message = {
             'Pastikan terdapat ruang cakera yang mencukupi pada pelayan (Saiz fail snapshot: {0}, Ruang tersedia: {1})',
         recoverHelper3:
             'Pastikan seni bina pelayan sepadan dengan seni bina pelayan di mana snapshot dicipta (Seni bina pelayan semasa: {0})',
+        recoverHelper4:
+            'Operasi ini hanya menggulung balik nod utama. Jika terdapat nod anak yang telah dinaik taraf, sila gulungkan balik nod anak terlebih dahulu sebelum meneruskan.',
         rollback: 'Pulangkan semula',
         rollbackHelper:
             'Pulangkan semula pemulihan ini akan menggantikan semua fail dari pemulihan ini, dan mungkin memerlukan mulakan semula perkhidmatan Docker dan 1Panel. Adakah anda mahu meneruskan?',
@@ -5027,7 +5035,9 @@ const message = {
                 'IP yang disekat disimpan sementara dalam OpenResty dan akan dibuka kunci apabila anda memulakan semula OpenResty. Mereka boleh disekat secara kekal melalui fungsi sekatan',
             addWhiteUrlHelper: 'Tambah URL {0} ke senarai putih?',
             dashHelper: 'Versi komuniti juga boleh menggunakan fungsi dalam tetapan global dan tetapan laman web',
-            wafStatusHelper: 'WAF tidak diaktifkan, sila aktifkan dalam tetapan global',
+            wafStatusHelper:
+                'Firewall belum diaktifkan. Perlindungan keselamatan laman web dijeda. Sila aktifkan segera.',
+            enableProtection: 'Aktifkan Perlindungan',
             ccMode: 'Mod',
             global: 'Mod Global',
             uriMode: 'Mod URL',
@@ -5183,7 +5193,7 @@ const message = {
             theworld: 'Pelayar TheWorld',
             edge: 'Microsoft Edge',
             maxthon: 'Pelayar Maxthon',
-            monitorStatusHelper: 'Pemantauan tidak diaktifkan, sila aktifkan dalam tetapan',
+            monitorStatusHelper: 'Pemantauan laman web belum diaktifkan. Aktifkan sekarang',
             excludeIp: 'Kecualikan Alamat IP',
             excludeUa: 'Kecualikan User-Agent',
             remotePort: 'Port Jauh',
@@ -5776,9 +5786,46 @@ const message = {
             setDefaultHelper: 'Skema warna tema akan dipulihkan ke keadaan asalnya. Adakah anda ingin meneruskan?',
             setHelper: 'Skema warna tema yang dipilih sekarang akan disimpan. Adakah anda ingin meneruskan?',
         },
-        exchange: {
-            exchange: 'Pertukaran Fail',
-            exchangeConfirm: 'Adakah anda mahu memindahkan fail/folder {1} dari node {0} ke direktori {3} node {2}?',
+        sync: {
+            menu: 'Penyegerakan Sumber',
+            file: 'Pemindahan Fail',
+            fileSyncConfirm: 'Pindahkan fail/folder {1} dari nod {0} ke direktori {3} pada nod {2}?',
+
+            image: 'Pemindahan Imej',
+            imageBatchDesc:
+                'Pilih nod sumber dan imej sumber terlebih dahulu, kemudian pilih nod sasaran untuk pemindahan.',
+            imageBatchConfirmPrefix: 'Akan memindahkan {0} imej ke {1} nod, dengan jumlah {2} tugasan.',
+
+            cert: 'Penyegerakan Sijil',
+            certBatchDesc:
+                'Selepas memilih nod sumber, sijil yang ditentukan boleh disegerakkan ke persekitaran panel semasa.',
+            certBatchConfirmPrefix: 'Akan menyegerakkan {0} sijil ke {1} nod, dengan jumlah {2} tugasan.',
+
+            app: 'Pemindahan Aplikasi',
+            appBatchDesc:
+                'Pilih nod sumber, aplikasi dan nod sasaran, kemudian sahkan kebergantungan sumber dan jalankan tugas pemindahan aplikasi.',
+            appSelectedApp: 'Aplikasi Dipilih:',
+            appPreviewTitle: 'Pratonton Pemindahan',
+            appPreviewDesc: 'Sahkan nod sasaran dan sumber bergantung sebelum memulakan pemindahan aplikasi.',
+            appDatabaseDependency: 'Kebergantungan Pangkalan Data',
+            appResourceRequired: 'Sila pilih semua sumber berkaitan yang diperlukan terlebih dahulu.',
+            appUnsupportedMultipleResources:
+                'Pada masa ini, hanya aplikasi yang dikaitkan dengan maksimum satu sumber boleh dipindahkan.',
+            appUnsupportedResourceType:
+                'Pada masa ini, hanya aplikasi tanpa kebergantungan sumber atau yang bergantung pada MySQL, MariaDB atau PostgreSQL sahaja boleh dipindahkan.',
+
+            targetTitle: 'Nod Sasaran',
+            targetDesc:
+                'Nod sumber akan dikecualikan secara automatik. Anda boleh memilih satu atau lebih nod sasaran.',
+            targetSearchPlaceholder: 'Cari nama atau alamat nod',
+            noTargetNodes: 'Tiada nod sasaran tersedia',
+            noSourceNode: 'Sila pilih nod sumber terlebih dahulu',
+            reviewTargets: 'Nod Sasaran',
+            reviewEmpty: 'Sila pilih sumber dan nod sasaran terlebih dahulu',
+            selectSourceFirst: 'Sila pilih nod sumber terlebih dahulu.',
+            selectResourceFirst: 'Sila pilih sumber untuk disegerakkan terlebih dahulu.',
+            selectTargetFirst: 'Sila pilih sekurang-kurangnya satu nod sasaran.',
+            submitSuccess: 'Tugas penyegerakan berjaya dihantar.',
         },
         cluster: {
             cluster: 'Aplikasi Tinggi Ketersediaan',

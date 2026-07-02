@@ -1367,6 +1367,12 @@ const message = {
             streamableHttpPathHelper: 'Por exemplo: /mcp, certifique-se de que não se sobreponha a outros Servidores',
             npxHelper: 'Adequado para mcp iniciado com npx ou binário',
             uvxHelper: 'Adequado para mcp iniciado com uvx',
+            protocolVersion: 'Protocol Version',
+            protocolVersionHelper:
+                'Only used by stateless Streamable HTTP to auto-initialize the downstream stdio MCP Server',
+            testConnection: 'Test Connection',
+            connectionSuccess: 'Connection succeeded',
+            connectionFailed: 'Connection failed',
         },
         tensorRT: {
             llm: 'TensorRT LLM',
@@ -3059,6 +3065,8 @@ const message = {
             'Por favor, assegure-se de que há espaço suficiente em disco no servidor (Tamanho do arquivo de snapshot: {0}, Espaço disponível: {1})',
         recoverHelper3:
             'Por favor, assegure-se de que a arquitetura do servidor corresponda à arquitetura do servidor onde o snapshot foi criado (Arquitetura do servidor atual: {0})',
+        recoverHelper4:
+            'Esta operação faz rollback apenas do nó principal. Se houver nós secundários atualizados, faça o rollback deles primeiro antes de continuar.',
         rollback: 'Rollback',
         rollbackHelper:
             'Reverter essa recuperação substituirá todos os arquivos dessa recuperação e pode exigir reiniciar os serviços Docker e 1Panel. Você deseja continuar?',
@@ -5169,7 +5177,9 @@ const message = {
             addWhiteUrlHelper: 'Adicionar URL {0} à lista branca?',
             dashHelper:
                 'A versão comunitária também pode usar as funções nas configurações globais e configurações de site',
-            wafStatusHelper: 'O WAF não está ativado, por favor, ative-o nas configurações globais',
+            wafStatusHelper:
+                'O firewall não está ativado. A proteção de segurança do site está pausada. Ative-o assim que possível.',
+            enableProtection: 'Ativar Proteção',
             ccMode: 'Modo',
             global: 'Modo Global',
             uriMode: 'Modo URL',
@@ -5327,7 +5337,7 @@ const message = {
             theworld: 'Navegador TheWorld',
             edge: 'Microsoft Edge',
             maxthon: 'Navegador Maxthon',
-            monitorStatusHelper: 'O monitoramento não está habilitado, por favor habilite-o nas configurações',
+            monitorStatusHelper: 'O monitoramento do site está desabilitado. Habilite agora',
             excludeIp: 'Excluir Endereços IP',
             excludeUa: 'Excluir User-Agent',
             remotePort: 'Porta Remota',
@@ -5923,9 +5933,46 @@ const message = {
             setDefaultHelper: 'O esquema de cores do tema será restaurado para o estado inicial. Deseja continuar?',
             setHelper: 'O esquema de cores do tema selecionado será salvo. Deseja continuar?',
         },
-        exchange: {
-            exchange: 'Troca de Arquivos',
-            exchangeConfirm: 'Deseja transferir o arquivo/pasta {1} do nó {0} para o diretório {3} do nó {2}?',
+        sync: {
+            menu: 'Sincronização de Recursos',
+            file: 'Transferência de Arquivos',
+            fileSyncConfirm: 'Transferir o arquivo/pasta {1} do nó {0} para o diretório {3} no nó {2}?',
+
+            image: 'Transferência de Imagens',
+            imageBatchDesc:
+                'Selecione primeiro o nó de origem e as imagens de origem e, em seguida, escolha os nós de destino para encaminhamento.',
+            imageBatchConfirmPrefix: 'Serão encaminhadas {0} imagens para {1} nós, totalizando {2} tarefas.',
+
+            cert: 'Sincronização de Certificados',
+            certBatchDesc:
+                'Após selecionar o nó de origem, os certificados especificados podem ser sincronizados com o ambiente atual do painel.',
+            certBatchConfirmPrefix: 'Serão sincronizados {0} certificados para {1} nós, totalizando {2} tarefas.',
+
+            app: 'Transferência de Aplicativos',
+            appBatchDesc:
+                'Selecione o nó de origem, o aplicativo e os nós de destino, confirme as dependências de recursos e execute a tarefa de transferência de aplicativos.',
+            appSelectedApp: 'Aplicativo Selecionado:',
+            appPreviewTitle: 'Prévia da Transferência',
+            appPreviewDesc:
+                'Confirme os nós de destino e os recursos dependentes antes de iniciar a transferência do aplicativo.',
+            appDatabaseDependency: 'Dependência de Banco de Dados',
+            appResourceRequired: 'Selecione primeiro todos os recursos associados obrigatórios.',
+            appUnsupportedMultipleResources:
+                'Atualmente, apenas aplicativos associados a no máximo um recurso podem ser migrados.',
+            appUnsupportedResourceType:
+                'Atualmente, apenas aplicativos sem dependências de recursos ou dependentes apenas de MySQL, MariaDB ou PostgreSQL podem ser migrados.',
+
+            targetTitle: 'Nós de Destino',
+            targetDesc: 'O nó de origem será excluído automaticamente. Você pode selecionar um ou mais nós de destino.',
+            targetSearchPlaceholder: 'Pesquisar nome ou endereço do nó',
+            noTargetNodes: 'Nenhum nó de destino disponível',
+            noSourceNode: 'Selecione primeiro um nó de origem',
+            reviewTargets: 'Nós de Destino',
+            reviewEmpty: 'Selecione primeiro os recursos e os nós de destino',
+            selectSourceFirst: 'Selecione primeiro um nó de origem.',
+            selectResourceFirst: 'Selecione primeiro um recurso para sincronizar.',
+            selectTargetFirst: 'Selecione pelo menos um nó de destino.',
+            submitSuccess: 'Tarefa de sincronização enviada com sucesso.',
         },
         cluster: {
             cluster: 'Alta Disponibilidade de Aplicações',
