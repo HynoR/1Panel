@@ -732,17 +732,38 @@ func (u *FirewallService) BatchOperateRule(req dto.BatchRuleOperate) error {
 	if err != nil {
 		return err
 	}
-	if req.Type == "port" {
-		for _, rule := range req.Rules {
-			_ = u.OperatePortRule(rule, false)
-		}
-		return client.Reload()
-	}
+	success := 0
+	var firstErr error
 	for _, rule := range req.Rules {
-		itemRule := dto.AddrRuleOperate{Operation: rule.Operation, Address: rule.Address, Strategy: rule.Strategy, Family: rule.Family, ApplyToDocker: rule.ApplyToDocker, CallerIP: req.CallerIP}
-		_ = u.OperateAddressRule(itemRule, false)
+		var opErr error
+		if req.Type == "port" {
+			opErr = u.OperatePortRule(rule, false)
+		} else {
+			itemRule := dto.AddrRuleOperate{Operation: rule.Operation, Address: rule.Address, Strategy: rule.Strategy, Family: rule.Family, ApplyToDocker: rule.ApplyToDocker, CallerIP: req.CallerIP}
+			opErr = u.OperateAddressRule(itemRule, false)
+		}
+		if opErr != nil {
+			if firstErr == nil {
+				firstErr = opErr
+			}
+			continue
+		}
+		success++
 	}
-	return client.Reload()
+	// 存在成功的规则时仍需 Reload 持久化，Reload 失败优先返回其错误。
+	if success > 0 {
+		if err := client.Reload(); err != nil {
+			return err
+		}
+	}
+	if firstErr != nil {
+		return buserr.WithMap("ErrFirewallBatchPartial", map[string]interface{}{
+			"success": success,
+			"failed":  len(req.Rules) - success,
+			"reason":  firstErr.Error(),
+		}, firstErr)
+	}
+	return nil
 }
 
 func OperateFirewallPort(oldPorts, newPorts []int) error {

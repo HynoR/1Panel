@@ -940,7 +940,7 @@ const onDelete = (row: InboundRow | null) => {
     const addrRules = targets.filter((item) => item.ruleType === 'address').map(buildDeleteRule);
     const names = targets.map(ruleName);
 
-    const deleteApi = (params: { portRules: any[]; addrRules: any[] }) => {
+    const deleteApi = (params: { portRules: Host.RulePort[]; addrRules: Host.RulePort[] }) => {
         const tasks: Promise<unknown>[] = [];
         if (params.portRules.length) {
             tasks.push(batchOperateRule({ type: 'port', rules: params.portRules }));
@@ -951,11 +951,12 @@ const onDelete = (row: InboundRow | null) => {
         if (tasks.length === 0) {
             return Promise.resolve();
         }
-        // allSettled：address 批失败不得掩盖已成功的 port 批。每批失败由全局 axios 拦截器自带
-        // MsgError 提示；这里始终 resolve → OpDialog emit('search') → loadData 总刷新，避免
-        // 出现「已删除的规则仍显示在列表」的脏数据。仅全成功时补一条 deleteSuccess。
+        // allSettled：address 批失败不得掩盖已成功的 port 批。后端现在对部分失败返回非 200，
+        // 失败批由全局 axios 拦截器弹出聚合错误；这里仅在全部成功时补一条 deleteSuccess，避免
+        // 双弹。始终 resolve → OpDialog emit('search') → loadData 总刷新，杜绝脏数据残留。
         return Promise.allSettled(tasks).then((results) => {
-            if (results.every((r) => r.status === 'fulfilled')) {
+            const rejected = results.filter((r) => r.status === 'rejected').length;
+            if (rejected === 0) {
                 MsgSuccess(i18n.global.t('commons.msg.deleteSuccess'));
             }
         });

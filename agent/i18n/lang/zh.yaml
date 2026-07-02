@@ -36,6 +36,7 @@ ErrFirewallUnconditionalDrop: "该规则会无条件封禁所有来源，已拒�
 ErrFirewallBlockRescue: "该规则会从所有来源封禁 SSH/1Panel 端口并把你锁在外面，已拒绝。SSH 与 1Panel 是保底端口"
 ErrFirewallBlockBoth: "该变更会同时阻断 SSH 与 1Panel 面板，已拒绝"
 ErrFirewallBlockSelf: "该规则可能阻断你当前的连接，且当前防火墙模式没有自动回滚，已拒绝"
+ErrFirewallBatchPartial: "批量操作完成：成功 {{ .success }} 条，失败 {{ .failed }} 条。首个失败原因：{{ .reason }}"
 ErrPortExist: '{{ .port }} 端口已被 {{ .type }} [{{ .name }}] 占用'
 TYPE_APP: "应用"
 TYPE_RUNTIME: "运行环境"
