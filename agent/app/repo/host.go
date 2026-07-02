@@ -1,6 +1,8 @@
 package repo
 
 import (
+	"fmt"
+
 	"github.com/1Panel-dev/1Panel/agent/app/model"
 	"github.com/1Panel-dev/1Panel/agent/global"
 	"github.com/1Panel-dev/1Panel/agent/utils/encrypt"
@@ -26,6 +28,14 @@ type IHostRepo interface {
 	ListFirewallRecord(opts ...DBOption) ([]model.Firewall, error)
 	SaveFirewallRecord(firewall *model.Firewall) error
 	DeleteFirewallRecordByID(id uint) error
+	DeleteFirewallRecordByTuple(record model.Firewall) error
+
+	ListFirewallMeta(opts ...DBOption) ([]model.FirewallRuleMeta, error)
+	SaveFirewallMeta(meta *model.FirewallRuleMeta) error
+	DeleteFirewallMeta(fingerprint string) error
+
+	GetFirewallState() (model.FirewallState, error)
+	SaveFirewallState(state *model.FirewallState) error
 
 	SyncCert(data []model.RootCert) error
 	GetCert(opts ...DBOption) (model.RootCert, error)
@@ -173,6 +183,59 @@ func (h *HostRepo) SaveFirewallRecord(firewall *model.Firewall) error {
 
 func (h *HostRepo) DeleteFirewallRecordByID(id uint) error {
 	return global.DB.Where("id = ?", id).Delete(&model.Firewall{}).Error
+}
+
+// DeleteFirewallRecordByTuple 按规则元组删除描述记录（删除请求不携带 id 时使用），与 SaveFirewallRecord 的匹配口径一致，
+// 避免删规则后 firewalls 行残留、再次添加同名规则时复活旧描述。仅支持 port/address 两类记录。
+func (h *HostRepo) DeleteFirewallRecordByTuple(record model.Firewall) error {
+	db := global.DB.Where("type = ? AND strategy = ?", record.Type, record.Strategy)
+	switch record.Type {
+	case "port":
+		db = db.Where("dst_port = ? AND protocol = ? AND src_ip = ?", record.DstPort, record.Protocol, record.SrcIP)
+	case "address":
+		db = db.Where("src_ip = ?", record.SrcIP)
+	default:
+		return fmt.Errorf("delete firewall record by tuple: unsupported type %q", record.Type)
+	}
+	return db.Delete(&model.Firewall{}).Error
+}
+
+func (h *HostRepo) ListFirewallMeta(opts ...DBOption) ([]model.FirewallRuleMeta, error) {
+	var metas []model.FirewallRuleMeta
+	db := global.DB
+	for _, opt := range opts {
+		db = opt(db)
+	}
+	err := db.Find(&metas).Error
+	return metas, err
+}
+
+// SaveFirewallMeta 按指纹幂等 upsert：已存在则只更新描述/来源/family，不新增（修 C3）。
+func (h *HostRepo) SaveFirewallMeta(meta *model.FirewallRuleMeta) error {
+	if meta.Fingerprint == "" {
+		return nil
+	}
+	var existing model.FirewallRuleMeta
+	if err := global.DB.Where("fingerprint = ?", meta.Fingerprint).First(&existing).Error; err == nil {
+		meta.ID = existing.ID
+	}
+	return global.DB.Save(meta).Error
+}
+
+func (h *HostRepo) DeleteFirewallMeta(fingerprint string) error {
+	return global.DB.Where("fingerprint = ?", fingerprint).Delete(&model.FirewallRuleMeta{}).Error
+}
+
+// GetFirewallState 返回单行状态（固定 id=1），不存在时返回零值且 err=gorm.ErrRecordNotFound。
+func (h *HostRepo) GetFirewallState() (model.FirewallState, error) {
+	var state model.FirewallState
+	err := global.DB.Where("id = ?", 1).First(&state).Error
+	return state, err
+}
+
+func (h *HostRepo) SaveFirewallState(state *model.FirewallState) error {
+	state.ID = 1
+	return global.DB.Save(state).Error
 }
 
 func (u *HostRepo) GetCert(opts ...DBOption) (model.RootCert, error) {
