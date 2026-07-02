@@ -45,14 +45,37 @@ const hostRouter = {
             },
         },
         {
-            path: '/hosts/firewall/port',
-            name: 'FirewallPort',
-            component: () => import('@/views/host/firewall/port/index.vue'),
+            path: '/hosts/firewall',
+            name: 'FirewallRedirect',
+            redirect: '/hosts/firewall/overview',
+            hidden: true,
+            // 纯 redirect 路由不会成为导航终点，activeMenu/parent 等展示型 meta 不生效；
+            // permission 仍会被 router.resolve + hasRouteAccess 读取，需保留。
+            meta: {
+                permission: 'host_firewall_view',
+            },
+        },
+        {
+            path: '/hosts/firewall/overview',
+            name: 'FirewallOverview',
+            component: () => import('@/views/host/firewall/overview/index.vue'),
             meta: {
                 icon: 'p-firewalld-menu',
-                activeMenu: '/hosts/firewall/port',
+                activeMenu: '/hosts/firewall/overview',
                 title: 'menu.firewall',
-                detail: 'firewall.portRule',
+                detail: 'firewall.overview',
+                permission: 'host_firewall_view',
+            },
+        },
+        {
+            path: '/hosts/firewall/inbound',
+            name: 'FirewallInbound',
+            component: () => import('@/views/host/firewall/inbound/index.vue'),
+            hidden: true,
+            meta: {
+                activeMenu: '/hosts/firewall/overview',
+                parent: 'menu.firewall',
+                title: 'firewall.inboundRule',
                 permission: 'host_firewall_view',
             },
         },
@@ -62,21 +85,9 @@ const hostRouter = {
             component: () => import('@/views/host/firewall/forward/index.vue'),
             hidden: true,
             meta: {
-                activeMenu: '/hosts/firewall/port',
+                activeMenu: '/hosts/firewall/overview',
                 parent: 'menu.firewall',
                 title: 'firewall.forwardRule',
-                permission: 'host_firewall_view',
-            },
-        },
-        {
-            path: '/hosts/firewall/ip',
-            name: 'FirewallIP',
-            component: () => import('@/views/host/firewall/ip/index.vue'),
-            hidden: true,
-            meta: {
-                activeMenu: '/hosts/firewall/port',
-                parent: 'menu.firewall',
-                title: 'firewall.ipRule',
                 permission: 'host_firewall_view',
             },
         },
@@ -86,9 +97,27 @@ const hostRouter = {
             component: () => import('@/views/host/firewall/advance/index.vue'),
             hidden: true,
             meta: {
-                activeMenu: '/hosts/firewall/port',
+                activeMenu: '/hosts/firewall/overview',
                 parent: 'menu.firewall',
                 title: 'firewall.advancedControl',
+                permission: 'host_firewall_view',
+            },
+        },
+        {
+            path: '/hosts/firewall/port',
+            name: 'FirewallPortRedirect',
+            redirect: '/hosts/firewall/inbound',
+            hidden: true,
+            meta: {
+                permission: 'host_firewall_view',
+            },
+        },
+        {
+            path: '/hosts/firewall/ip',
+            name: 'FirewallIPRedirect',
+            redirect: '/hosts/firewall/inbound',
+            hidden: true,
+            meta: {
                 permission: 'host_firewall_view',
             },
         },
