@@ -40,7 +40,7 @@
                     <el-table-column :label="$t('firewall.targetIP')" :min-width="100" prop="targetIP" />
                     <el-table-column :label="$t('firewall.targetPort')" :min-width="70" prop="targetPort" />
                     <el-table-column
-                        v-if="currentFireName === 'ufw'"
+                        v-if="forwardImpl === 'panel-nat'"
                         :label="$t('firewall.forwardInboundInterface')"
                         :min-width="100"
                         prop="interface"
@@ -78,35 +78,36 @@ import { MsgError, MsgSuccess } from '@/utils/message';
 import i18n from '@/lang';
 import { operateForwardRule, searchFireRule, getNetworkOptions } from '@/api/modules/host';
 import { Host } from '@/api/interface/host';
+import { getErrorMessage } from '@/utils/misc';
 
 const emit = defineEmits<{ (e: 'search'): void }>();
 
 const visible = ref(false);
 const loading = ref(false);
-const selects = ref<any>([]);
-const displayData = ref<any>([]);
+const selects = ref<Host.RuleInfo[]>([]);
+const displayData = ref<Host.RuleInfo[]>([]);
 const currentRules = ref<Host.RuleInfo[]>([]);
-const currentFireName = ref('');
+const forwardImpl = ref('');
 const availableInterfaces = ref<string[]>([]);
 
 const uploadRef = ref();
 const uploaderFiles = ref();
-const pageData = ref([]);
+const pageData = ref<Host.RuleInfo[]>([]);
 const paginationConfig = reactive({
     currentPage: 1,
     pageSize: 10,
     total: 0,
 });
 
-const acceptParams = async (fireName: string): Promise<void> => {
+const acceptParams = async (impl?: string): Promise<void> => {
     visible.value = true;
     displayData.value = [];
     selects.value = [];
-    currentFireName.value = fireName;
-    loadCurrentData(fireName);
+    forwardImpl.value = impl || '';
+    loadCurrentData(impl);
 };
 
-const loadCurrentData = async (fireName: string) => {
+const loadCurrentData = async (impl?: string) => {
     const res = await searchFireRule({
         type: 'forward',
         strategy: '',
@@ -115,7 +116,8 @@ const loadCurrentData = async (fireName: string) => {
         pageSize: 10000,
     });
     currentRules.value = res.data.items || [];
-    if (fireName === 'ufw') {
+    // panel-nat 转发（ufw / iptables）才需要选择入站网卡；firewalld 原生转发不需要。
+    if (impl === 'panel-nat') {
         const networkRes = await getNetworkOptions();
         availableInterfaces.value = networkRes.data || [];
     }
@@ -155,7 +157,7 @@ const fileOnChange = (_uploadFile: UploadFile, uploadFiles: UploadFiles) => {
             compareRules(parsed);
             loading.value = false;
         } catch (error) {
-            MsgError(i18n.global.t('commons.msg.errImport') + error.message);
+            MsgError(i18n.global.t('commons.msg.errImport') + getErrorMessage(error));
             loading.value = false;
         }
     };
@@ -177,7 +179,7 @@ const checkDataFormat = (item: any): boolean => {
         return false;
     }
 
-    if (currentFireName.value === 'ufw' && item.interface !== undefined && item.interface !== null) {
+    if (forwardImpl.value === 'panel-nat' && item.interface !== undefined && item.interface !== null) {
         const interfaceValue = item.interface;
         if (interfaceValue !== '' && interfaceValue !== 'all') {
             if (!availableInterfaces.value.includes(interfaceValue)) {
@@ -189,16 +191,22 @@ const checkDataFormat = (item: any): boolean => {
     return true;
 };
 
+// 转发规则入站接口的 canonical 规整："*"(iptables -nvL 回显) 与 "all"/空串均表示"所有接口"，
+// 统一映射为空串，使导入判重与后端 OperateForwardRule 判重口径一致。
+const normForwardIface = (v: string | undefined | null): string => {
+    const s = (v ?? '').trim();
+    return s === '*' || s === 'all' ? '' : s;
+};
+
 const compareRules = (importedRules: any[]) => {
     const newRules: any[] = [];
-    const conflictRules: any[] = [];
     const duplicateRules: any[] = [];
 
     for (const importedRule of importedRules) {
-        const key = `${importedRule.protocol}:${importedRule.port}:${importedRule.targetIP}:${importedRule.targetPort}`;
+        const key = `${importedRule.protocol}:${importedRule.port}:${importedRule.targetIP}:${importedRule.targetPort}:${normForwardIface(importedRule.interface)}`;
 
         const existingRule = currentRules.value.find((rule) => {
-            const existingKey = `${rule.protocol}:${rule.port}:${rule.targetIP}:${rule.targetPort}`;
+            const existingKey = `${rule.protocol}:${rule.port}:${rule.targetIP}:${rule.targetPort}:${normForwardIface(rule.interface)}`;
             return existingKey === key;
         });
 
@@ -209,7 +217,7 @@ const compareRules = (importedRules: any[]) => {
         }
     }
 
-    displayData.value = [...newRules, ...conflictRules, ...duplicateRules];
+    displayData.value = [...newRules, ...duplicateRules];
     paginationConfig.total = displayData.value.length;
     search();
 };

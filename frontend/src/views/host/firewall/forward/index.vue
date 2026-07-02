@@ -3,19 +3,30 @@
         <FireRouter />
 
         <div v-loading="loading">
-            <FireStatus
-                ref="fireStatusRef"
-                @search="search"
-                v-model:loading="loading"
-                v-model:mask-show="maskShow"
-                v-model:is-active="isActive"
-                v-model:name="fireName"
-                current-tab="forward"
-            />
-            <div v-if="fireName !== '-'">
-                <el-card v-if="!isActive && maskShow" class="mask-prompt">
-                    <span>{{ $t('firewall.firewallNotStart') }}</span>
-                </el-card>
+            <el-card v-if="!isReady" class="mask-prompt">
+                <div class="flex flex-col items-center justify-center gap-2 py-8">
+                    <span>{{ $t('firewall.goOverviewInit') }}</span>
+                    <span class="text-xs text-gray-400">{{ $t('firewall.forwardIptables') }}</span>
+                    <div>
+                        <el-button type="primary" @click="goOverview">
+                            {{ $t('firewall.overview') }}
+                        </el-button>
+                        <el-button v-if="isExist && isActive" v-permission v-node-admin plain @click="onInitForward">
+                            {{ $t('commons.button.init') }}
+                        </el-button>
+                    </div>
+                </div>
+            </el-card>
+
+            <div v-else>
+                <el-alert v-if="!isActive" class="mb-2" type="warning" :closable="false" show-icon>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span>{{ $t('firewall.firewallNotStart') }}</span>
+                        <el-button type="primary" link @click="goOverview">
+                            {{ $t('firewall.goOverviewStart') }}
+                        </el-button>
+                    </div>
+                </el-alert>
 
                 <LayoutContent :title="$t('firewall.forwardRule', 2)" :class="{ mask: !isActive }">
                     <template #leftToolBar>
@@ -58,7 +69,7 @@
                             <el-table-column :label="$t('firewall.sourcePort')" :min-width="70" prop="port" />
                             <el-table-column :min-width="80" :label="$t('firewall.targetIP')" prop="targetIP" />
                             <el-table-column :label="$t('firewall.targetPort')" :min-width="70" prop="targetPort" />
-                            <template v-if="fireName === 'ufw'">
+                            <template v-if="capabilities.forwardImpl === 'panel-nat'">
                                 <el-table-column
                                     :label="$t('firewall.forwardInboundInterface')"
                                     :min-width="70"
@@ -78,6 +89,15 @@
                                 :label="$t('commons.table.operate')"
                                 fix
                             />
+                            <template #empty>
+                                <el-empty :image-size="80" :description="$t('firewall.forwardEmpty')">
+                                    <div class="mt-1 flex flex-col items-center gap-1 text-xs text-gray-400">
+                                        <span>{{ $t('firewall.forwardHelper2') }}</span>
+                                        <span>{{ $t('firewall.forwardHelper1') }}</span>
+                                        <el-tag type="info" size="small" class="mt-1">8080 → 192.168.1.10:80</el-tag>
+                                    </div>
+                                </el-empty>
+                            </template>
                         </ComplexTable>
                     </template>
                 </LayoutContent>
@@ -105,31 +125,30 @@
 import FireRouter from '@/views/host/firewall/index.vue';
 import OperateDialog from './operate/index.vue';
 import ImportDialog from './import/index.vue';
-import FireStatus from '@/views/host/firewall/status/index.vue';
 import { onMounted, reactive, ref } from 'vue';
-import { operateForwardRule, searchFireRule } from '@/api/modules/host';
+import { operateForwardRule, operateFilterChain, searchFireRule } from '@/api/modules/host';
 import { Host } from '@/api/interface/host';
+import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
 import i18n from '@/lang';
 import { MsgSuccess } from '@/utils/message';
 import { downloadWithContent } from '@/utils/file';
 import { getCurrentDateFormatted } from '@/utils/date';
+import { routerToName } from '@/utils/router';
+
+const { isExist, isActive, isReady, capabilities, loadBaseInfo } = useFireBaseInfo('forward');
+
 const loading = ref();
 const activeTag = ref('forward');
-const selects = ref<any>([]);
+const selects = ref<Host.RuleInfo[]>([]);
 const searchName = ref();
 const searchStrategy = ref('');
 
-const maskShow = ref(true);
-const isActive = ref(false);
-const fireName = ref();
-const fireStatusRef = ref();
-
 const opRef = ref();
-const dialogImportRef = ref();
+const dialogImportRef = ref<InstanceType<typeof ImportDialog>>();
 const forceDelete = ref(false);
-const operateRules = ref();
+const operateRules = ref<Host.RuleForward[]>([]);
 
-const data = ref();
+const data = ref<Host.RuleInfo[]>([]);
 const paginationConfig = reactive({
     cacheSizeKey: 'firewall-forward-page-size',
     currentPage: 1,
@@ -137,8 +156,35 @@ const paginationConfig = reactive({
     total: 0,
 });
 
+const reload = async () => {
+    await loadBaseInfo('forward');
+    search();
+};
+
+const goOverview = () => {
+    routerToName('FirewallOverview');
+};
+
+const onInitForward = () => {
+    ElMessageBox.confirm(
+        i18n.global.t('firewall.initMsg', [i18n.global.t('firewall.forwardIptables')]),
+        i18n.global.t('commons.button.init'),
+        {
+            confirmButtonText: i18n.global.t('commons.button.confirm'),
+            cancelButtonText: i18n.global.t('commons.button.cancel'),
+        },
+    )
+        .then(async () => {
+            await operateFilterChain('1PANEL_FORWARD', 'init-forward').then(() => {
+                MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+                reload();
+            });
+        })
+        .catch(() => {});
+};
+
 const search = async () => {
-    if (!isActive.value) {
+    if (!isReady.value || !isActive.value) {
         loading.value = false;
         data.value = [];
         paginationConfig.total = 0;
@@ -169,6 +215,8 @@ const search = async () => {
         });
 };
 
+// dialogRef 保持未类型化：operate 对话框的 DialogProps.rowData 声明为 Host.RuleForward（非 Partial），
+// 而本页 onOpenDialog 传的是 Partial<Host.RuleForward>，强类型化会在 vue-tsc 下暴露该既有签名不匹配。
 const dialogRef = ref();
 const onOpenDialog = async (
     title: string,
@@ -183,7 +231,7 @@ const onOpenDialog = async (
     let params = {
         title,
         rowData: { ...rowData },
-        fireName: fireName.value,
+        capabilities: capabilities.value,
     };
     dialogRef.value!.acceptParams(params);
 };
@@ -231,7 +279,7 @@ const onSubmitDelete = async () => {
 };
 
 const onImport = () => {
-    dialogImportRef.value.acceptParams(fireName.value);
+    dialogImportRef.value.acceptParams(capabilities.value.forwardImpl);
 };
 
 const onExport = () => {
@@ -242,19 +290,21 @@ const onExport = () => {
             confirmButtonText: i18n.global.t('commons.button.confirm'),
             cancelButtonText: i18n.global.t('commons.button.cancel'),
         },
-    ).then(async () => {
-        const exportData = selects.value.map((item: Host.RuleInfo) => ({
-            family: item.family,
-            protocol: item.protocol,
-            port: item.port,
-            targetIP: item.targetIP,
-            targetPort: item.targetPort,
-            interface: item.interface,
-        }));
-        const content = JSON.stringify(exportData, null, 2);
-        const fileName = `1panel-firewall-forward-${getCurrentDateFormatted()}.json`;
-        downloadWithContent(content, fileName);
-    });
+    )
+        .then(async () => {
+            const exportData = selects.value.map((item: Host.RuleInfo) => ({
+                family: item.family,
+                protocol: item.protocol,
+                port: item.port,
+                targetIP: item.targetIP,
+                targetPort: item.targetPort,
+                interface: item.interface,
+            }));
+            const content = JSON.stringify(exportData, null, 2);
+            const fileName = `1panel-firewall-forward-${getCurrentDateFormatted()}.json`;
+            downloadWithContent(content, fileName);
+        })
+        .catch(() => {});
 };
 
 const buttons = [
@@ -276,12 +326,10 @@ const buttons = [
     },
 ];
 
-onMounted(() => {
+onMounted(async () => {
     forceDelete.value = false;
-    if (fireName.value !== '-') {
-        loading.value = true;
-        fireStatusRef.value.acceptParams();
-    }
+    loading.value = true;
+    await reload();
 });
 </script>
 

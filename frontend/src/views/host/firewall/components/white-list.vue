@@ -3,7 +3,17 @@
         <template #content>
             <el-alert type="info" :closable="false" :title="$t('firewall.portWhiteListAlter')" />
 
-            <el-button class="mt-5" type="primary" @click="openCreate">
+            <div class="mt-4">
+                <p class="font-medium">{{ $t('firewall.requiredPorts') }}</p>
+                <div class="flex flex-wrap gap-2 mt-2">
+                    <el-tag v-for="item in requiredPorts" :key="item.port" type="info">
+                        {{ item.name }} · {{ item.port }}
+                    </el-tag>
+                </div>
+            </div>
+
+            <p class="font-medium mt-4">{{ $t('firewall.editablePorts') }}</p>
+            <el-button class="mt-2" type="primary" @click="openCreate">
                 {{ $t('commons.button.add') }}
             </el-button>
             <ComplexTable :data="data" v-loading="loading">
@@ -47,6 +57,8 @@ import { getAgentSettingInfo, updateAgentSetting } from '@/api/modules/setting';
 import i18n from '@/lang';
 import { MsgError, MsgSuccess } from '@/utils/message';
 import { checkPort } from '@/utils/validate';
+import { ensurePortsLoaded, panelPort, sshPort } from '@/views/host/firewall/composables/useFirewallRisk';
+import { parseFirewallWhiteList } from '@/views/host/firewall/composables/firewallHelpers';
 
 interface WhiteListItem {
     port: string;
@@ -59,30 +71,37 @@ const emit = defineEmits<{ (e: 'search'): void }>();
 const drawerVisible = ref(false);
 const loading = ref(false);
 const data = ref<WhiteListItem[]>([]);
+const requiredPorts = ref<{ name: string; port: string }[]>([]);
 const defaultWhiteList = '80/tcp,443/tcp,443/udp';
 
 const acceptParams = async (): Promise<void> => {
     drawerVisible.value = true;
     loading.value = true;
-    await getAgentSettingInfo()
-        .then((res) => {
-            data.value = parseWhiteList(res.data.firewallPortWhiteList ?? defaultWhiteList);
-        })
-        .finally(() => {
-            loading.value = false;
-        });
+    const [, agentRes] = await Promise.allSettled([loadRequiredPorts(), getAgentSettingInfo()]);
+    if (agentRes.status === 'fulfilled') {
+        data.value = parseWhiteList(agentRes.value.data.firewallPortWhiteList ?? defaultWhiteList);
+    }
+    loading.value = false;
+};
+
+// 保底端口（SSH / 面板）由防火墙自动放行，此处仅只读展示，不可编辑/删除；
+// 端口复用 useFirewallRisk 的共享缓存。面板端口获取失败时跳过展示，保底端口仍由后端自动放行。
+const loadRequiredPorts = async () => {
+    await ensurePortsLoaded();
+    const result: { name: string; port: string }[] = [{ name: 'SSH', port: `${sshPort.value || '22'}/tcp` }];
+    if (panelPort.value) {
+        result.push({ name: '1Panel', port: `${panelPort.value}/tcp` });
+    }
+    requiredPorts.value = result;
 };
 
 const parseWhiteList = (value: string): WhiteListItem[] => {
-    return value
-        .split(/[\s,;]+/)
-        .filter((item) => item !== '')
-        .map((item) => ({
-            port: item,
-            oldPort: item,
-            edit: false,
-            isNew: false,
-        }));
+    return parseFirewallWhiteList(value).map((item) => ({
+        port: item,
+        oldPort: item,
+        edit: false,
+        isNew: false,
+    }));
 };
 
 const openCreate = () => {
@@ -128,7 +147,27 @@ const cancelEdit = (row: WhiteListItem, index: number) => {
     row.edit = false;
 };
 
+const isRescuePort = (value: string): boolean => {
+    const port = value.split('/')[0];
+    return port === '80' || port === '443';
+};
+
 const removeRow = (index: number) => {
+    const row = data.value[index];
+    if (row && !row.isNew && isRescuePort(row.port)) {
+        ElMessageBox.confirm(
+            i18n.global.t('firewall.deleteRescuePortHelper', [row.port]),
+            i18n.global.t('commons.button.delete'),
+            {
+                confirmButtonText: i18n.global.t('commons.button.confirm'),
+                cancelButtonText: i18n.global.t('commons.button.cancel'),
+                type: 'warning',
+            },
+        ).then(() => {
+            data.value.splice(index, 1);
+        });
+        return;
+    }
     data.value.splice(index, 1);
 };
 

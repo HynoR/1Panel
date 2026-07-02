@@ -4,6 +4,12 @@
             <el-alert :closable="false" :title="$t('firewall.ipv4Limit')" />
         </div>
         <el-form ref="formRef" label-position="top" :model="dialogData.rowData" :rules="rules" v-loading="loading">
+            <el-form-item :label="$t('firewall.chain')">
+                <el-tooltip :content="dialogData.rowData?.chain" placement="top">
+                    <el-tag type="info">{{ directionLabel }}</el-tag>
+                </el-tooltip>
+            </el-form-item>
+
             <el-form-item :label="$t('commons.table.protocol')" prop="protocol">
                 <el-select class="w-full" v-model="dialogData.rowData!.protocol" @change="changeProtocol">
                     <el-option value="all" label="all" />
@@ -65,7 +71,7 @@
 </template>
 
 <script lang="ts" setup>
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { Rules } from '@/global/form-rules';
 import i18n from '@/lang';
 import { ElForm } from 'element-plus';
@@ -73,6 +79,7 @@ import { MsgSuccess } from '@/utils/message';
 import { Host } from '@/api/interface/host';
 import { operateFilterRule } from '@/api/modules/host';
 import { checkCidr, checkCidrV6, checkIpV4V6 } from '@/utils/validate';
+import { chainDirectionLabel } from '@/views/host/firewall/composables/firewallHelpers';
 const loading = ref();
 
 interface DialogProps {
@@ -96,6 +103,8 @@ const acceptParams = (params: DialogProps): void => {
     drawerVisible.value = true;
 };
 const emit = defineEmits<{ (e: 'search'): void }>();
+
+const directionLabel = computed(() => chainDirectionLabel(dialogData.value.rowData?.chain));
 
 const handleClose = () => {
     drawerVisible.value = false;
