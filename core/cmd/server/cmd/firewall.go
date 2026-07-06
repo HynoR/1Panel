@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -16,7 +15,7 @@ import (
 // 解绑全部 1PANEL_* 链或恢复最近一次快照——即使 agent 已崩溃也能用（纯 shell，无 DB/agent 依赖）。
 
 func init() {
-	firewallRescueCmd.Flags().BoolVar(&rescueRestoreLatest, "restore-latest", false, "restore the most recent firewall snapshot (full iptables-restore)")
+	firewallRescueCmd.Flags().BoolVar(&rescueRestoreLatest, "restore-latest", false, "restore the last known-good firewall snapshot: latest (taken before each pending change), falling back to pre-migrate (full iptables-restore)")
 	firewallRescueCmd.Flags().BoolVar(&rescueCleanNewChains, "clean-new-chains", false, "also delete the 1PANEL_* chains, not just unbind them")
 	firewallCmd.AddCommand(firewallRescueCmd)
 	RootCmd.AddCommand(firewallCmd)
@@ -78,32 +77,29 @@ func rescueUnbindPanelChains() error {
 	return nil
 }
 
+// 快照只有两个固定文件（无版本管理）：latest（每次武装提交-确认会话时覆盖写）优先，
+// 无则回退 pre-migrate（升级迁移前的一次性留底）。
 func rescueRestoreLatestSnapshot() error {
 	baseDir, err := loadBaseDir()
 	if err != nil {
 		return err
 	}
 	backupDir := path.Join(baseDir, "1panel/firewall/backup")
-	entries, err := os.ReadDir(backupDir)
-	if err != nil {
-		return fmt.Errorf("no snapshot directory found at %s", backupDir)
-	}
-	var v4 []string
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".v4") {
-			v4 = append(v4, e.Name())
+	name := ""
+	for _, candidate := range []string{"latest", "pre-migrate"} {
+		if _, err := os.Stat(path.Join(backupDir, candidate+".v4")); err == nil {
+			name = candidate
+			break
 		}
 	}
-	if len(v4) == 0 {
-		return fmt.Errorf("no firewall snapshot found in %s", backupDir)
+	if name == "" {
+		return fmt.Errorf("no firewall snapshot (latest.v4 / pre-migrate.v4) found in %s", backupDir)
 	}
-	sort.Sort(sort.Reverse(sort.StringSlice(v4)))
-	latest := strings.TrimSuffix(v4[0], ".v4")
-	fmt.Printf("Restoring snapshot %s (full iptables-restore)...\n", latest)
-	if err := restoreSnapshotFile(path.Join(backupDir, latest+".v4"), "iptables-restore"); err != nil {
+	fmt.Printf("Restoring snapshot %s (full iptables-restore)...\n", name)
+	if err := restoreSnapshotFile(path.Join(backupDir, name+".v4"), "iptables-restore"); err != nil {
 		return err
 	}
-	v6 := path.Join(backupDir, latest+".v6")
+	v6 := path.Join(backupDir, name+".v6")
 	if _, err := os.Stat(v6); err == nil && rescueBinExists("ip6tables-restore") {
 		if err := restoreSnapshotFile(v6, "ip6tables-restore"); err != nil {
 			fmt.Printf("warning: restore ipv6 snapshot failed: %v\n", err)

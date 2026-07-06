@@ -44,12 +44,10 @@ func (s *HostRouter) InitRouter(Router *gin.RouterGroup) {
 		hostRouter.POST("/firewall/filter/operate", fwEmergency, baseApi.OperateFilterChain)
 		hostRouter.POST("/firewall/filter/chain/status", baseApi.LoadChainStatus)
 
-		// L3 安全栈：提交-确认会话 + 快照管理（设计稿 §3.5.1 / §3.10）。
+		// L3 安全栈：提交-确认会话（设计稿 §3.5.1）。
 		hostRouter.POST("/firewall/session/status", baseApi.LoadFirewallSession)
 		hostRouter.POST("/firewall/session/confirm", baseApi.ConfirmFirewallSession)
 		hostRouter.POST("/firewall/session/revert", baseApi.RevertFirewallSession)
-		hostRouter.POST("/firewall/snapshot/list", baseApi.ListFirewallSnapshot)
-		hostRouter.POST("/firewall/snapshot/restore", fwEmergency, baseApi.RestoreFirewallSnapshot)
 		hostRouter.POST("/firewall/docker/status", baseApi.LoadFirewallDockerStatus)
 		hostRouter.POST("/firewall/panel-port", baseApi.UpdateFirewallPanelPort)
 

@@ -279,36 +279,6 @@ func InsertChain(tab, targetChain, chain string, position int) error {
 	return Run(tab, "-I", targetChain, strconv.Itoa(position), "-j", chain)
 }
 
-// UnbindMatchingJumps 循环解绑 targetChain 上所有"目标列以 prefix 开头"的 jump
-// （-L --line-numbers 解析 → -D <num>，bin = iptables | ip6tables，失败即停止）。
-func UnbindMatchingJumps(bin, tab, targetChain, prefix string) {
-	for {
-		num := findJumpLine(bin, tab, targetChain, func(target string) bool { return strings.HasPrefix(target, prefix) })
-		if num == 0 {
-			return
-		}
-		if _, err := runBin(bin, tab, true, true, "-D", targetChain, strconv.Itoa(num)); err != nil {
-			return
-		}
-	}
-}
-
-// ListChainsByPrefix 列出某表中链名以 prefix 开头的全部自定义链（bin = iptables | ip6tables）。
-func ListChainsByPrefix(bin, tab, prefix string) []string {
-	out, err := runBin(bin, tab, true, true, "-S")
-	if err != nil {
-		return nil
-	}
-	var chains []string
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "-N "+prefix) {
-			chains = append(chains, strings.TrimPrefix(line, "-N "))
-		}
-	}
-	return chains
-}
-
 func AddChainWithAppend(tab, parentChain, chain string) error {
 	exists, err := CheckChainExist(tab, chain)
 	if err != nil {

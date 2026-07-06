@@ -43,7 +43,7 @@ func migrateLegacyChains() error {
 	global.LOG.Info("[firewall-migrate] migrating legacy BASIC chains to GUARD/DENY/BASELINE/ALLOW/AFTER layout")
 	// 快照是迁移唯一的回滚锚点：拍不成就中止，迁移幂等，下次启动 legacyMigrationPending 仍为 true 会重试。
 	// 无锚点仍继续迁移，一旦新布局出错就无处回退，违背 fail-open。
-	if _, err := firewall.TakeSnapshot("pre-migration"); err != nil {
+	if err := firewall.WritePreMigrateSnapshot(); err != nil {
 		global.LOG.Errorf("[firewall-migrate] pre-migration snapshot failed, abort migration: %v", err)
 		return err
 	}

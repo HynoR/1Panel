@@ -103,12 +103,23 @@ func LoadRulesFromFile(tab, chain, fileName string) error {
 		global.LOG.Errorf("create chain %s failed: %v", chain, err)
 		return err
 	}
-	return replayRulesFromFile(binIptables, tab, chain, path.Join(global.Dir.FirewallDir, fileName))
+	return replayRulesFromFile(binIptables, tab, chain, path.Join(global.Dir.FirewallDir, fileName), false)
+}
+
+// LoadRulesFromFileStrict 与 LoadRulesFromFile 的差异：清空或任一规则重放失败立即返回错误。
+// 供会话回滚使用——回滚只完成一部分却报成功，会让上层把半还原状态当良好状态落盘（D1/评审 P1）；
+// 开机重放仍用宽松版（fail-open：单条坏规则不应阻断其余规则与保底注入）。
+func LoadRulesFromFileStrict(tab, chain, fileName string) error {
+	if err := AddChain(tab, chain); err != nil {
+		return err
+	}
+	return replayRulesFromFile(binIptables, tab, chain, path.Join(global.Dir.FirewallDir, fileName), true)
 }
 
 // replayRulesFromFile 清空链后把持久化文件中的 "-A <chain>" 规则逐条经 <bin>-restore 重放
-// （文件不存在视为无规则；单条失败仅记日志继续。刻意不合并为一次 restore 以保持逐条容错）。
-func replayRulesFromFile(bin, tab, chain, rulesFile string) error {
+// （文件不存在视为无规则；刻意不合并为一次 restore 以保持逐条容错）。
+// strict=false 时单条失败仅记日志继续；strict=true 时清空/单条失败均立即上抛。
+func replayRulesFromFile(bin, tab, chain, rulesFile string, strict bool) error {
 	if _, err := os.Stat(rulesFile); os.IsNotExist(err) {
 		return nil
 	}
@@ -118,6 +129,9 @@ func replayRulesFromFile(bin, tab, chain, rulesFile string) error {
 		return err
 	}
 	if err := runFor(bin)(tab, "-F", chain); err != nil {
+		if strict {
+			return fmt.Errorf("clear existing rules from %s failed: %w", chain, err)
+		}
 		global.LOG.Warnf("clear existing rules from %s failed, err: %v", chain, err)
 	}
 	for _, rule := range strings.Split(string(data), "\n") {
@@ -125,6 +139,9 @@ func replayRulesFromFile(bin, tab, chain, rulesFile string) error {
 			continue
 		}
 		if err := restoreRule(bin, tab, rule); err != nil {
+			if strict {
+				return fmt.Errorf("apply %s rule '%s' failed: %w", bin, rule, err)
+			}
 			global.LOG.Errorf("apply %s rule '%s' failed, err: %v", bin, rule, err)
 		}
 	}

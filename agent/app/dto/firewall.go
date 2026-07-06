@@ -155,19 +155,6 @@ type FirewallSessionInfo struct {
 	Changes       []FirewallSessionChange `json:"changes"`
 	RemainSeconds int                     `json:"remainSeconds"`
 	Since         string                  `json:"since"`
-	Snapshot      string                  `json:"snapshot"`
-}
-
-type FirewallSnapshot struct {
-	Name      string `json:"name"`
-	Tag       string `json:"tag"`
-	CreatedAt string `json:"createdAt"`
-	HasV6     bool   `json:"hasV6"`
-	Size      int64  `json:"size"`
-}
-
-type FirewallSnapshotRestore struct {
-	Name string `json:"name" validate:"required"`
 }
 
 type FirewallDockerRule struct {

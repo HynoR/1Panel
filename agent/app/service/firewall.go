@@ -48,8 +48,6 @@ type IFirewallService interface {
 	SessionStatus() dto.FirewallSessionInfo
 	ConfirmSession() error
 	RevertSession() error
-	ListSnapshots() ([]dto.FirewallSnapshot, error)
-	RestoreSnapshot(req dto.FirewallSnapshotRestore) error
 	DockerStatus() dto.FirewallDockerStatus
 }
 
@@ -842,7 +840,6 @@ func (u *FirewallService) SessionStatus() dto.FirewallSessionInfo {
 		Active:        info.Active,
 		RemainSeconds: info.RemainSeconds,
 		Since:         info.Since,
-		Snapshot:      info.Snapshot,
 	}
 	for _, c := range info.Changes {
 		result.Changes = append(result.Changes, dto.FirewallSessionChange{Summary: c.Summary, At: c.At})
@@ -911,33 +908,6 @@ func (u *FirewallService) DockerStatus() dto.FirewallDockerStatus {
 		})
 	}
 	return result
-}
-
-func (u *FirewallService) ListSnapshots() ([]dto.FirewallSnapshot, error) {
-	list, err := firewall.ListSnapshots()
-	if err != nil {
-		return nil, err
-	}
-	result := make([]dto.FirewallSnapshot, 0, len(list))
-	for _, item := range list {
-		result = append(result, dto.FirewallSnapshot{
-			Name:      item.Name,
-			Tag:       item.Tag,
-			CreatedAt: item.CreatedAt,
-			HasV6:     item.HasV6,
-			Size:      item.Size,
-		})
-	}
-	return result, nil
-}
-
-// RestoreSnapshot 高危操作：先 BeginSession（拍下恢复前状态作为还原点）再应用恢复；
-// 若恢复后把自己锁外，确认窗口超时会自动回到恢复前（设计稿 §3.5 L3）。
-func (u *FirewallService) RestoreSnapshot(req dto.FirewallSnapshotRestore) error {
-	if err := firewall.BeginSession("restore snapshot " + req.Name); err != nil {
-		return err
-	}
-	return firewall.RestoreSnapshot(req.Name)
 }
 
 // CleanOrphanFirewallRecords 替代被删除的 cleanUnUsedData 自动行为：

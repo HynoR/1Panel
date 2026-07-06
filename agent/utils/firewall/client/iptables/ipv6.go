@@ -107,7 +107,15 @@ func LoadRulesFromFile6(tab, chain, fileName string) error {
 	if err := AddChain6(tab, chain); err != nil {
 		return err
 	}
-	return replayRulesFromFile(binIP6tables, tab, chain, path.Join(global.Dir.FirewallDir, fileName+".v6"))
+	return replayRulesFromFile(binIP6tables, tab, chain, path.Join(global.Dir.FirewallDir, fileName+".v6"), false)
+}
+
+// LoadRulesFromFile6Strict 严格版 v6 重载（语义见 LoadRulesFromFileStrict），供会话回滚使用。
+func LoadRulesFromFile6Strict(tab, chain, fileName string) error {
+	if err := AddChain6(tab, chain); err != nil {
+		return err
+	}
+	return replayRulesFromFile(binIP6tables, tab, chain, path.Join(global.Dir.FirewallDir, fileName+".v6"), true)
 }
 
 // ReadFilterRulesByChain6 读取某 v6 链的规则（复用 v4 的解析助手，family=ipv6）。
