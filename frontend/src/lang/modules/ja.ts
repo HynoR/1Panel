@@ -3858,6 +3858,8 @@ const message = {
         importSuccess: '{0} 件のルールを正常にインポートしました',
         importPartialSuccess: 'インポート完了: {0} 件成功、{1} 件失敗',
         ipv4Limit: '現在の操作は IPv4 アドレスのみをサポートしています',
+        advanceDropNeedsScope:
+            'A block rule must specify an IP or a port. A block with no conditions matches all traffic, and blocking all outbound traffic will lock you out of the server.',
         basicStatus: '現在のチェーン {0} は未バインドです。まずバインドしてください！',
         baseIptables: 'iptables サービス',
         forwardIptables: 'iptables ポート転送サービス',

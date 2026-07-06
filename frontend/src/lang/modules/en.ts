@@ -3851,6 +3851,8 @@ const message = {
         importInvalidSkipped: '{0} invalid row(s) skipped',
         importNoNew: 'No new rules to import (conflict/duplicate rows are not selectable)',
         ipv4Limit: 'The current operation only supports IPv4 addresses',
+        advanceDropNeedsScope:
+            'A block rule must specify an IP or a port. A block with no conditions matches all traffic, and blocking all outbound traffic will lock you out of the server.',
         basicStatus: 'Current chain {0} is unbound, please bind first!',
         baseIptables: 'iptables Service',
         forwardIptables: 'iptables Port Forwarding Service',

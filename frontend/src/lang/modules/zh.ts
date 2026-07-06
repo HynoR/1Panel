@@ -3577,6 +3577,8 @@ const message = {
         importNoNew: '没有可导入的新规则（冲突/重复行不可选）',
 
         ipv4Limit: '当前操作暂仅支持 IPv4 地址',
+
+        advanceDropNeedsScope: '封禁规则必须至少限定 IP 或端口：不加任何限定会封禁全部流量，出向全封会把你锁在服务器外',
         basicStatus: '当前未绑定链 {0} ，请先绑定！',
         baseIptables: 'iptables 服务',
         forwardIptables: 'iptables 端口转发服务',

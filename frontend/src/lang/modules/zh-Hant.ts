@@ -3566,6 +3566,8 @@ const message = {
         importInvalidSkipped: '{0} 行格式無效已跳過',
         importNoNew: '沒有可匯入的新規則（衝突/重複行不可選）',
         ipv4Limit: '目前操作暫僅支援 IPv4 地址',
+        advanceDropNeedsScope:
+            '封鎖規則必須至少限定 IP 或連接埠：不加任何限定會封鎖全部流量，出向全封會把你鎖在伺服器外',
         basicStatus: '目前未綁定鏈 {0} ，請先綁定',
         baseIptables: 'iptables 服務',
         forwardIptables: 'iptables 埠轉發服務',

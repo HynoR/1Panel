@@ -3912,6 +3912,8 @@ const message = {
         importSuccess: '{0} peraturan berjaya diimport',
         importPartialSuccess: 'Import selesai: {0} berjaya, {1} gagal',
         ipv4Limit: 'Operasi semasa hanya menyokong alamat IPv4',
+        advanceDropNeedsScope:
+            'A block rule must specify an IP or a port. A block with no conditions matches all traffic, and blocking all outbound traffic will lock you out of the server.',
         basicStatus: 'Rantaian semasa {0} tidak terikat, sila ikat dahulu!',
         baseIptables: 'Perkhidmatan iptables',
         forwardIptables: 'Perkhidmatan Penerusan Port iptables',

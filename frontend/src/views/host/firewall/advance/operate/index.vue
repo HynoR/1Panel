@@ -75,7 +75,7 @@ import { computed, reactive, ref } from 'vue';
 import { Rules } from '@/global/form-rules';
 import i18n from '@/lang';
 import { ElForm } from 'element-plus';
-import { MsgSuccess } from '@/utils/message';
+import { MsgError, MsgSuccess } from '@/utils/message';
 import { Host } from '@/api/interface/host';
 import { operateFilterRule } from '@/api/modules/host';
 import { checkCidr, checkCidrV6, checkIpV4V6 } from '@/utils/validate';
@@ -154,6 +154,13 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
     if (!formEl) return;
     formEl.validate(async (valid) => {
         if (!valid) return;
+        // 无任何限定条件的封禁会匹配全部流量（出向全封 = 把自己锁在服务器外）。高级玩法后端不兜底，
+        // 但锁死条件必须是用户显式输入的，不允许"全留空 + 一次点击"达成。
+        const row = dialogData.value.rowData;
+        if (row.strategy === 'drop' && !row.srcIP && !row.dstIP && !row.dstPort) {
+            MsgError(i18n.global.t('firewall.advanceDropNeedsScope'));
+            return;
+        }
         dialogData.value.rowData.operation = 'add';
         if (!dialogData.value.rowData) return;
 

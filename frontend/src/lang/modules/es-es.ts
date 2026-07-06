@@ -3871,6 +3871,8 @@ const message = {
         importSuccess: 'Se importaron correctamente {0} reglas',
         importPartialSuccess: 'Importación completada: {0} correctas, {1} fallidas',
         ipv4Limit: 'La operación actual solo admite direcciones IPv4',
+        advanceDropNeedsScope:
+            'A block rule must specify an IP or a port. A block with no conditions matches all traffic, and blocking all outbound traffic will lock you out of the server.',
         basicStatus: 'La cadena actual {0} no está vinculada, ¡vincule primero!',
         baseIptables: 'Servicio iptables',
         forwardIptables: 'Servicio de Reenvío de Puertos iptables',

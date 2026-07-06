@@ -3902,6 +3902,8 @@ const message = {
         importSuccess: 'Успешно импортировано {0} правил',
         importPartialSuccess: 'Импорт завершён: {0} успешно, {1} с ошибкой',
         ipv4Limit: 'Текущая операция поддерживает только адреса IPv4',
+        advanceDropNeedsScope:
+            'A block rule must specify an IP or a port. A block with no conditions matches all traffic, and blocking all outbound traffic will lock you out of the server.',
         basicStatus: 'Текущая цепочка {0} не привязана, сначала привяжите!',
         baseIptables: 'Сервис iptables',
         forwardIptables: 'Сервис Переадресации Порта iptables',

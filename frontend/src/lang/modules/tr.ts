@@ -3903,6 +3903,8 @@ const message = {
         importSuccess: '{0} kural başarıyla içe aktarıldı',
         importPartialSuccess: 'İçe aktarma tamamlandı: {0} başarılı, {1} başarısız',
         ipv4Limit: 'Mevcut işlem yalnızca IPv4 adreslerini destekler',
+        advanceDropNeedsScope:
+            'A block rule must specify an IP or a port. A block with no conditions matches all traffic, and blocking all outbound traffic will lock you out of the server.',
         basicStatus: 'Mevcut zincir {0} bağlı değil, lütfen önce bağlayın!',
         baseIptables: 'iptables Servisi',
         forwardIptables: 'iptables Port Yönlendirme Servisi',

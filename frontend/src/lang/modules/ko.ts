@@ -3773,6 +3773,8 @@ const message = {
         importSuccess: '{0}개의 규칙을 성공적으로 가져왔습니다',
         importPartialSuccess: '가져오기 완료: 성공 {0}건, 실패 {1}건',
         ipv4Limit: '현재 작업은 IPv4 주소만 지원합니다',
+        advanceDropNeedsScope:
+            'A block rule must specify an IP or a port. A block with no conditions matches all traffic, and blocking all outbound traffic will lock you out of the server.',
         basicStatus: '현재 체인 {0}이(가) 바인딩되지 않았습니다. 먼저 바인딩하세요!',
         baseIptables: 'iptables 서비스',
         forwardIptables: 'iptables 포트 포워딩 서비스',
