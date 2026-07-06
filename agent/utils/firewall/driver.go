@@ -28,20 +28,13 @@ const (
 	ProviderIptables  = "iptables"
 	ProviderUfw       = "ufw"
 	ProviderFirewalld = "firewalld"
-	ProviderNftables  = "nftables" // 预留，Stage 3 接入
 )
 
-// Capabilities 描述某个 provider 的能力集合。service / 前端一律按能力分支，
-// 取代散落在各处的 client.Name() == "ufw" 字符串判断（设计稿 §3.2）。
+// Capabilities 只保留两个真正的运行期变量。其余能力（高级过滤、保底集、
+// 严格模式、快照方式等）与 Mode 一一对应，消费方直接按 Mode 分支，不再重复声明为独立能力位。
 type Capabilities struct {
-	Rules       bool   `json:"rules"`       // 端口/IP 规则
-	Forward     bool   `json:"forward"`     // 端口转发
-	ForwardImpl string `json:"forwardImpl"` // native | panel-nat
-	Filter      bool   `json:"filter"`      // 高级过滤（仅 managed）
-	Baseline    bool   `json:"baseline"`    // 保底集注入（仅 managed；external 为操作前检查）
-	Snapshot    string `json:"snapshot"`    // panel | native-export
-	IPv6Rules   bool   `json:"ipv6Rules"`   // 普通规则是否镜像写 v6
-	DefaultDrop bool   `json:"defaultDrop"` // 严格模式（仅 managed 由面板管理）
+	ForwardImpl string `json:"forwardImpl"` // native | panel-nat：端口转发实现方式
+	IPv6Rules   bool   `json:"ipv6Rules"`   // 普通规则是否镜像写 ip6tables
 }
 
 // ConflictState 用于 ufw+firewalld 同时运行的降级处置（修 C11）。
@@ -152,25 +145,15 @@ func detect() (*Provider, error) {
 
 func newManagedProvider(name string, c FirewallClient) *Provider {
 	caps := Capabilities{
-		Rules:       true,
-		Forward:     true,
 		ForwardImpl: "panel-nat",
-		Filter:      true,
-		Baseline:    true,
-		Snapshot:    "panel",
 		IPv6Rules:   iptables.HasIP6tables(),
-		DefaultDrop: true,
 	}
 	return &Provider{name: name, mode: ModeManaged, caps: caps, client: c}
 }
 
 func newExternalProvider(name string, c FirewallClient) *Provider {
 	caps := Capabilities{
-		Rules:       true,
-		Forward:     true,
-		Snapshot:    "native-export",
-		IPv6Rules:   true, // ufw/firewalld 原生双栈
-		DefaultDrop: false,
+		IPv6Rules: true, // ufw/firewalld 原生双栈
 	}
 	if name == ProviderFirewalld {
 		caps.ForwardImpl = "native"

@@ -123,7 +123,6 @@ const {
     isExist,
     isActive,
     isReadyFor,
-    capabilities,
     mode,
     name,
     version,
@@ -134,7 +133,7 @@ const {
 } = useFireBaseInfo('base');
 
 const readyBase = isReadyFor('base');
-const showDefaultPolicy = computed(() => mode.value === 'managed' && capabilities.value.defaultDrop && readyBase.value);
+const showDefaultPolicy = computed(() => mode.value === 'managed' && readyBase.value);
 
 const loading = ref(false);
 const onPing = ref('Disable');
@@ -195,7 +194,7 @@ const onInit = () => {
                                 'firewall.policyRecommended',
                             )})`;
                         }),
-                        h(ElRadio, { value: 'strict', disabled: !capabilities.value.defaultDrop }, () => {
+                        h(ElRadio, { value: 'strict', disabled: mode.value !== 'managed' }, () => {
                             return i18n.global.t('firewall.policyStrict');
                         }),
                     ],

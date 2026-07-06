@@ -20,14 +20,8 @@ type FirewallBaseInfo struct {
 }
 
 type FirewallCapabilities struct {
-	Rules       bool   `json:"rules"`
-	Forward     bool   `json:"forward"`
 	ForwardImpl string `json:"forwardImpl"`
-	Filter      bool   `json:"filter"`
-	Baseline    bool   `json:"baseline"`
-	Snapshot    string `json:"snapshot"`
 	IPv6Rules   bool   `json:"ipv6Rules"`
-	DefaultDrop bool   `json:"defaultDrop"`
 }
 
 type FirewallConflict struct {

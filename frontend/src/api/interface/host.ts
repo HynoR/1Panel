@@ -80,14 +80,8 @@ export namespace Host {
         strictMode: boolean;
     }
     export interface FirewallCapabilities {
-        rules: boolean;
-        forward: boolean;
         forwardImpl: string;
-        filter: boolean;
-        baseline: boolean;
-        snapshot: string;
         ipv6Rules: boolean;
-        defaultDrop: boolean;
     }
     export interface FirewallConflict {
         hasConflict: boolean;

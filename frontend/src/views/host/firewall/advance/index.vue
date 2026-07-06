@@ -17,7 +17,7 @@
                 </template>
             </LayoutContent>
 
-            <div v-else-if="isExist && !capabilities.filter">
+            <div v-else-if="isExist && mode !== 'managed'">
                 <LayoutContent :divider="true">
                     <template #main>
                         <div class="app-warn">
@@ -173,7 +173,7 @@ import { MsgSuccess } from '@/utils/message';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
 import { chainDirectionLabel, singleFlight } from '@/views/host/firewall/composables/firewallHelpers';
 
-const { capabilities, isExist, isActive, isReady, name, loadBaseInfo } = useFireBaseInfo('advance');
+const { mode, isExist, isActive, isReady, name, loadBaseInfo } = useFireBaseInfo('advance');
 
 const loading = ref();
 const selects = ref<Host.IptablesRules[]>([]);
@@ -212,7 +212,7 @@ const paginationConfig = reactive({
 // 状态栏动作（启停/初始化）后刷新本页数据。
 const reload = async () => {
     await loadBaseInfo('advance');
-    if (isReady.value && capabilities.value.filter) {
+    if (isReady.value && mode.value === 'managed') {
         await search();
     }
 };
@@ -381,7 +381,7 @@ const buttons = [
 onMounted(async () => {
     loading.value = true;
     await loadBaseInfo('advance');
-    if (isReady.value && capabilities.value.filter) {
+    if (isReady.value && mode.value === 'managed') {
         await search();
     }
     loading.value = false;

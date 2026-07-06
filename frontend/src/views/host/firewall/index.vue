@@ -60,7 +60,7 @@ import { computed, onMounted, ref } from 'vue';
 
 const {
     baseInfo,
-    capabilities,
+    mode,
     conflict,
     bootDegraded,
     isActive,
@@ -81,7 +81,7 @@ const buttons = computed(() => {
             path: '/hosts/firewall/forward',
         },
     ];
-    if (capabilities.value.filter && hasAdvancedRules.value) {
+    if (mode.value === 'managed' && hasAdvancedRules.value) {
         list.push({
             label: 'iptables ' + i18n.global.t('firewall.advancedControl'),
             path: '/hosts/firewall/advance',

@@ -108,14 +108,8 @@ func (u *FirewallService) LoadBaseInfo(tab string) (dto.FirewallBaseInfo, error)
 
 func toDtoCapabilities(c firewall.Capabilities) dto.FirewallCapabilities {
 	return dto.FirewallCapabilities{
-		Rules:       c.Rules,
-		Forward:     c.Forward,
 		ForwardImpl: c.ForwardImpl,
-		Filter:      c.Filter,
-		Baseline:    c.Baseline,
-		Snapshot:    c.Snapshot,
 		IPv6Rules:   c.IPv6Rules,
-		DefaultDrop: c.DefaultDrop,
 	}
 }
 
