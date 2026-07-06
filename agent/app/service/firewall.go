@@ -378,8 +378,8 @@ func (u *FirewallService) operatePortRule(req dto.PortRuleOperate, reload bool, 
 
 	// PR-6：Docker 端口防护与防火墙模式正交，按勾选同步到 1PANEL_DOCKER（用 conntrack 还原原始目的端口）。
 	// 删除时不依赖 applyToDocker（列表行不携带该标记），也不依赖 Docker 当前是否就绪（DOCKER-USER 可能因
-	// Docker 临时停机而缺失）：一律尝试清理镜像规则并重写持久化文件，避免 Docker 恢复后 LoadDockerRules
-	// 重放陈旧 DROP 致已发布端口持续被封（评审 P2）。Apply* 内部对"链不存在"幂等 no-op。
+	// Docker 临时停机而缺失）：一律尝试清理镜像规则并重写持久化文件，避免 Docker 恢复后巡检重放
+	// 陈旧 DROP 致已发布端口持续被封（评审 P2）。Apply* 内部对"链不存在"幂等 no-op。
 	if req.Strategy == "drop" && (req.Operation == "remove" || (req.ApplyToDocker && firewall.DockerProtectionAvailable())) {
 		for _, proto := range protos {
 			for _, port := range strings.Split(req.Port, ",") {

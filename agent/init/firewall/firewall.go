@@ -43,8 +43,8 @@ func runBootReplay() string {
 	}
 	clientName := provider.Name()
 
-	// PR-6：Docker 防护与防火墙模式正交，开机重放 1PANEL_DOCKER 并断言 DOCKER-USER jump（自带可用性检测）。
-	firewall.LoadDockerRules()
+	// PR-6：Docker 防护与防火墙模式正交，开机重放 1PANEL_DOCKER 并断言 DOCKER-USER jump 由巡检 goroutine
+	// 的首轮 ReconcileDockerChain 负责（见 StartEmergencyJanitor），此处不再单独重放。
 
 	settingRepo := repo.NewISettingRepo()
 	if clientName == "ufw" || clientName == "iptables" {

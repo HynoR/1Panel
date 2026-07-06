@@ -5,18 +5,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/1Panel-dev/1Panel/agent/global"
 	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client/iptables"
 )
 
-// dockerReplayPending 标记开机时因 Docker 尚未就绪而未能重放 1panel_docker.rules。
-// 巡检 goroutine 在 Docker 就绪后据此补做一次重放，避免"Docker 比 agent 晚启动 → 容器封禁规则丢失"（P1）。
-var dockerReplayPending atomic.Bool
-
-// dockerMu 串行化对 1PANEL_DOCKER 的所有变更（用户增删+持久化、开机/巡检重放的清空+重放），
-// 避免巡检的 LoadDockerRules（-F 清空后重放旧文件）与并发的用户 AddRule+persist 交错，
+// dockerMu 串行化对 1PANEL_DOCKER 的所有变更（用户增删+持久化、巡检重放的清空+重放），
+// 避免巡检重放（-F 清空后重放旧文件）与并发的用户 AddRule+persist 交错，
 // 导致刚加的规则既不在内核也不在文件中而静默丢失（P3）。ensureDockerChain 为内部 helper，
 // 仅在已持锁路径中调用，自身不再加锁（非可重入）。
 var dockerMu sync.Mutex
@@ -63,7 +58,7 @@ func ensureDockerChain() {
 func ApplyDockerIPRule(ip, operation string) error {
 	// add 需要 Docker 集成就绪（DOCKER-USER 存在）才能落地；remove 即使 Docker 暂时停机也要继续——
 	// 1PANEL_DOCKER 链内容在 Docker 停机期间仍驻留内核，须删规则并重写持久化文件，否则 Docker 恢复后
-	// LoadDockerRules 会重放陈旧 DROP（评审 P2）。链不存在时下方删除分支幂等 no-op。
+	// 巡检重放会重放陈旧 DROP（评审 P2）。链不存在时下方删除分支幂等 no-op。
 	if operation == "add" && !DockerProtectionAvailable() {
 		return nil
 	}
@@ -310,33 +305,23 @@ func normDockerAddr(v string) string {
 	return v
 }
 
-// LoadDockerRules 开机重放 1PANEL_DOCKER 规则并重新断言 DOCKER-USER jump。
-// 若 Docker 尚未就绪（DOCKER-USER 不存在），标记 pending，待巡检在 Docker 起来后补做重放，
-// 避免"Docker 比 agent 晚启动 → 已持久化的容器封禁规则在重启后静默丢失"（P1）。
-func LoadDockerRules() {
+// ReconcileDockerChain 由巡检 goroutine 调用（开机立即一次 + 之后每分钟），幂等维持 Docker 边界防护：
+// 1PANEL_DOCKER 链不在内核时（主机刚重启，或开机时 Docker 尚未就绪而当时无法建链）从持久化文件重放一次，
+// 覆盖开机重放与"Docker 比 agent 晚启动 → 已持久化的容器封禁规则静默丢失"（P1）；
+// 链已存在时（进程重启不丢内核状态、Docker 重启也保留链内容）只重新断言 DOCKER-USER 上的 jump
+// （Docker 重启会清掉它）。以"链是否存在"作为"是否已重放"的幂等判据，无需单独的 pending 标记。
+func ReconcileDockerChain() {
 	if !DockerProtectionAvailable() {
-		dockerReplayPending.Store(true)
 		return
 	}
 	dockerMu.Lock()
 	defer dockerMu.Unlock()
-	if err := iptables.LoadRulesFromFile(iptables.FilterTab, iptables.Chain1PanelDocker, iptables.DockerFileName); err != nil {
-		global.LOG.Warnf("[firewall-docker] load docker rules failed: %v", err)
+	if exist, _ := iptables.CheckChainExist(iptables.FilterTab, iptables.Chain1PanelDocker); !exist {
+		if err := iptables.LoadRulesFromFile(iptables.FilterTab, iptables.Chain1PanelDocker, iptables.DockerFileName); err != nil {
+			global.LOG.Warnf("[firewall-docker] load docker rules failed: %v", err)
+		}
 	}
 	ensureDockerChain()
-	dockerReplayPending.Store(false)
-}
-
-// ReconcileDockerChain 供每分钟巡检调用：若开机重放仍未完成（Docker 后启动），就在 Docker 就绪后补做一次完整重放；
-// 否则只重新断言 DOCKER-USER 上的 jump（Docker 重启会清掉它，但 1PANEL_DOCKER 链内容仍在内核中）。
-func ReconcileDockerChain() {
-	if dockerReplayPending.Load() {
-		LoadDockerRules() // 自带加锁
-		return
-	}
-	dockerMu.Lock()
-	ensureDockerChain()
-	dockerMu.Unlock()
 }
 
 func persistDocker() error {

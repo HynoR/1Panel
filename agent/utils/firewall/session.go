@@ -315,9 +315,9 @@ type chainRef struct {
 
 // managedChains 是会话机制纳管的全部 1PANEL 链（persistManagedChains 落盘与
 // snapshotPreSession/restorePreSession 回滚共用同一清单，保证锚点覆盖面与落盘面一致）。
-// 注意：1PANEL_DOCKER 刻意不在此列表内。Docker 规则由 persistDocker（写）+ LoadDockerRules（开机重放）
+// 注意：1PANEL_DOCKER 刻意不在此列表内。Docker 规则由 persistDocker（写）+ ReconcileDockerChain（巡检重放）
 // 独立维护，与提交-确认会话解耦。若让会话机制读内核 docker 链回写文件，会在开机"链已建空但
-// 尚未 LoadDockerRules"的窗口里用空内容覆盖文件而永久丢规则（P1），且与巡检/用户操作存在跨 goroutine
+// 尚未重放"的窗口里用空内容覆盖文件而永久丢规则（P1），且与巡检/用户操作存在跨 goroutine
 // 竞争。解耦后内核与文件始终由 docker.go（dockerMu 串行）保持一致，不会出现陈旧文件复活。
 var managedChains = []chainRef{
 	{iptables.FilterTab, iptables.Chain1PanelGuard},

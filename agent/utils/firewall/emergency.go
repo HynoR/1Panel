@@ -38,6 +38,7 @@ func StartEmergencyJanitor() {
 	go func() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
+		// 开机立即巡检一次：首轮从持久化文件重放 1PANEL_DOCKER 并断言 jump（替代原独立的开机重放调用）。
 		ReconcileDockerChain()
 		for range ticker.C {
 			// PR-6：Docker 重启会重建 DOCKER-USER 清掉我们的 jump，每分钟巡检重新断言；
