@@ -25,19 +25,6 @@
                     </div>
                 </el-alert>
 
-                <div v-if="isActive" class="mb-2">
-                    <div class="mb-1 flex items-baseline gap-2">
-                        <span class="text-sm font-medium">{{ $t('firewall.flowSectionTitle') }}</span>
-                        <span class="text-xs text-gray-400">{{ $t('firewall.flowSectionHint') }}</span>
-                    </div>
-                    <FlowBar
-                        :default-drop="strictMode"
-                        :active-level="activeLevel"
-                        :counts="levelCounts"
-                        @filter="onFilterLevel"
-                    />
-                </div>
-
                 <LayoutContent :title="$t('firewall.inboundRule', 2)" :class="{ mask: !isActive }">
                     <template #prompt>
                         <div class="mb-2" v-if="mode === 'external'">
@@ -73,11 +60,12 @@
                         </el-button-group>
                     </template>
                     <template #rightToolBar>
-                        <el-select v-model="searchStrategy" @change="onFilterChange" clearable class="p-w-200">
-                            <template #prefix>{{ $t('firewall.strategy') }}</template>
+                        <el-select v-model="searchLevel" @change="onFilterChange" clearable class="p-w-200">
+                            <template #prefix>{{ $t('firewall.level') }}</template>
                             <el-option :label="$t('commons.table.all')" value=""></el-option>
-                            <el-option :label="$t('firewall.allow')" value="accept"></el-option>
-                            <el-option :label="$t('firewall.deny')" value="drop"></el-option>
+                            <el-option :label="$t('firewall.levelDeny')" value="deny"></el-option>
+                            <el-option :label="$t('firewall.levelBaseline')" value="baseline"></el-option>
+                            <el-option :label="$t('firewall.levelAllow')" value="allow"></el-option>
                         </el-select>
                         <TableSearch @search="onFilterChange" v-model:searchName="searchName" />
                         <TableRefresh @search="loadData" />
@@ -228,7 +216,7 @@
                                         :content="$t('firewall.dockerPublished')"
                                         placement="top"
                                     >
-                                        <el-tag type="warning" size="small">🐳</el-tag>
+                                        <el-tag type="warning" size="small">{{ $t('firewall.dockerTag') }}</el-tag>
                                     </el-tooltip>
                                     <span v-else>-</span>
                                 </template>
@@ -291,7 +279,6 @@
         <OperateDialog @search="loadData" ref="dialogRef" />
         <ImportDialog @search="loadData" ref="dialogImportRef" />
         <ProcessDetail ref="processDetailRef" />
-        <RiskPrecheck ref="riskRef" @confirm="doChangeStatusSubmit" />
     </div>
 </template>
 
@@ -299,8 +286,6 @@
 import FireRouter from '@/views/host/firewall/index.vue';
 import OperateDialog from '@/views/host/firewall/inbound/operate/index.vue';
 import ImportDialog from '@/views/host/firewall/inbound/import/index.vue';
-import FlowBar from '@/views/host/firewall/components/flow-bar.vue';
-import RiskPrecheck from '@/views/host/firewall/components/risk-precheck.vue';
 import ProcessDetail from '@/views/host/process/process/detail/index.vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import {
@@ -336,22 +321,17 @@ import {
 } from '@/views/host/firewall/composables/firewallHelpers';
 import { enterFireApplying } from '@/views/host/firewall/composables/useFireSession';
 
-const { mode, name, isReady, isActive, strictMode, loadBaseInfo } = useFireBaseInfo('base');
+const { mode, name, isReady, isActive, loadBaseInfo } = useFireBaseInfo('base');
 
 const loading = ref(false);
 const selects = ref<InboundRow[]>([]);
 const searchName = ref('');
-const searchStrategy = ref('');
-const activeLevel = ref('');
+const searchLevel = ref('');
 
 const opRef = ref();
 const dialogRef = ref<InstanceType<typeof OperateDialog>>();
 const dialogImportRef = ref<InstanceType<typeof ImportDialog>>();
 const processDetailRef = ref<InstanceType<typeof ProcessDetail>>();
-const riskRef = ref<InstanceType<typeof RiskPrecheck>>();
-
-// Stashes the toggle that triggered a redline RiskPrecheck so @confirm can finish it.
-const pendingToggle = ref<{ row: InboundRow; status: string } | null>(null);
 
 const listeningProcesses = ref<Process.ListeningProcess[]>([]);
 const rescuePorts = ref<Set<number>>(new Set());
@@ -373,16 +353,6 @@ const paginationConfig = reactive({
     currentPage: 1,
     pageSize: Number(localStorage.getItem('firewall-inbound-page-size')) || 20,
     total: 0,
-});
-
-const levelCounts = computed(() => {
-    const counts = { deny: 0, baseline: 0, allow: 0 };
-    for (const row of allRows.value) {
-        if (row.level === 'deny') counts.deny++;
-        else if (row.level === 'baseline') counts.baseline++;
-        else counts.allow++;
-    }
-    return counts;
 });
 
 const levelOrder = (level?: string): number => {
@@ -639,11 +609,8 @@ const loadData = async () => {
 
 const applyAndSlice = () => {
     let rows = allRows.value.slice();
-    if (searchStrategy.value) {
-        rows = rows.filter((row) => row.strategy === searchStrategy.value);
-    }
-    if (activeLevel.value) {
-        rows = rows.filter((row) => row.level === activeLevel.value);
+    if (searchLevel.value) {
+        rows = rows.filter((row) => row.level === searchLevel.value);
     }
     if (searchName.value) {
         const keyword = searchName.value.toLowerCase();
@@ -663,11 +630,6 @@ const applyAndSlice = () => {
 const onFilterChange = () => {
     paginationConfig.currentPage = 1;
     applyAndSlice();
-};
-
-const onFilterLevel = (level: string) => {
-    activeLevel.value = level;
-    onFilterChange();
 };
 
 // ---- create / edit (unified dialog) ----
@@ -783,15 +745,8 @@ const submitChangeStatus = async (row: InboundRow, status: string) => {
         });
 };
 
-// RiskPrecheck only emits @confirm for warn mode (redline has no proceed button,
-// so a redline toggle is effectively blocked). pendingToggle carries the row+status.
-const doChangeStatusSubmit = async () => {
-    const pending = pendingToggle.value;
-    pendingToggle.value = null;
-    if (!pending) return;
-    await submitChangeStatus(pending.row, pending.status);
-};
-
+// redline: 同时封 SSH+面板 → 硬拦截，提交时一次 ElMessageBox 提示后取消。
+// warn 分支已删除：自锁风险交给后端 L1 + 60 秒自动回滚兜底。
 const onChangeStatus = async (row: InboundRow, status: string) => {
     // 确保端口就绪后再做红线判定，避免 sshPort/panelPort 未加载导致 redline 失效。
     await ensurePortsLoaded();
@@ -802,8 +757,10 @@ const onChangeStatus = async (row: InboundRow, status: string) => {
         port: row.port,
     });
     if (risk.mode === 'redline') {
-        pendingToggle.value = { row, status };
-        riskRef.value?.acceptParams({ mode: risk.mode, message: risk.message });
+        ElMessageBox.alert(risk.message, i18n.global.t('firewall.redlineTitle'), {
+            confirmButtonText: i18n.global.t('commons.button.confirm'),
+            type: 'error',
+        }).catch(() => {});
         return;
     }
     const isPort = row.ruleType === 'port';

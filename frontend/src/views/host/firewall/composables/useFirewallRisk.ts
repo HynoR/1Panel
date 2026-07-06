@@ -69,11 +69,9 @@ export const computeFirewallRisk = (input: RiskInput): Host.RiskInfo => {
     if (input.strategy !== 'drop') {
         return { mode: 'none', message: '' };
     }
+    // warn 分支已删除：宽泛来源的封禁只提示、不拦截，自锁风险交给后端 L1 + 60 秒自动回滚兜底。
     if (input.objectType === 'address') {
-        // 纯 IP 黑名单：仅当来源宽泛（可能把所有人含自己挡掉）时提示。
-        return isBroadSource(input.address)
-            ? { mode: 'warn', message: i18n.global.t('firewall.riskBlockSelf') }
-            : { mode: 'none', message: '' };
+        return { mode: 'none', message: '' };
     }
     // 指定来源的端口拒绝只影响该来源，自锁风险低。
     if (!isBroadSource(input.address)) {
@@ -82,11 +80,9 @@ export const computeFirewallRisk = (input: RiskInput): Host.RiskInfo => {
     const coversAll = isAllPorts(input.port);
     const coversSSH = coversAll || portsInclude(input.port, sshPort.value);
     const coversPanel = coversAll || portsInclude(input.port, panelPort.value);
+    // redline 硬拦截：同时封 SSH + 面板 → 禁止提交。
     if (coversAll || (coversSSH && coversPanel)) {
         return { mode: 'redline', message: i18n.global.t('firewall.redlineBlockBoth') };
-    }
-    if (coversSSH || coversPanel) {
-        return { mode: 'warn', message: i18n.global.t('firewall.riskBlockSelf') };
     }
     return { mode: 'none', message: '' };
 };
