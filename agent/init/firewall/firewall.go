@@ -17,8 +17,8 @@ import (
 )
 
 func Init() {
-	// 安全栈 L2/L3：无论是否首启都要做的两件保命事——
-	//  1. 后台清理过期的 caller-IP 紧急放行；
+	// L3：无论是否首启都要做的两件保命事——
+	//  1. 后台巡检 Docker 链（DOCKER-USER jump 重放，详见 StartEmergencyJanitor）；
 	//  2. 回收未确认的提交-确认会话（agent 崩溃/重启 = 视同窗口超时立即还原，堵死逃逸路径）。
 	firewall.StartEmergencyJanitor()
 	firewall.ReclaimSession()

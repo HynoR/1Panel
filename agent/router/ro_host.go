@@ -2,7 +2,6 @@ package router
 
 import (
 	v2 "github.com/1Panel-dev/1Panel/agent/app/api/v2"
-	"github.com/1Panel-dev/1Panel/agent/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -22,26 +21,24 @@ func (s *HostRouter) InitRouter(Router *gin.RouterGroup) {
 		hostRouter.POST("/test/byinfo", baseApi.TestByInfo)
 		hostRouter.POST("/test/byid", baseApi.TestByID)
 
-		// L2 安全栈：变更型端点统一挂 caller-IP 紧急放行中间件（设计稿 §3.5）。
-		fwEmergency := middleware.FirewallEmergency()
 		hostRouter.POST("/firewall/base", baseApi.LoadFirewallBaseInfo)
 		hostRouter.POST("/firewall/search", baseApi.SearchFirewallRule)
 		hostRouter.POST("/firewall/operate", baseApi.OperateFirewall)
-		hostRouter.POST("/firewall/port", fwEmergency, baseApi.OperatePortRule)
-		hostRouter.POST("/firewall/forward", fwEmergency, baseApi.OperateForwardRule)
-		hostRouter.POST("/firewall/ip", fwEmergency, baseApi.OperateIPRule)
-		hostRouter.POST("/firewall/batch", fwEmergency, baseApi.BatchOperateRule)
-		hostRouter.POST("/firewall/update/port", fwEmergency, baseApi.UpdatePortRule)
-		hostRouter.POST("/firewall/update/addr", fwEmergency, baseApi.UpdateAddrRule)
+		hostRouter.POST("/firewall/port", baseApi.OperatePortRule)
+		hostRouter.POST("/firewall/forward", baseApi.OperateForwardRule)
+		hostRouter.POST("/firewall/ip", baseApi.OperateIPRule)
+		hostRouter.POST("/firewall/batch", baseApi.BatchOperateRule)
+		hostRouter.POST("/firewall/update/port", baseApi.UpdatePortRule)
+		hostRouter.POST("/firewall/update/addr", baseApi.UpdateAddrRule)
 		hostRouter.POST("/firewall/update/description", baseApi.UpdateFirewallDescription)
 		hostRouter.POST("/firewall/clean", baseApi.CleanOrphanFirewallRecords)
 		hostRouter.GET("/firewall/quarantine", baseApi.ListFirewallQuarantine)
 		hostRouter.POST("/firewall/quarantine/clean", baseApi.CleanFirewallQuarantine)
 
 		hostRouter.POST("/firewall/filter/rule/search", baseApi.SearchFilterRules)
-		hostRouter.POST("/firewall/filter/rule/operate", fwEmergency, baseApi.OperateFilterRule)
-		hostRouter.POST("/firewall/filter/rule/batch", fwEmergency, baseApi.BatchOperateFilterRule)
-		hostRouter.POST("/firewall/filter/operate", fwEmergency, baseApi.OperateFilterChain)
+		hostRouter.POST("/firewall/filter/rule/operate", baseApi.OperateFilterRule)
+		hostRouter.POST("/firewall/filter/rule/batch", baseApi.BatchOperateFilterRule)
+		hostRouter.POST("/firewall/filter/operate", baseApi.OperateFilterChain)
 		hostRouter.POST("/firewall/filter/chain/status", baseApi.LoadChainStatus)
 
 		// L3 安全栈：提交-确认会话（设计稿 §3.5.1）。

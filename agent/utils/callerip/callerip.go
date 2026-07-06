@@ -9,8 +9,7 @@ import (
 // 真实客户端(管理员浏览器)IP。只在 unix socket 连接上采信，见 Resolve 的信任模型。
 const CallerIPHeader = "X-1Panel-Caller-Ip"
 
-// ContextKey 是 FirewallEmergency 中间件把 Resolve 结果写入 gin.Context 的键：
-// 同一请求内 handler 直接读取，避免中间件与 handler 各自独立解析。
+// ContextKey 是把 Resolve 结果缓存进 gin.Context 的键，供同一请求内的 handler 复用。
 const ContextKey = "firewallCallerIP"
 
 // Resolve 返回本次请求调用方的真实客户端 IP（无法确定时返回空串）。
