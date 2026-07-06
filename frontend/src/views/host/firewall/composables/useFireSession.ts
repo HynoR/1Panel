@@ -1,9 +1,9 @@
 // 会话型确认窗口的共享状态与动作（模块级单例）。
 //
 // <SessionConfirm /> 挂在共享头部 firewall/index.vue（FireRouter）里负责轮询与倒计时；
-// overview / inbound 列表 / inbound operate 抽屉 / 快照恢复 等处只需 enterFireApplying() 即可
+// 状态栏 / inbound 列表 / inbound operate 抽屉 等处只需 enterFireApplying() 即可
 // 即时进入「应用中…」过渡态。把 session/remain/applying/loading 与 confirm/revert 动作上提到
-// 单例，overview 可直接复用同一份会话状态渲染内联确认卡，无需重复拉取或重写动作逻辑。
+// 单例，各调用方复用同一份会话状态，无需重复拉取或重写动作逻辑。
 import { ref } from 'vue';
 import { Host } from '@/api/interface/host';
 import { confirmFireSession, loadFireSession, revertFireSession } from '@/api/modules/host';
@@ -18,7 +18,6 @@ const session = ref<Host.FirewallSession>({
     changes: [],
     remainSeconds: 0,
     since: '',
-    snapshot: '',
 });
 const remain = ref(0);
 // 保存成功后立即进入的「应用中…」过渡态：禁用确认/撤销，约 2s 或拿到确认窗口为止。

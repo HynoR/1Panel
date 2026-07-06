@@ -76,7 +76,7 @@ const handleMenuClick = (path) => {
 // 避免升级后已保存的 HideMenu 配置匹配不到菜单项而整项消失。
 // 归一在 buildMenuListFromSettings 解析持久化配置时一次完成，后续消费无需再映射。
 const legacyMenuNameMap: Record<string, string> = {
-    FirewallPort: 'FirewallOverview',
+    FirewallPort: 'FirewallInbound',
 };
 function normalizeLegacyMenuNames(menu: any[]) {
     for (const item of menu) {

@@ -103,14 +103,6 @@ export namespace Host {
         changes: FirewallSessionChange[];
         remainSeconds: number;
         since: string;
-        snapshot: string;
-    }
-    export interface FirewallSnapshot {
-        name: string;
-        tag: string;
-        createdAt: string;
-        hasV6: boolean;
-        size: number;
     }
     export interface RuleSearch extends ReqPage {
         strategy: string;

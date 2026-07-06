@@ -47,7 +47,7 @@ const hostRouter = {
         {
             path: '/hosts/firewall',
             name: 'FirewallRedirect',
-            redirect: '/hosts/firewall/overview',
+            redirect: '/hosts/firewall/inbound',
             hidden: true,
             // 纯 redirect 路由不会成为导航终点，activeMenu/parent 等展示型 meta 不生效；
             // permission 仍会被 router.resolve + hasRouteAccess 读取，需保留。
@@ -56,26 +56,14 @@ const hostRouter = {
             },
         },
         {
-            path: '/hosts/firewall/overview',
-            name: 'FirewallOverview',
-            component: () => import('@/views/host/firewall/overview/index.vue'),
-            meta: {
-                icon: 'p-firewalld-menu',
-                activeMenu: '/hosts/firewall/overview',
-                title: 'menu.firewall',
-                detail: 'firewall.overview',
-                permission: 'host_firewall_view',
-            },
-        },
-        {
             path: '/hosts/firewall/inbound',
             name: 'FirewallInbound',
             component: () => import('@/views/host/firewall/inbound/index.vue'),
-            hidden: true,
             meta: {
-                activeMenu: '/hosts/firewall/overview',
-                parent: 'menu.firewall',
-                title: 'firewall.inboundRule',
+                icon: 'p-firewalld-menu',
+                activeMenu: '/hosts/firewall/inbound',
+                title: 'menu.firewall',
+                detail: 'firewall.inboundRule',
                 permission: 'host_firewall_view',
             },
         },
@@ -85,7 +73,7 @@ const hostRouter = {
             component: () => import('@/views/host/firewall/forward/index.vue'),
             hidden: true,
             meta: {
-                activeMenu: '/hosts/firewall/overview',
+                activeMenu: '/hosts/firewall/inbound',
                 parent: 'menu.firewall',
                 title: 'firewall.forwardRule',
                 permission: 'host_firewall_view',
@@ -97,7 +85,7 @@ const hostRouter = {
             component: () => import('@/views/host/firewall/advance/index.vue'),
             hidden: true,
             meta: {
-                activeMenu: '/hosts/firewall/overview',
+                activeMenu: '/hosts/firewall/inbound',
                 parent: 'menu.firewall',
                 title: 'firewall.advancedControl',
                 permission: 'host_firewall_view',

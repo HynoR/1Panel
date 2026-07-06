@@ -1,32 +1,29 @@
 <template>
     <div>
         <FireRouter />
+        <FireStatus current-tab="forward" @search="reload" />
 
         <div v-loading="loading">
-            <el-card v-if="!isReady" class="mask-prompt">
+            <el-card v-if="isExist && !isReady" class="mask-prompt">
                 <div class="flex flex-col items-center justify-center gap-2 py-8">
-                    <span>{{ $t('firewall.goOverviewInit') }}</span>
-                    <span class="text-xs text-gray-400">{{ $t('firewall.forwardIptables') }}</span>
+                    <span>{{ $t('firewall.initHelper', [$t('firewall.forwardIptables')]) }}</span>
                     <div>
-                        <el-button type="primary" @click="goOverview">
-                            {{ $t('firewall.overview') }}
-                        </el-button>
-                        <el-button v-if="isExist && isActive" v-permission v-node-admin plain @click="onInitForward">
+                        <el-button v-if="isActive" v-permission v-node-admin type="primary" @click="onInitForward">
                             {{ $t('commons.button.init') }}
                         </el-button>
                     </div>
                 </div>
             </el-card>
 
-            <div v-else>
-                <el-alert v-if="!isActive" class="mb-2" type="warning" :closable="false" show-icon>
-                    <div class="flex flex-wrap items-center gap-2">
-                        <span>{{ $t('firewall.firewallNotStart') }}</span>
-                        <el-button type="primary" link @click="goOverview">
-                            {{ $t('firewall.goOverviewStart') }}
-                        </el-button>
-                    </div>
-                </el-alert>
+            <div v-else-if="isExist">
+                <el-alert
+                    v-if="!isActive"
+                    class="mb-2"
+                    type="warning"
+                    :closable="false"
+                    show-icon
+                    :title="$t('firewall.firewallNotStart')"
+                />
 
                 <LayoutContent :title="$t('firewall.forwardRule', 2)" :class="{ mask: !isActive }">
                     <template #leftToolBar>
@@ -123,6 +120,7 @@
 
 <script lang="ts" setup>
 import FireRouter from '@/views/host/firewall/index.vue';
+import FireStatus from '@/views/host/firewall/components/fire-status.vue';
 import OperateDialog from './operate/index.vue';
 import ImportDialog from './import/index.vue';
 import { onMounted, reactive, ref } from 'vue';
@@ -133,7 +131,6 @@ import i18n from '@/lang';
 import { MsgSuccess } from '@/utils/message';
 import { downloadWithContent } from '@/utils/file';
 import { getCurrentDateFormatted } from '@/utils/date';
-import { routerToName } from '@/utils/router';
 
 const { isExist, isActive, isReady, capabilities, loadBaseInfo } = useFireBaseInfo('forward');
 
@@ -159,10 +156,6 @@ const paginationConfig = reactive({
 const reload = async () => {
     await loadBaseInfo('forward');
     search();
-};
-
-const goOverview = () => {
-    routerToName('FirewallOverview');
 };
 
 const onInitForward = () => {

@@ -1,29 +1,24 @@
 <template>
     <div>
         <FireRouter />
+        <FireStatus current-tab="base" @search="onStatusChange" />
 
         <div v-loading="loading">
-            <el-card v-if="!isReady" class="mask-prompt">
+            <el-card v-if="isExist && !isReady" class="mask-prompt">
                 <div class="flex flex-col items-center justify-center gap-2 py-8">
-                    <span>{{ $t('firewall.goOverviewInit') }}</span>
-                    <span class="text-xs text-gray-400">{{ $t('firewall.baseIptables') }}</span>
-                    <div>
-                        <el-button type="primary" @click="goOverview">
-                            {{ $t('firewall.overview') }}
-                        </el-button>
-                    </div>
+                    <span>{{ $t('firewall.initHelper', [$t('firewall.baseIptables')]) }}</span>
                 </div>
             </el-card>
 
-            <div v-else>
-                <el-alert v-if="!isActive" class="mb-2" type="warning" :closable="false" show-icon>
-                    <div class="flex flex-wrap items-center gap-2">
-                        <span>{{ $t('firewall.firewallNotStart') }}</span>
-                        <el-button type="primary" link @click="goOverview">
-                            {{ $t('firewall.goOverviewStart') }}
-                        </el-button>
-                    </div>
-                </el-alert>
+            <div v-else-if="isExist">
+                <el-alert
+                    v-if="!isActive"
+                    class="mb-2"
+                    type="warning"
+                    :closable="false"
+                    show-icon
+                    :title="$t('firewall.firewallNotStart')"
+                />
 
                 <LayoutContent :title="$t('firewall.inboundRule', 2)" :class="{ mask: !isActive }">
                     <template #prompt>
@@ -284,6 +279,7 @@
 
 <script lang="ts" setup>
 import FireRouter from '@/views/host/firewall/index.vue';
+import FireStatus from '@/views/host/firewall/components/fire-status.vue';
 import OperateDialog from '@/views/host/firewall/inbound/operate/index.vue';
 import ImportDialog from '@/views/host/firewall/inbound/import/index.vue';
 import ProcessDetail from '@/views/host/process/process/detail/index.vue';
@@ -303,7 +299,6 @@ import i18n from '@/lang';
 import { MsgSuccess } from '@/utils/message';
 import { ElMessageBox } from 'element-plus';
 import { Expand, Lock } from '@element-plus/icons-vue';
-import { routerToName } from '@/utils/router';
 import { downloadWithContent } from '@/utils/file';
 import { getCurrentDateFormatted } from '@/utils/date';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
@@ -321,7 +316,7 @@ import {
 } from '@/views/host/firewall/composables/firewallHelpers';
 import { enterFireApplying } from '@/views/host/firewall/composables/useFireSession';
 
-const { mode, name, isReady, isActive, loadBaseInfo } = useFireBaseInfo('base');
+const { mode, name, isExist, isReady, isActive, loadBaseInfo } = useFireBaseInfo('base');
 
 const loading = ref(false);
 const selects = ref<InboundRow[]>([]);
@@ -364,8 +359,10 @@ const levelOrder = (level?: string): number => {
 // baseline rows (SSH / panel / 80·443) are read-only-ish: no batch delete.
 const canSelect = (row: InboundRow): boolean => row.level !== 'baseline';
 
-const goOverview = () => {
-    routerToName('FirewallOverview');
+// 状态栏动作（启停/初始化/白名单变更）后刷新：保底端口集合与规则表都可能变化。
+const onStatusChange = async () => {
+    await loadRescuePorts();
+    await loadData();
 };
 
 // ---- rescue port set (panel port + whitelist 80/443 + SSH port) for baseline tagging ----

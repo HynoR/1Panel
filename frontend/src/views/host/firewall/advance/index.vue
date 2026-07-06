@@ -1,16 +1,14 @@
 <template>
     <div>
         <FireRouter />
+        <FireStatus current-tab="advance" @search="reload" />
 
         <div v-loading="loading">
-            <LayoutContent :divider="true" v-if="!isReady">
+            <LayoutContent :divider="true" v-if="isExist && !isReady">
                 <template #main>
                     <div class="app-warn">
                         <div class="flex flex-col gap-2 items-center justify-center w-full sm:flex-row">
-                            <span>{{ $t('firewall.goOverviewInit') }}</span>
-                            <el-button type="primary" link @click="goOverview">
-                                {{ $t('firewall.overview') }}
-                            </el-button>
+                            <span>{{ $t('firewall.initHelper', [$t('firewall.advanceIptables')]) }}</span>
                         </div>
                         <div>
                             <img src="@/assets/images/no_app.svg" />
@@ -19,7 +17,7 @@
                 </template>
             </LayoutContent>
 
-            <div v-else-if="!capabilities.filter">
+            <div v-else-if="isExist && !capabilities.filter">
                 <LayoutContent :divider="true">
                     <template #main>
                         <div class="app-warn">
@@ -34,7 +32,7 @@
                 </LayoutContent>
             </div>
 
-            <div v-else>
+            <div v-else-if="isExist">
                 <el-card v-if="!isActive" class="mask-prompt">
                     <span>{{ $t('firewall.firewallNotStart') }}</span>
                 </el-card>
@@ -159,9 +157,9 @@
 
 <script lang="ts" setup>
 import FireRouter from '@/views/host/firewall/index.vue';
+import FireStatus from '@/views/host/firewall/components/fire-status.vue';
 import OperateDialog from '@/views/host/firewall/advance/operate/index.vue';
 import { onMounted, reactive, ref } from 'vue';
-import { useRouter } from 'vue-router';
 import {
     searchFilterRules,
     batchOperateFilterRule,
@@ -175,9 +173,8 @@ import { MsgSuccess } from '@/utils/message';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
 import { chainDirectionLabel, singleFlight } from '@/views/host/firewall/composables/firewallHelpers';
 
-const { capabilities, isActive, isReady, name, loadBaseInfo } = useFireBaseInfo('advance');
+const { capabilities, isExist, isActive, isReady, name, loadBaseInfo } = useFireBaseInfo('advance');
 
-const router = useRouter();
 const loading = ref();
 const selects = ref<Host.IptablesRules[]>([]);
 const selectedChain = ref('1PANEL_INPUT');
@@ -212,8 +209,12 @@ const paginationConfig = reactive({
     total: 0,
 });
 
-const goOverview = () => {
-    router.push({ path: '/hosts/firewall/overview' });
+// 状态栏动作（启停/初始化）后刷新本页数据。
+const reload = async () => {
+    await loadBaseInfo('advance');
+    if (isReady.value && capabilities.value.filter) {
+        await search();
+    }
 };
 
 const chainLabel = () => chainDirectionLabel(selectedChain.value);
