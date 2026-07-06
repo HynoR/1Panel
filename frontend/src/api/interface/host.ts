@@ -78,6 +78,7 @@ export namespace Host {
         bootStatus: string;
         consistent: boolean;
         strictMode: boolean;
+        quarantine?: string[];
     }
     export interface FirewallCapabilities {
         forwardImpl: string;

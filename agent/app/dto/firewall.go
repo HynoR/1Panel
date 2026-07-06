@@ -17,6 +17,8 @@ type FirewallBaseInfo struct {
 	Consistent bool   `json:"consistent"`
 
 	StrictMode bool `json:"strictMode"` // 白名单（严格）模式：未列出端口默认拒绝（AFTER 链已注入 DROP）
+
+	Quarantine []string `json:"quarantine"` // 升级迁移期隔离的旧 DENY 规则（样本），仅在 quarantined 引导态填充
 }
 
 type FirewallCapabilities struct {
@@ -39,7 +41,7 @@ type RuleSearch struct {
 }
 
 type FirewallOperation struct {
-	Operation         string `json:"operation" validate:"required,oneof=start stop restart disableBanPing enableBanPing"`
+	Operation         string `json:"operation" validate:"required,oneof=start stop restart disableBanPing enableBanPing quarantineClean"`
 	WithDockerRestart bool   `json:"withDockerRestart"`
 }
 

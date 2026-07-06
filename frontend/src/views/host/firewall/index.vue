@@ -2,38 +2,17 @@
     <div>
         <RouterButton :buttons="buttons" />
         <SessionConfirm />
-        <!-- 全局横幅：ufw+firewalld 冲突 / 开机降级（含隔离规则入口），各子页可见 -->
+        <!-- 全局横幅：ufw+firewalld 冲突 / 开机降级（含隔离规则内联展示），各子页可见 -->
         <el-alert v-if="topBanner" :type="topBanner.type" :closable="false" show-icon class="card-interval">
             <template #title>
-                <div class="flex flex-wrap items-center gap-2">
-                    <span>{{ topBanner.title }}</span>
-                    <el-link
-                        v-if="showQuarantineEntry"
-                        type="primary"
-                        :underline="false"
-                        @click.stop="onOpenQuarantine"
-                    >
-                        {{ $t('firewall.quarantineView') }}
-                    </el-link>
-                </div>
+                <span>{{ topBanner.title }}</span>
             </template>
-        </el-alert>
-        <LayoutContent>
-            <router-view></router-view>
-        </LayoutContent>
-
-        <el-drawer v-model="quarantineDrawerVisible" :title="$t('firewall.quarantineTitle')" size="50%">
-            <div class="flex h-full flex-col gap-3">
-                <el-alert :closable="false" type="warning" :title="$t('firewall.quarantineHelper')" />
-                <el-empty v-if="!quarantineRules.length" :description="$t('firewall.quarantineEmpty')" />
-                <el-scrollbar v-else>
-                    <div class="flex flex-col gap-2">
-                        <el-text v-for="(rule, index) in quarantineRules" :key="index" tag="pre">
-                            {{ rule }}
-                        </el-text>
-                    </div>
-                </el-scrollbar>
-                <div class="mt-auto flex justify-end">
+            <div v-if="bootQuarantined" class="mt-2 flex flex-col gap-2">
+                <span>{{ $t('firewall.quarantineHelper') }}</span>
+                <el-text v-for="(rule, index) in quarantineRules" :key="index" tag="pre">
+                    {{ rule }}
+                </el-text>
+                <div>
                     <el-button
                         v-permission
                         v-node-admin
@@ -45,30 +24,24 @@
                     </el-button>
                 </div>
             </div>
-        </el-drawer>
+        </el-alert>
+        <LayoutContent>
+            <router-view></router-view>
+        </LayoutContent>
     </div>
 </template>
 
 <script lang="ts" setup>
 import i18n from '@/lang';
 import SessionConfirm from '@/views/host/firewall/session-confirm.vue';
-import { cleanFireQuarantine, listFireQuarantine } from '@/api/modules/host';
+import { operateFire } from '@/api/modules/host';
 import { MsgSuccess } from '@/utils/message';
 import { ElMessageBox } from 'element-plus';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
 import { computed, onMounted, ref } from 'vue';
 
-const {
-    baseInfo,
-    mode,
-    conflict,
-    bootDegraded,
-    isActive,
-    isReady,
-    hasAdvancedRules,
-    loadBaseInfo,
-    probeAdvancedRules,
-} = useFireBaseInfo('base');
+const { baseInfo, mode, conflict, bootDegraded, hasAdvancedRules, loadBaseInfo, probeAdvancedRules } =
+    useFireBaseInfo('base');
 
 const buttons = computed(() => {
     const list = [
@@ -102,24 +75,8 @@ const topBanner = computed<{ type: 'warning' | 'error'; title: string } | null>(
 });
 
 const bootQuarantined = computed(() => (baseInfo.value.bootStatus || '').startsWith('degraded:quarantined'));
-const showQuarantineEntry = computed(
-    () => bootDegraded.value && bootQuarantined.value && isReady.value && isActive.value,
-);
-
-const quarantineDrawerVisible = ref(false);
+const quarantineRules = computed(() => baseInfo.value.quarantine || []);
 const quarantineLoading = ref(false);
-const quarantineRules = ref<string[]>([]);
-
-const onOpenQuarantine = async () => {
-    quarantineDrawerVisible.value = true;
-    quarantineLoading.value = true;
-    try {
-        const res = await listFireQuarantine();
-        quarantineRules.value = res.data || [];
-    } finally {
-        quarantineLoading.value = false;
-    }
-};
 
 const onCleanQuarantine = async () => {
     try {
@@ -137,9 +94,7 @@ const onCleanQuarantine = async () => {
     }
     quarantineLoading.value = true;
     try {
-        await cleanFireQuarantine();
-        quarantineRules.value = [];
-        quarantineDrawerVisible.value = false;
+        await operateFire('quarantineClean', false);
         MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
         await loadBaseInfo('base');
     } finally {

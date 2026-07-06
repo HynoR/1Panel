@@ -248,52 +248,6 @@ func (b *BaseApi) UpdateAddrRule(c *gin.Context) {
 }
 
 // @Tags Firewall
-// @Summary Clean orphan firewall rule descriptions
-// @Accept json
-// @Success 200
-// @Security ApiKeyAuth
-// @Security Timestamp
-// @Router /hosts/firewall/clean [post]
-func (b *BaseApi) CleanOrphanFirewallRecords(c *gin.Context) {
-	if err := firewallService.CleanOrphanFirewallRecords(); err != nil {
-		helper.InternalServer(c, err)
-		return
-	}
-	helper.Success(c)
-}
-
-// @Tags Firewall
-// @Summary List quarantined legacy deny rules
-// @Accept json
-// @Success 200 {array} string
-// @Security ApiKeyAuth
-// @Security Timestamp
-// @Router /hosts/firewall/quarantine [get]
-func (b *BaseApi) ListFirewallQuarantine(c *gin.Context) {
-	list, err := firewallService.ListQuarantineRules()
-	if err != nil {
-		helper.InternalServer(c, err)
-		return
-	}
-	helper.SuccessWithData(c, list)
-}
-
-// @Tags Firewall
-// @Summary Clean quarantined legacy deny rules
-// @Accept json
-// @Success 200
-// @Security ApiKeyAuth
-// @Security Timestamp
-// @Router /hosts/firewall/quarantine/clean [post]
-func (b *BaseApi) CleanFirewallQuarantine(c *gin.Context) {
-	if err := firewallService.CleanQuarantineRules(); err != nil {
-		helper.InternalServer(c, err)
-		return
-	}
-	helper.Success(c)
-}
-
-// @Tags Firewall
 // @Summary Load commit-confirm session status
 // @Accept json
 // @Success 200 {object} dto.FirewallSessionInfo

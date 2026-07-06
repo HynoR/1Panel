@@ -74,6 +74,15 @@ func (u *FirewallService) LoadBaseInfo(tab string) (dto.FirewallBaseInfo, error)
 	if state, stateErr := hostRepo.GetFirewallState(); stateErr == nil {
 		baseInfo.BootStatus = state.LastBootStatus
 		baseInfo.Consistent = state.Consistent
+		// 隔离态才附带样本规则，并截断以约束响应体大小；banner 内联展示，不再单独接口拉取。
+		if strings.HasPrefix(state.LastBootStatus, "degraded:quarantined") {
+			if quarantine, qErr := u.ListQuarantineRules(); qErr == nil {
+				if len(quarantine) > 50 {
+					quarantine = quarantine[:50]
+				}
+				baseInfo.Quarantine = quarantine
+			}
+		}
 	}
 	client := provider.Client()
 
@@ -126,6 +135,14 @@ func (u *FirewallService) SearchWithPage(req dto.RuleSearch) (int64, interface{}
 		datas     []fireClient.FireInfo
 		backDatas []fireClient.FireInfo
 	)
+
+	// 规则列表首页加载即是 keep-set 的天然时机：顺带清理失效描述（尽力而为，失败不阻断查询）。
+	// 只在首页做，避免翻页时重复全量比对。
+	if req.Page <= 1 {
+		if err := u.CleanOrphanFirewallRecords(); err != nil {
+			global.LOG.Warnf("clean orphan firewall records failed: %v", err)
+		}
+	}
 
 	client, err := firewall.NewFirewallClient()
 	if err != nil {
@@ -326,6 +343,8 @@ func (u *FirewallService) OperateFirewall(req dto.FirewallOperation) error {
 		}
 		_ = settingRepo.Update("BanPing", constant.StatusEnable)
 		return nil
+	case "quarantineClean":
+		return u.CleanQuarantineRules()
 	default:
 		return fmt.Errorf("not supported operation: %s", req.Operation)
 	}
