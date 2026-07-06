@@ -1,13 +1,5 @@
 <template>
-    <el-alert v-if="applying" :closable="false" type="info" class="firewall-confirm card-interval">
-        <template #title>
-            <div class="flex items-center gap-2">
-                <el-icon class="is-loading"><Loading /></el-icon>
-                <span class="font-bold">{{ $t('firewall.applying') }}</span>
-            </div>
-        </template>
-    </el-alert>
-    <el-alert v-else-if="session.active" :closable="false" type="warning" class="firewall-confirm card-interval">
+    <el-alert v-if="session.active" :closable="false" type="warning" class="firewall-confirm card-interval">
         <template #title>
             <div class="flex w-full flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <div>
@@ -34,12 +26,11 @@
 
 <script lang="ts" setup>
 import { onMounted, onUnmounted } from 'vue';
-import { Loading } from '@element-plus/icons-vue';
 import { useFireSession } from '@/views/host/firewall/composables/useFireSession';
 
 // 仅负责会话轮询与倒计时；状态与 confirm/revert 动作由 useFireSession 单例持有，
-// overview 内联确认卡与全局横幅共用同一份，避免重复拉取与动作逻辑分叉。
-const { session, remain, applying, loading, refresh, onConfirm, onRevert, onCountdownZero } = useFireSession();
+// 各调用方共用同一份，避免重复拉取与动作逻辑分叉。
+const { session, remain, loading, refresh, onConfirm, onRevert, onCountdownZero } = useFireSession();
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
@@ -47,10 +38,10 @@ let pollTick = 0;
 
 onMounted(() => {
     refresh();
-    // 自适应轮询：会话激活/应用中保持 3s，空闲退避到 12s，减少无谓请求。
+    // 自适应轮询：会话激活保持 3s，空闲退避到 12s，减少无谓请求。
     pollTimer = setInterval(() => {
         pollTick++;
-        if (!session.value.active && !applying.value && pollTick % 4 !== 0) return;
+        if (!session.value.active && pollTick % 4 !== 0) return;
         refresh();
     }, 3000);
     tickTimer = setInterval(() => {

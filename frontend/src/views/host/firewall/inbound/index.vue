@@ -314,7 +314,7 @@ import {
     portRuleIncludes,
     singleFlight,
 } from '@/views/host/firewall/composables/firewallHelpers';
-import { enterFireApplying } from '@/views/host/firewall/composables/useFireSession';
+import { notifyFireChange } from '@/views/host/firewall/composables/useFireSession';
 
 const { mode, name, isExist, isReady, isActive, loadBaseInfo } = useFireBaseInfo('base');
 
@@ -727,11 +727,11 @@ const submitChangeStatus = async (row: InboundRow, status: string) => {
               },
           });
     await request
-        .then(() => {
+        .then(async () => {
             if (status === 'drop') {
                 // 翻转为 drop=会话型候选（后端对触及保底端口的 drop 武装确认窗口）：
-                // 即时进入应用中过渡态（含「应用中…」提示），不在确认前显示最终成功。
-                enterFireApplying();
+                // 刷新会话状态，武装了则由确认条接管提示，未武装补成功提示。
+                await notifyFireChange();
             } else {
                 MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
             }

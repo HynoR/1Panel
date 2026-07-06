@@ -107,7 +107,7 @@ import Status from '@/components/status/index.vue';
 import DockerRestart from '@/components/docker-proxy/docker-restart.vue';
 import WhiteList from '@/views/host/firewall/components/white-list.vue';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
-import { enterFireApplying } from '@/views/host/firewall/composables/useFireSession';
+import { notifyFireChange } from '@/views/host/firewall/composables/useFireSession';
 
 // dev-v2 式内嵌状态栏：一行 el-card（名称/状态 + 启停/重启 + 初始化/端口白名单入口 + 开关），
 // 内嵌在各子页顶部。状态数据固定钉在 base tab（启停/禁 ping 均为全局动作），
@@ -215,9 +215,9 @@ const onInit = () => {
             try {
                 await operateFilterChain('1PANEL_BASIC', 'init-base');
                 if (initPolicy.value === 'strict') {
-                    // 开启白名单模式为会话型变更（后端武装 60s 确认窗口）：进入应用中过渡态。
+                    // 开启白名单模式为会话型变更（后端武装 60s 确认窗口）：确认条接管提示。
                     await operateFilterChain('1PANEL_INPUT', 'enable-strict');
-                    enterFireApplying();
+                    await notifyFireChange();
                 } else {
                     MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
                 }
@@ -251,7 +251,7 @@ const onToggleStrict = async (val: boolean) => {
     try {
         await operateFilterChain('1PANEL_INPUT', val ? 'enable-strict' : 'disable-strict');
         if (val) {
-            enterFireApplying();
+            await notifyFireChange();
         } else {
             MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
         }

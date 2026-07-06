@@ -102,7 +102,7 @@ import { deepCopy } from '@/utils/misc';
 import { useFireBaseInfo } from '@/views/host/firewall/composables/useFireBaseInfo';
 import { computeFirewallRisk, ensurePortsLoaded } from '@/views/host/firewall/composables/useFirewallRisk';
 import { isValidAddressList, isValidPortExpr } from '@/views/host/firewall/composables/firewallHelpers';
-import { enterFireApplying } from '@/views/host/firewall/composables/useFireSession';
+import { notifyFireChange } from '@/views/host/firewall/composables/useFireSession';
 
 // 能力/模式直接读共享 baseInfo（列表页已加载），不再经 acceptParams 层层透传。
 const { dockerAvailable, loadDockerStatus, capabilities, mode } = useFireBaseInfo('base');
@@ -271,8 +271,8 @@ const doSubmit = async () => {
         }
         if (form.strategy === 'drop') {
             // drop=会话型候选（后端对触及保底端口的 drop / CIDR 封禁武装 60s 确认窗口）：
-            // 即时进入应用中过渡态（含「应用中…」提示），且不显示「最终成功」以免在用户确认前误导。
-            enterFireApplying();
+            // 刷新会话状态，武装了则由确认条接管提示，未武装补成功提示。
+            await notifyFireChange();
         } else {
             MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
         }

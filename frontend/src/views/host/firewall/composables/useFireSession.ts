@@ -1,9 +1,9 @@
 // 会话型确认窗口的共享状态与动作（模块级单例）。
 //
 // <SessionConfirm /> 挂在共享头部 firewall/index.vue（FireRouter）里负责轮询与倒计时；
-// 状态栏 / inbound 列表 / inbound operate 抽屉 等处只需 enterFireApplying() 即可
-// 即时进入「应用中…」过渡态。把 session/remain/applying/loading 与 confirm/revert 动作上提到
-// 单例，各调用方复用同一份会话状态，无需重复拉取或重写动作逻辑。
+// 会话型变更（drop / 开启白名单模式等）的保存方成功后调 notifyFireChange() 统一反馈。
+// 把 session/remain/loading 与 confirm/revert 动作上提到单例，各调用方复用同一份
+// 会话状态，无需重复拉取或重写动作逻辑。
 import { ref } from 'vue';
 import { Host } from '@/api/interface/host';
 import { confirmFireSession, loadFireSession, revertFireSession } from '@/api/modules/host';
@@ -20,10 +20,7 @@ const session = ref<Host.FirewallSession>({
     since: '',
 });
 const remain = ref(0);
-// 保存成功后立即进入的「应用中…」过渡态：禁用确认/撤销，约 2s 或拿到确认窗口为止。
-const applying = ref(false);
 const loading = ref(false);
-let applyTimer: ReturnType<typeof setTimeout> | null = null;
 
 const refresh = async (): Promise<void> => {
     try {
@@ -33,33 +30,16 @@ const refresh = async (): Promise<void> => {
     } catch {
         session.value.active = false;
     }
-    // 已拿到确认窗口，提前结束过渡态。
-    if (applying.value && session.value.active) {
-        applying.value = false;
-        if (applyTimer) {
-            clearTimeout(applyTimer);
-            applyTimer = null;
-        }
+};
+
+// 会话型保存成功后的统一反馈：后端在请求内同步武装确认窗口（BeginSessionGuard），
+// 刷新一次即可判定——武装了则由确认条接管提示，未武装则补一条常规成功提示。
+export const notifyFireChange = async (): Promise<void> => {
+    await refresh();
+    if (!session.value.active) {
+        MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
     }
 };
-
-// 由保存成功的调用方触发：统一弹「应用中…」提示并显示 spinner，
-// 再主动刷新拿确认窗口；约 2s 后兜底退出。
-const enterApplying = (): void => {
-    MsgWarning(i18n.global.t('firewall.applying'));
-    applying.value = true;
-    refresh();
-    if (applyTimer) clearTimeout(applyTimer);
-    applyTimer = setTimeout(() => {
-        applying.value = false;
-        applyTimer = null;
-        refresh();
-    }, 2000);
-};
-
-// 供会话型保存成功方调用：立即进入应用中过渡态。若当前无 <SessionConfirm />（未注册轮询），
-// 后续 3s 轮询仍会兜底拉起确认卡（轮询由 SessionConfirm 持有，仅防火墙页打开时运行）。
-export const enterFireApplying = enterApplying;
 
 // 倒计时归 0：后端会自动撤销，前端主动刷新并据结果提示。
 const onCountdownZero = async (): Promise<void> => {
@@ -98,10 +78,8 @@ export function useFireSession() {
     return {
         session,
         remain,
-        applying,
         loading,
         refresh,
-        enterApplying,
         onConfirm,
         onRevert,
         onCountdownZero,
