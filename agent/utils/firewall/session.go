@@ -31,11 +31,9 @@ const sessionMarkerFile = "session.lock"
 
 const defaultConfirmWindow = 60
 
-// 自动回滚失败后的缩短重试窗口与最大重试次数：避免 restorePreSession 失败后会话卡死 active、
-// 定时器不再 armed；同时防止无限重试。超过上限后保留 marker 停止自动重试，留待进程重启时
-// ReclaimSession 兜底（或人工介入）。
-const revertRetryWindowSec = 15
-const maxRevertRetries = 3
+// 自动回滚失败 → 会话置 poisoned：内核处于半还原危险态，冻结确认与新变更（防把危险状态
+// 落盘/叠加），保留 marker。出路：用户手动点"立即撤销"重试（restorePreSession 幂等）、
+// 重启 agent 由 ReclaimSession 兜底、或 1pctl firewall rescue。
 
 // StrictModeSessionSummary 是开启白名单（严格）模式时登记的会话摘要，作为该会话的可辨识标记。
 // 关闭白名单（disableStrictMode）据此判定"当前活动会话是否只是这一笔严格变更"，
@@ -52,6 +50,7 @@ type SessionInfo struct {
 	Changes       []SessionChange `json:"changes"`
 	RemainSeconds int             `json:"remainSeconds"`
 	Since         string          `json:"since"`
+	Poisoned      bool            `json:"poisoned"`
 }
 
 // sessionMarker 的内容只为排障留痕：回收时只看 marker 文件是否存在（还原锚点是固定的
@@ -63,14 +62,14 @@ type sessionMarker struct {
 }
 
 type sessionState struct {
-	mu          sync.Mutex
-	active      bool
-	changes     []SessionChange
-	since       time.Time
-	deadline    time.Time
-	windowSec   int
-	timer       *time.Timer
-	revertFails int
+	mu        sync.Mutex
+	active    bool
+	changes   []SessionChange
+	since     time.Time
+	deadline  time.Time
+	windowSec int
+	timer     *time.Timer
+	poisoned  bool
 }
 
 var session = &sessionState{windowSec: defaultConfirmWindow}
@@ -84,6 +83,11 @@ func BeginSession(summary string) error {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 
+	// poisoned：上次自动回滚失败，内核处于半还原危险态。冻结新变更（并入会话会把新风险
+	// 叠在无法回滚的状态上），指引用户先手动撤销/重启 agent/rescue。
+	if session.active && session.poisoned {
+		return buserr.New("ErrFirewallRevertExhausted")
+	}
 	if !session.active {
 		if err := WriteRescueSnapshot(); err != nil {
 			return err
@@ -165,10 +169,10 @@ func ConfirmSession() error {
 	if !session.active {
 		return nil
 	}
-	// 自动回滚已连续失败到上限：会话仍 active，但内核处于半还原危险态、定时器不再武装、marker 保留待兜底。
-	// 此时绝不能确认——persistManagedChains 会把这份半还原状态落盘并覆盖上次确认的良好持久化文件，
-	// 令危险规则集在重启/重放后复活（D1）。拒绝确认，指引用户重启 agent 或用 1pctl firewall rescue 恢复。
-	if session.revertFails >= maxRevertRetries {
+	// poisoned：自动回滚失败过，内核处于半还原危险态。此时绝不能确认——persistManagedChains
+	// 会把这份半还原状态落盘并覆盖上次确认的良好持久化文件，令危险规则集在重启/重放后复活（D1）。
+	// 拒绝确认，指引用户手动撤销重试、重启 agent 或用 1pctl firewall rescue 恢复。
+	if session.poisoned {
 		return buserr.New("ErrFirewallRevertExhausted")
 	}
 	persistManagedChains()
@@ -200,20 +204,12 @@ func RevertSession() error {
 		return nil
 	}
 	if err := restorePreSession(); err != nil {
-		// 还原未完整完成（restorePreSession fail-fast 上报）：此时绝不能把半还原的内核状态写盘，
-		// 否则会覆盖上次确认的良好持久化文件并在重启/重放后复活危险规则集；也保留会话标记。
-		// 重装一个缩短的重试窗口做有限次自动重试，避免会话卡死 active、定时器不再 armed；
-		// 超过上限后保留 marker 停止自动重试，留待进程重启时 ReclaimSession 兜底（或人工介入）。
-		global.LOG.Errorf("[firewall-session] revert failed, keeping marker for retry, not persisting partial state: %v", err)
-		session.revertFails++
-		if session.revertFails >= maxRevertRetries {
-			global.LOG.Errorf("[firewall-session] revert failed %d times, stop auto-retry; keep marker for manual intervention / ReclaimSession on restart", session.revertFails)
-			return err
-		}
-		session.deadline = time.Now().Add(time.Duration(revertRetryWindowSec) * time.Second)
-		session.persistMarkerLocked()
-		session.armTimerLocked()
-		global.LOG.Warnf("[firewall-session] revert failed %d/%d, re-armed retry window %ds", session.revertFails, maxRevertRetries, revertRetryWindowSec)
+		// 还原未完整完成（restorePreSession fail-fast 上报）：绝不能把半还原的内核状态写盘，
+		// 否则会覆盖上次确认的良好持久化文件并在重启/重放后复活危险规则集。置 poisoned、保留
+		// marker：确认与新变更被冻结（见 ConfirmSession/BeginSession），用户仍可手动"立即撤销"
+		// 重试本函数（restorePreSession 幂等，成功即解毒），或重启 agent 走 ReclaimSession 兜底。
+		global.LOG.Errorf("[firewall-session] revert failed, session poisoned; keeping marker, not persisting partial state: %v", err)
+		session.poisoned = true
 		return err
 	}
 	// 还原成功后重写持久化文件，把会话期间已落盘的未确认变更从现役文件里冲掉。
@@ -227,7 +223,7 @@ func RevertSession() error {
 func SessionStatus() SessionInfo {
 	session.mu.Lock()
 	defer session.mu.Unlock()
-	info := SessionInfo{Active: session.active, Changes: session.changes}
+	info := SessionInfo{Active: session.active, Changes: session.changes, Poisoned: session.poisoned}
 	if session.active {
 		info.Since = session.since.Format("2006-01-02 15:04:05")
 		remain := int(time.Until(session.deadline).Seconds())
@@ -266,7 +262,7 @@ func (s *sessionState) clearLocked() {
 	s.changes = nil
 	s.deadline = time.Time{}
 	s.since = time.Time{}
-	s.revertFails = 0
+	s.poisoned = false
 	_ = os.Remove(markerPath())
 }
 

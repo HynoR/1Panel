@@ -33,7 +33,7 @@ ErrFirewallUnconditionalDrop: "該規則會無條件封鎖所有來源，已拒�
 ErrFirewallBlockRescue: "該規則會從所有來源封鎖 SSH/1Panel 連接埠並把你鎖在外面，已拒絕。SSH 與 1Panel 是保底連接埠"
 ErrFirewallBlockSelf: "該規則可能阻斷你目前的連線，且目前防火牆模式沒有自動回滾，已拒絕"
 ErrFirewallBatchPartial: 'Batch operation finished: {{ .success }} succeeded, {{ .failed }} failed. First failure: {{ .reason }}'
-ErrFirewallRevertExhausted: 'Automatic rollback of the firewall change failed repeatedly, so this confirmation was rejected to avoid persisting a half-restored, unsafe rule set. Restart the agent or run "1pctl firewall rescue" to recover.'
+ErrFirewallRevertExhausted: "防火牆變更的自動回滾失敗，為避免把半還原的危險規則集落盤，該筆待確認變更已被凍結。可點擊「立即撤銷」重試回滾，或重啟 agent、執行「1pctl firewall rescue」恢復"
 ErrFirewallSessionBusy: 'There is a pending firewall change awaiting confirmation. Please confirm or discard it before switching whitelist mode.'
 ErrPortExist: '{{ .port }} 埠已被{{ .type }} [{{ .name }}] 佔用'
 TYPE_APP: '應用'

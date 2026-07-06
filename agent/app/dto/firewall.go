@@ -155,6 +155,7 @@ type FirewallSessionInfo struct {
 	Changes       []FirewallSessionChange `json:"changes"`
 	RemainSeconds int                     `json:"remainSeconds"`
 	Since         string                  `json:"since"`
+	Poisoned      bool                    `json:"poisoned"`
 }
 
 type FirewallDockerRule struct {

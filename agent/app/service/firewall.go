@@ -840,6 +840,7 @@ func (u *FirewallService) SessionStatus() dto.FirewallSessionInfo {
 		Active:        info.Active,
 		RemainSeconds: info.RemainSeconds,
 		Since:         info.Since,
+		Poisoned:      info.Poisoned,
 	}
 	for _, c := range info.Changes {
 		result.Changes = append(result.Changes, dto.FirewallSessionChange{Summary: c.Summary, At: c.At})
