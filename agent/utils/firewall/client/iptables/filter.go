@@ -22,10 +22,10 @@ type FilterRules struct {
 	Description string `json:"description"`
 }
 
+// AddFilterRule 不做"危险规则"服务端检测：advance 自定义规则属高级玩法，风险自担
+// （2026-07-06 裁决——无法预料所有高级玩法的锁死组合，不为其堆冗余检查；
+// 前端仅要求封禁条件必须显式输入，见 advance/operate 的提交校验）。
 func AddFilterRule(chain string, policy FilterRules) error {
-	if err := validateRuleSafety(policy, chain); err != nil {
-		return err
-	}
 	args := []string{"-A", chain}
 	if policy.Protocol != "" {
 		args = append(args, "-p", policy.Protocol)
@@ -288,24 +288,4 @@ func loadProtocol(protocol string) string {
 	default:
 		return protocol
 	}
-}
-
-func validateRuleSafety(rule FilterRules, chain string) error {
-	if strings.ToUpper(rule.Strategy) != "DROP" {
-		return nil
-	}
-
-	if chain == ChainInput || chain == Chain1PanelInput || chain == Chain1PanelBasic || chain == Chain1PanelDeny {
-		if rule.SrcIP == "0.0.0.0/0" && len(rule.SrcPort) == 0 && len(rule.DstPort) == 0 {
-			return fmt.Errorf("unsafe DROP is not allowed")
-		}
-	}
-
-	if chain == ChainOutput || chain == Chain1PanelOutput || chain == Chain1PanelBasicAfter {
-		if rule.DstIP == "0.0.0.0/0" && len(rule.DstPort) == 0 && len(rule.SrcPort) == 0 {
-			return fmt.Errorf("unsafe DROP is not allowed")
-		}
-	}
-
-	return nil
 }
