@@ -12,8 +12,8 @@ import (
 type Lane string
 
 const (
-	LaneExternalNative       Lane = "external-native"
-	LaneSelfManagedLegacyV1  Lane = "self-managed-legacy-v1"
+	LaneExternalNative      Lane = "external-native"
+	LaneSelfManagedLegacyV1 Lane = "self-managed-legacy-v1"
 )
 
 // ProviderInfo is a read-only detection result used for routing.

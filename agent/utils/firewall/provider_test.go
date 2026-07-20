@@ -5,6 +5,18 @@ import (
 	"testing"
 )
 
+func TestLaneOfName(t *testing.T) {
+	if LaneOfName("iptables") != LaneSelfManagedLegacyV1 {
+		t.Fatal("iptables must be legacy-v1")
+	}
+	if LaneOfName("ufw") != LaneExternalNative {
+		t.Fatal("ufw must be external")
+	}
+	if LaneOfName("firewalld") != LaneExternalNative {
+		t.Fatal("firewalld must be external")
+	}
+}
+
 func TestResolveProviderFromPresence(t *testing.T) {
 	tests := []struct {
 		name      string
