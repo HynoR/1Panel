@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/1Panel-dev/1Panel/agent/utils/cmd"
+	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client"
 )
 
 // Lane identifies ownership of a filter backend.
@@ -12,6 +13,7 @@ import (
 type Lane string
 
 const (
+	LaneUnknown             Lane = "unknown"
 	LaneExternalNative      Lane = "external-native"
 	LaneSelfManagedLegacyV1 Lane = "self-managed-legacy-v1"
 )
@@ -21,6 +23,11 @@ const (
 type ProviderInfo struct {
 	Name string
 	Lane Lane
+}
+
+// ProviderStatusReader exposes only the capability required by read-only callers.
+type ProviderStatusReader interface {
+	Status() (bool, error)
 }
 
 // DetectProvider reuses NewFirewallClient selection order without building a client:
@@ -57,11 +64,44 @@ func (p ProviderInfo) IsLegacyV1() bool {
 	return p.Lane == LaneSelfManagedLegacyV1
 }
 
-// LaneOfName maps a provider name to its ownership lane.
-// Unknown names are treated as external to avoid accidental managed writes.
+// LaneOfName maps a known provider name to its ownership lane.
 func LaneOfName(name string) Lane {
-	if name == "iptables" {
+	switch name {
+	case "ufw", "firewalld":
+		return LaneExternalNative
+	case "iptables":
 		return LaneSelfManagedLegacyV1
+	default:
+		return LaneUnknown
 	}
-	return LaneExternalNative
+}
+
+// ResolveLane rejects unknown providers instead of guessing an ownership lane.
+func ResolveLane(name string) (Lane, error) {
+	lane := LaneOfName(name)
+	if lane == LaneUnknown {
+		return LaneUnknown, errors.New("unsupported firewall provider: " + name)
+	}
+	return lane, nil
+}
+
+// NewProviderStatusReader constructs a provider through a read-only interface.
+func NewProviderStatusReader(provider ProviderInfo) (ProviderStatusReader, error) {
+	lane, err := ResolveLane(provider.Name)
+	if err != nil {
+		return nil, err
+	}
+	if provider.Lane != lane {
+		return nil, errors.New("firewall provider lane does not match provider name")
+	}
+	switch provider.Name {
+	case "firewalld":
+		return client.NewFirewalld()
+	case "ufw":
+		return client.NewUfw()
+	case "iptables":
+		return client.NewIptables()
+	default:
+		return nil, errors.New("unsupported firewall provider: " + provider.Name)
+	}
 }

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/1Panel-dev/1Panel/agent/app/dto"
@@ -18,7 +19,7 @@ func loadExternalInitStatus(clientName, tab string) (bool, bool) {
 	return iptables.LoadInitStatus(clientName, tab)
 }
 
-func (u *FirewallService) operateExternalPortRule(client firewall.FirewallClient, req dto.PortRuleOperate, reload bool) error {
+func (u *FirewallService) operateExternalPortRule(client firewall.FilterClient, req dto.PortRuleOperate, reload bool) error {
 	protos := strings.Split(req.Protocol, "/")
 	itemAddress := splitFirewallRuleAddresses(req.Address)
 
@@ -105,7 +106,7 @@ func (u *FirewallService) operateExternalPortRule(client firewall.FirewallClient
 	return nil
 }
 
-func (u *FirewallService) operateExternalAddressRule(client firewall.FirewallClient, req dto.AddrRuleOperate, reload bool) error {
+func (u *FirewallService) operateExternalAddressRule(client firewall.FilterClient, req dto.AddrRuleOperate, reload bool) error {
 	var fireInfo fireClient.FireInfo
 	if err := copier.Copy(&fireInfo, &req); err != nil {
 		return err
@@ -131,7 +132,7 @@ func (u *FirewallService) operateExternalAddressRule(client firewall.FirewallCli
 	return nil
 }
 
-func (u *FirewallService) operateExternalPort(client firewall.FirewallClient, req dto.PortRuleOperate) error {
+func (u *FirewallService) operateExternalPort(client firewall.FilterClient, req dto.PortRuleOperate) error {
 	var fireInfo fireClient.FireInfo
 	if err := copier.Copy(&fireInfo, &req); err != nil {
 		return err
@@ -151,7 +152,7 @@ func (u *FirewallService) operateExternalPort(client firewall.FirewallClient, re
 	return client.Port(fireInfo, req.Operation)
 }
 
-func (u *FirewallService) addExternalPortsBeforeStart(client firewall.FirewallClient) error {
+func (u *FirewallService) addExternalPortsBeforeStart(client firewall.FilterClient) error {
 	portWhiteList, err := loadFirewallPortWhiteList()
 	if err != nil {
 		return err
@@ -164,7 +165,7 @@ func (u *FirewallService) addExternalPortsBeforeStart(client firewall.FirewallCl
 	return client.Reload()
 }
 
-func syncExternalFirewallPortWhiteList(client firewall.FirewallClient, oldValue string) error {
+func syncExternalFirewallPortWhiteList(client firewall.FilterClient, oldValue string) error {
 	isActive, _ := client.Status()
 	if !isActive {
 		return nil
@@ -183,4 +184,23 @@ func syncExternalFirewallPortWhiteList(client firewall.FirewallClient, oldValue 
 	}
 	oldPortWhiteList = normalizeFirewallPortWhiteList(append(oldPortWhiteList, requiredPorts...))
 	return syncFirewallClientPortWhiteList(client, oldPortWhiteList, portWhiteList)
+}
+
+func listExternalFilterRules(client firewall.FilterClient, ruleType string) ([]fireClient.FireInfo, error) {
+	switch ruleType {
+	case "port":
+		return client.ListPort()
+	case "address":
+		return client.ListAddress()
+	default:
+		return nil, fmt.Errorf("unsupported external filter rule type: %s", ruleType)
+	}
+}
+
+func operateExternalFilterLifecycle(client firewall.FilterClient, operation string) error {
+	return operateFilterLifecycle(client, operation)
+}
+
+func operateExternalFirewallPort(client firewall.FilterClient, oldPorts, newPorts []int) error {
+	return operateFirewallPorts(client, oldPorts, newPorts)
 }

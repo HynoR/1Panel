@@ -117,13 +117,12 @@ func (u *Fail2BanService) UpdateConf(req dto.Fail2BanUpdate) error {
 			if provider.Name != itemName {
 				return buserr.WithName("ErrBanAction", itemName)
 			}
-			client, err := firewall.NewFirewallClient()
+			client, err := firewall.NewProviderStatusReader(provider)
 			if err != nil {
 				return err
 			}
-			isActive, _ := client.Status()
-			if !isActive {
-				return buserr.WithName("ErrBanAction", itemName)
+			if err := ensureFirewallProviderActive(client, itemName); err != nil {
+				return err
 			}
 		}
 	}
@@ -181,6 +180,14 @@ func (u *Fail2BanService) UpdateConf(req dto.Fail2BanUpdate) error {
 	}
 	if err := client.Operate("restart"); err != nil {
 		return err
+	}
+	return nil
+}
+
+func ensureFirewallProviderActive(client firewall.ProviderStatusReader, itemName string) error {
+	isActive, _ := client.Status()
+	if !isActive {
+		return buserr.WithName("ErrBanAction", itemName)
 	}
 	return nil
 }

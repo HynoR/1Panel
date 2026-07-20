@@ -105,13 +105,21 @@ func syncFirewallPortWhiteListAfterUpdate(oldValue string) error {
 	if err != nil {
 		return err
 	}
-	if firewall.LaneOfName(client.Name()) == firewall.LaneSelfManagedLegacyV1 {
+	return syncFirewallPortWhiteListAfterUpdateWithClient(client, oldValue)
+}
+
+func syncFirewallPortWhiteListAfterUpdateWithClient(client firewall.FilterClient, oldValue string) error {
+	lane, err := firewall.ResolveLane(client.Name())
+	if err != nil {
+		return err
+	}
+	if lane == firewall.LaneSelfManagedLegacyV1 {
 		return syncLegacyFirewallPortWhiteList(oldValue)
 	}
 	return syncExternalFirewallPortWhiteList(client, oldValue)
 }
 
-func syncFirewallClientPortWhiteList(client firewall.FirewallClient, oldPortWhiteList, portWhiteList []firewallPortWhitelist) error {
+func syncFirewallClientPortWhiteList(client firewall.FilterClient, oldPortWhiteList, portWhiteList []firewallPortWhitelist) error {
 	oldPorts := firewallPortWhiteListMap(oldPortWhiteList)
 	newPorts := firewallPortWhiteListMap(portWhiteList)
 	for _, item := range oldPortWhiteList {

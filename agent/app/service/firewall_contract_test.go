@@ -8,12 +8,12 @@ import (
 	"github.com/1Panel-dev/1Panel/agent/constant"
 )
 
-// NewFirewallClient callers inventory (PR-01 Commit 01.1):
+// Firewall provider caller inventory captured from dev-v2:
 // 1. firewall.go — page CRUD / OperateFirewall / OperateFirewallPort
 // 2. firewall_setting.go — whitelist sync
 // 3. init/firewall — boot replay
-// 4. fail2ban.go — read-only provider probe
-// 5. migrations/init.go — Name() backfill only
+// 4. fail2ban.go — DetectProvider plus read-only status capability
+// 5. migrations/init.go — DetectProvider Name() backfill only
 // 6. ssh.go / website_domain.go — OperateFirewallPort (allow-only)
 
 func TestParseFirewallPortWhiteListContract(t *testing.T) {
@@ -124,11 +124,6 @@ func TestCheckPortUsedContract(t *testing.T) {
 	}
 	if got := checkPortUsed("9999", "tcp", apps); got != "1panel" {
 		t.Fatalf("got %q want 1panel", got)
-	}
-	if got := checkPortUsed("12345", "tcp", apps); got != "" {
-		// ScanPortWithProto may or may not find a listener in CI; only assert app miss path returns non-app name when unused.
-		// When unused, empty string is expected.
-		_ = got
 	}
 }
 

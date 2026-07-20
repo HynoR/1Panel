@@ -7,14 +7,6 @@ import (
 	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client/iptables"
 )
 
-// NewFirewallClient callers inventory (PR-01 Commit 01.1):
-// 1. agent/app/service/firewall.go — filter CRUD, start/stop, forward, OperateFirewallPort
-// 2. agent/app/service/firewall_setting.go — syncFirewallPortWhiteListAfterUpdate
-// 3. agent/init/firewall/firewall.go — boot replay
-// 4. agent/app/service/fail2ban.go — UpdateConf banaction probe (read-only Name/Status)
-// 5. agent/init/migration/migrations/init.go — AddIptablesFilterRuleTable Name() backfill
-// 6. Indirect: ssh.go / website_domain.go via OperateFirewallPort
-
 func TestNormalizePortSpec(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -110,7 +102,7 @@ func TestIptablesRichRuleArgsContract(t *testing.T) {
 	assertStringSliceEqual(t, got, want)
 }
 
-func TestIptablesDefaultChainIsManaged(t *testing.T) {
+func TestIptablesDefaultChainIsPanelOwned(t *testing.T) {
 	if iptables.Chain1PanelBasic != "1PANEL_BASIC" {
 		t.Fatalf("unexpected basic chain: %s", iptables.Chain1PanelBasic)
 	}
@@ -125,55 +117,6 @@ func TestIptablesDefaultChainIsManaged(t *testing.T) {
 			t.Fatalf("legacy chain %q must be 1PANEL_ owned", chain)
 		}
 	}
-}
-
-// buildIptablesPortRuleArgs mirrors Iptables.Port rule construction (dev-v2 contract).
-func buildIptablesPortRuleArgs(port FireInfo) ([]string, error) {
-	portSpec, err := normalizePortSpec(port.Port)
-	if err != nil {
-		return nil, err
-	}
-	protocol := port.Protocol
-	if protocol == "" {
-		protocol = "tcp"
-	}
-	action := "ACCEPT"
-	if port.Strategy == "drop" {
-		action = "DROP"
-	}
-	return []string{"-p", protocol, "--dport", portSpec, "-j", action}, nil
-}
-
-// buildIptablesRichRuleArgs mirrors Iptables.RichRules rule construction (dev-v2 contract).
-func buildIptablesRichRuleArgs(rule FireInfo) ([]string, error) {
-	address := strings.TrimSpace(rule.Address)
-	if strings.EqualFold(address, "Anywhere") {
-		address = ""
-	}
-	action := "ACCEPT"
-	if rule.Strategy == "drop" {
-		action = "DROP"
-	}
-	var ruleArgs []string
-	if address != "" {
-		ruleArgs = append(ruleArgs, "-s", address)
-	}
-	protocol := strings.TrimSpace(rule.Protocol)
-	if rule.Port != "" && protocol == "" {
-		protocol = "tcp"
-	}
-	if protocol != "" {
-		ruleArgs = append(ruleArgs, "-p", protocol)
-	}
-	if rule.Port != "" {
-		portSegment, err := normalizePortSpec(rule.Port)
-		if err != nil {
-			return nil, err
-		}
-		ruleArgs = append(ruleArgs, "--dport", portSegment)
-	}
-	ruleArgs = append(ruleArgs, "-j", action)
-	return ruleArgs, nil
 }
 
 func assertStringSliceEqual(t *testing.T, got, want []string) {

@@ -12,8 +12,9 @@ import (
 	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client"
 )
 
-type FirewallClient interface {
-	Name() string // ufw firewalld
+// FilterClient is the capability surface available to filter lanes.
+type FilterClient interface {
+	Name() string // ufw firewalld iptables
 	Start() error
 	Stop() error
 	Restart() error
@@ -22,11 +23,17 @@ type FirewallClient interface {
 	Version() (string, error)
 
 	ListPort() ([]client.FireInfo, error)
-	ListForward() ([]client.FireInfo, error)
 	ListAddress() ([]client.FireInfo, error)
 
 	Port(port client.FireInfo, operation string) error
 	RichRules(rule client.FireInfo, operation string) error
+}
+
+// FirewallClient keeps the dev-v2 forwarding surface until it is extracted.
+type FirewallClient interface {
+	FilterClient
+
+	ListForward() ([]client.FireInfo, error)
 	PortForward(info client.Forward, operation string) error
 
 	EnableForward() error

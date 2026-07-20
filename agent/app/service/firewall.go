@@ -51,6 +51,10 @@ func (u *FirewallService) LoadBaseInfo(tab string) (dto.FirewallBaseInfo, error)
 	}
 	baseInfo.IsExist = true
 	baseInfo.Name = client.Name()
+	lane, err := firewall.ResolveLane(baseInfo.Name)
+	if err != nil {
+		return baseInfo, err
+	}
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -62,7 +66,7 @@ func (u *FirewallService) LoadBaseInfo(tab string) (dto.FirewallBaseInfo, error)
 	go func() {
 		defer wg.Done()
 		baseInfo.IsActive, _ = client.Status()
-		if firewall.LaneOfName(baseInfo.Name) == firewall.LaneSelfManagedLegacyV1 {
+		if lane == firewall.LaneSelfManagedLegacyV1 {
 			baseInfo.IsInit, baseInfo.IsBind = loadLegacyInitStatus(tab)
 		} else {
 			baseInfo.IsInit, baseInfo.IsBind = loadExternalInitStatus(baseInfo.Name, tab)
@@ -82,15 +86,19 @@ func (u *FirewallService) SearchWithPage(req dto.RuleSearch) (int64, interface{}
 	if err != nil {
 		return 0, nil, err
 	}
+	lane, err := firewall.ResolveLane(client.Name())
+	if err != nil {
+		return 0, nil, err
+	}
 
 	var rules []fireClient.FireInfo
 	switch req.Type {
 	case "port":
-		rules, err = client.ListPort()
+		rules, err = listFilterRulesByLane(client, lane, "port")
 	case "forward":
 		rules, err = client.ListForward()
 	case "address":
-		rules, err = client.ListAddress()
+		rules, err = listFilterRulesByLane(client, lane, "address")
 	}
 	if err != nil {
 		return 0, nil, err
@@ -169,6 +177,10 @@ func (u *FirewallService) OperateFirewall(req dto.FirewallOperation) error {
 	if err != nil {
 		return err
 	}
+	lane, err := firewall.ResolveLane(client.Name())
+	if err != nil {
+		return err
+	}
 	var bannedIPs []string
 	if req.Operation == "start" || req.Operation == "restart" {
 		bannedIPs = loadFail2BanBannedIPs()
@@ -176,21 +188,21 @@ func (u *FirewallService) OperateFirewall(req dto.FirewallOperation) error {
 	needRestartDocker := false
 	switch req.Operation {
 	case "start":
-		if err := client.Start(); err != nil {
+		if err := operateFilterLifecycleByLane(client, lane, "start"); err != nil {
 			return err
 		}
 		if err := u.addPortsBeforeStart(client); err != nil {
-			_ = client.Stop()
+			_ = operateFilterLifecycleByLane(client, lane, "stop")
 			return err
 		}
 		needRestartDocker = true
 	case "stop":
-		if err := client.Stop(); err != nil {
+		if err := operateFilterLifecycleByLane(client, lane, "stop"); err != nil {
 			return err
 		}
 		needRestartDocker = true
 	case "restart":
-		if err := client.Restart(); err != nil {
+		if err := operateFilterLifecycleByLane(client, lane, "restart"); err != nil {
 			return err
 		}
 		if err := u.addPortsBeforeStart(client); err != nil {
@@ -252,7 +264,15 @@ func (u *FirewallService) OperatePortRule(req dto.PortRuleOperate, reload bool) 
 	if err != nil {
 		return err
 	}
-	if firewall.LaneOfName(client.Name()) == firewall.LaneSelfManagedLegacyV1 {
+	return u.operatePortRuleWithClient(client, req, reload)
+}
+
+func (u *FirewallService) operatePortRuleWithClient(client firewall.FilterClient, req dto.PortRuleOperate, reload bool) error {
+	lane, err := firewall.ResolveLane(client.Name())
+	if err != nil {
+		return err
+	}
+	if lane == firewall.LaneSelfManagedLegacyV1 {
 		return u.operateLegacyPortRule(client, req, reload)
 	}
 	return u.operateExternalPortRule(client, req, reload)
@@ -353,7 +373,15 @@ func (u *FirewallService) OperateAddressRule(req dto.AddrRuleOperate, reload boo
 	if err != nil {
 		return err
 	}
-	if firewall.LaneOfName(client.Name()) == firewall.LaneSelfManagedLegacyV1 {
+	return u.operateAddressRuleWithClient(client, req, reload)
+}
+
+func (u *FirewallService) operateAddressRuleWithClient(client firewall.FilterClient, req dto.AddrRuleOperate, reload bool) error {
+	lane, err := firewall.ResolveLane(client.Name())
+	if err != nil {
+		return err
+	}
+	if lane == firewall.LaneSelfManagedLegacyV1 {
 		return u.operateLegacyAddressRule(client, req, reload)
 	}
 	return u.operateExternalAddressRule(client, req, reload)
@@ -370,7 +398,7 @@ func (u *FirewallService) UpdatePortRule(req dto.PortRuleUpdate) error {
 	if err := u.OperatePortRule(req.NewRule, false); err != nil {
 		return err
 	}
-	return client.Reload()
+	return reloadFilterByLane(client)
 }
 
 func (u *FirewallService) UpdateAddrRule(req dto.AddrRuleUpdate) error {
@@ -384,7 +412,7 @@ func (u *FirewallService) UpdateAddrRule(req dto.AddrRuleUpdate) error {
 	if err := u.OperateAddressRule(req.NewRule, false); err != nil {
 		return err
 	}
-	return client.Reload()
+	return reloadFilterByLane(client)
 }
 
 func (u *FirewallService) UpdateDescription(req dto.UpdateFirewallDescription) error {
@@ -412,13 +440,13 @@ func (u *FirewallService) BatchOperateRule(req dto.BatchRuleOperate) error {
 		for _, rule := range req.Rules {
 			_ = u.OperatePortRule(rule, false)
 		}
-		return client.Reload()
+		return reloadFilterByLane(client)
 	}
 	for _, rule := range req.Rules {
 		itemRule := dto.AddrRuleOperate{Operation: rule.Operation, Address: rule.Address, Strategy: rule.Strategy}
 		_ = u.OperateAddressRule(itemRule, false)
 	}
-	return client.Reload()
+	return reloadFilterByLane(client)
 }
 
 func OperateFirewallPort(oldPorts, newPorts []int) error {
@@ -426,6 +454,21 @@ func OperateFirewallPort(oldPorts, newPorts []int) error {
 	if err != nil {
 		return err
 	}
+	return operateFirewallPortWithClient(client, oldPorts, newPorts)
+}
+
+func operateFirewallPortWithClient(client firewall.FilterClient, oldPorts, newPorts []int) error {
+	lane, err := firewall.ResolveLane(client.Name())
+	if err != nil {
+		return err
+	}
+	if lane == firewall.LaneSelfManagedLegacyV1 {
+		return operateLegacyFirewallPort(client, oldPorts, newPorts)
+	}
+	return operateExternalFirewallPort(client, oldPorts, newPorts)
+}
+
+func operateFirewallPorts(client firewall.FilterClient, oldPorts, newPorts []int) error {
 	for _, port := range newPorts {
 		if err := client.Port(fireClient.FireInfo{Port: strconv.Itoa(port), Protocol: "tcp", Strategy: "accept"}, "add"); err != nil {
 			return err
@@ -487,7 +530,7 @@ func (u *FirewallService) loadPortByApp() []portOfApp {
 	return datas
 }
 
-func (u *FirewallService) cleanUnUsedData(client firewall.FirewallClient) {
+func (u *FirewallService) cleanUnUsedData(client firewall.FilterClient) {
 	list, _ := client.ListPort()
 	addressList, _ := client.ListAddress()
 	list = append(list, addressList...)
@@ -511,11 +554,58 @@ func (u *FirewallService) cleanUnUsedData(client firewall.FirewallClient) {
 	}
 }
 
-func (u *FirewallService) addPortsBeforeStart(client firewall.FirewallClient) error {
-	if firewall.LaneOfName(client.Name()) == firewall.LaneSelfManagedLegacyV1 {
+func (u *FirewallService) addPortsBeforeStart(client firewall.FilterClient) error {
+	lane, err := firewall.ResolveLane(client.Name())
+	if err != nil {
+		return err
+	}
+	if lane == firewall.LaneSelfManagedLegacyV1 {
 		return u.addLegacyPortsBeforeStart(client)
 	}
 	return u.addExternalPortsBeforeStart(client)
+}
+
+func listFilterRulesByLane(client firewall.FilterClient, lane firewall.Lane, ruleType string) ([]fireClient.FireInfo, error) {
+	if lane == firewall.LaneSelfManagedLegacyV1 {
+		return listLegacyFilterRules(client, ruleType)
+	}
+	if lane == firewall.LaneExternalNative {
+		return listExternalFilterRules(client, ruleType)
+	}
+	return nil, fmt.Errorf("unsupported firewall lane: %s", lane)
+}
+
+func operateFilterLifecycleByLane(client firewall.FilterClient, lane firewall.Lane, operation string) error {
+	if lane == firewall.LaneSelfManagedLegacyV1 {
+		return operateLegacyFilterLifecycle(client, operation)
+	}
+	if lane == firewall.LaneExternalNative {
+		return operateExternalFilterLifecycle(client, operation)
+	}
+	return fmt.Errorf("unsupported firewall lane: %s", lane)
+}
+
+func reloadFilterByLane(client firewall.FilterClient) error {
+	lane, err := firewall.ResolveLane(client.Name())
+	if err != nil {
+		return err
+	}
+	return operateFilterLifecycleByLane(client, lane, "reload")
+}
+
+func operateFilterLifecycle(client firewall.FilterClient, operation string) error {
+	switch operation {
+	case "start":
+		return client.Start()
+	case "stop":
+		return client.Stop()
+	case "restart":
+		return client.Restart()
+	case "reload":
+		return client.Reload()
+	default:
+		return fmt.Errorf("not supported operation: %s", operation)
+	}
 }
 
 func (u *FirewallService) addPortRecord(req dto.PortRuleOperate) error {

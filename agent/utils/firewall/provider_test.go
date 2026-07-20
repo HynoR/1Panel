@@ -15,6 +15,18 @@ func TestLaneOfName(t *testing.T) {
 	if LaneOfName("firewalld") != LaneExternalNative {
 		t.Fatal("firewalld must be external")
 	}
+	if LaneOfName("unknown") != LaneUnknown {
+		t.Fatal("unknown provider must not inherit a writable lane")
+	}
+	if _, err := ResolveLane("unknown"); err == nil {
+		t.Fatal("unknown provider must be rejected")
+	}
+	if _, err := NewProviderStatusReader(ProviderInfo{Name: "unknown", Lane: LaneUnknown}); err == nil {
+		t.Fatal("unknown provider must not expose a status capability")
+	}
+	if _, err := NewProviderStatusReader(ProviderInfo{Name: "ufw", Lane: LaneSelfManagedLegacyV1}); err == nil {
+		t.Fatal("provider status capability must reject a mismatched lane")
+	}
 }
 
 func TestResolveProviderFromPresence(t *testing.T) {

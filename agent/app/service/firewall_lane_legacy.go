@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/1Panel-dev/1Panel/agent/app/dto"
@@ -16,7 +17,7 @@ func loadLegacyInitStatus(tab string) (bool, bool) {
 	return iptables.LoadInitStatus("iptables", tab)
 }
 
-func (u *FirewallService) operateLegacyPortRule(client firewall.FirewallClient, req dto.PortRuleOperate, reload bool) error {
+func (u *FirewallService) operateLegacyPortRule(client firewall.FilterClient, req dto.PortRuleOperate, reload bool) error {
 	if len(req.Chain) == 0 {
 		req.Chain = iptables.Chain1PanelBasic
 	}
@@ -63,7 +64,7 @@ func (u *FirewallService) operateLegacyPortRule(client firewall.FirewallClient, 
 	return nil
 }
 
-func (u *FirewallService) operateLegacyAddressRule(client firewall.FirewallClient, req dto.AddrRuleOperate, reload bool) error {
+func (u *FirewallService) operateLegacyAddressRule(client firewall.FilterClient, req dto.AddrRuleOperate, reload bool) error {
 	chain := iptables.Chain1PanelBasic
 	var fireInfo fireClient.FireInfo
 	if err := copier.Copy(&fireInfo, &req); err != nil {
@@ -90,7 +91,7 @@ func (u *FirewallService) operateLegacyAddressRule(client firewall.FirewallClien
 	return nil
 }
 
-func (u *FirewallService) operateLegacyPort(client firewall.FirewallClient, req dto.PortRuleOperate) error {
+func (u *FirewallService) operateLegacyPort(client firewall.FilterClient, req dto.PortRuleOperate) error {
 	var fireInfo fireClient.FireInfo
 	if err := copier.Copy(&fireInfo, &req); err != nil {
 		return err
@@ -103,7 +104,7 @@ func (u *FirewallService) operateLegacyPort(client firewall.FirewallClient, req 
 	return client.Port(fireInfo, req.Operation)
 }
 
-func (u *FirewallService) addLegacyPortsBeforeStart(client firewall.FirewallClient) error {
+func (u *FirewallService) addLegacyPortsBeforeStart(client firewall.FilterClient) error {
 	isInit, _ := iptables.LoadInitStatus("iptables", "base")
 	if !isInit {
 		return nil
@@ -121,4 +122,23 @@ func syncLegacyFirewallPortWhiteList(oldValue string) error {
 		return err
 	}
 	return syncIptablesFirewallPortWhiteList(true, oldPortWhiteList)
+}
+
+func listLegacyFilterRules(client firewall.FilterClient, ruleType string) ([]fireClient.FireInfo, error) {
+	switch ruleType {
+	case "port":
+		return client.ListPort()
+	case "address":
+		return client.ListAddress()
+	default:
+		return nil, fmt.Errorf("unsupported legacy filter rule type: %s", ruleType)
+	}
+}
+
+func operateLegacyFilterLifecycle(client firewall.FilterClient, operation string) error {
+	return operateFilterLifecycle(client, operation)
+}
+
+func operateLegacyFirewallPort(client firewall.FilterClient, oldPorts, newPorts []int) error {
+	return operateFirewallPorts(client, oldPorts, newPorts)
 }
