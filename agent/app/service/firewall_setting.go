@@ -8,7 +8,6 @@ import (
 	"github.com/1Panel-dev/1Panel/agent/constant"
 	"github.com/1Panel-dev/1Panel/agent/utils/firewall"
 	fireClient "github.com/1Panel-dev/1Panel/agent/utils/firewall/client"
-	"github.com/1Panel-dev/1Panel/agent/utils/firewall/client/iptables"
 )
 
 type firewallPortWhitelist struct {
@@ -106,36 +105,10 @@ func syncFirewallPortWhiteListAfterUpdate(oldValue string) error {
 	if err != nil {
 		return err
 	}
-	if client.Name() == "iptables" {
-		isInit, _ := iptables.LoadInitStatus("iptables", "base")
-		if !isInit {
-			return nil
-		}
-		oldPortWhiteList, err := parseFirewallPortWhiteList(oldValue)
-		if err != nil {
-			return err
-		}
-		return syncIptablesFirewallPortWhiteList(true, oldPortWhiteList)
+	if firewall.LaneOfName(client.Name()) == firewall.LaneSelfManagedLegacyV1 {
+		return syncLegacyFirewallPortWhiteList(oldValue)
 	}
-
-	isActive, _ := client.Status()
-	if !isActive {
-		return nil
-	}
-	portWhiteList, err := loadFirewallPortWhiteList()
-	if err != nil {
-		return err
-	}
-	oldPortWhiteList, err := parseFirewallPortWhiteList(oldValue)
-	if err != nil {
-		return err
-	}
-	requiredPorts, err := loadRequiredFirewallPortWhiteList()
-	if err != nil {
-		return err
-	}
-	oldPortWhiteList = normalizeFirewallPortWhiteList(append(oldPortWhiteList, requiredPorts...))
-	return syncFirewallClientPortWhiteList(client, oldPortWhiteList, portWhiteList)
+	return syncExternalFirewallPortWhiteList(client, oldValue)
 }
 
 func syncFirewallClientPortWhiteList(client firewall.FirewallClient, oldPortWhiteList, portWhiteList []firewallPortWhitelist) error {

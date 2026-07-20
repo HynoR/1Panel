@@ -20,14 +20,15 @@ func Init() {
 	}
 	InitPingStatus()
 	global.LOG.Info("initializing firewall settings...")
-	client, err := firewall.NewFirewallClient()
+	provider, err := firewall.DetectProvider()
 	if err != nil {
 		return
 	}
-	clientName := client.Name()
+	clientName := provider.Name
 
 	settingRepo := repo.NewISettingRepo()
-	if clientName == "ufw" || clientName == "iptables" {
+	// UFW still replays iptables NAT forwarding helpers (legacy forwarding exception; filter remains external).
+	if clientName == "ufw" || provider.IsLegacyV1() {
 		if err := iptables.LoadRulesFromFile(iptables.FilterTab, iptables.Chain1PanelForward, iptables.ForwardFileName); err != nil {
 			global.LOG.Errorf("load forward rules from file failed, err: %v", err)
 			return
@@ -51,7 +52,7 @@ func Init() {
 		}
 	}
 
-	if clientName != "iptables" {
+	if !provider.IsLegacyV1() {
 		return
 	}
 	if err := iptables.LoadRulesFromFile(iptables.FilterTab, iptables.Chain1PanelBasicBefore, iptables.BasicBeforeFileName); err != nil {

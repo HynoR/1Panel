@@ -109,12 +109,17 @@ func (u *Fail2BanService) UpdateConf(req dto.Fail2BanUpdate) error {
 			if req.Value == "firewallcmd-ipset" {
 				itemName = "firewalld"
 			}
-			client, err := firewall.NewFirewallClient()
+			// Read-only provider probe: detect name/status only, never enter managed write paths.
+			provider, err := firewall.DetectProvider()
 			if err != nil {
 				return err
 			}
-			if client.Name() != itemName {
+			if provider.Name != itemName {
 				return buserr.WithName("ErrBanAction", itemName)
+			}
+			client, err := firewall.NewFirewallClient()
+			if err != nil {
+				return err
 			}
 			isActive, _ := client.Status()
 			if !isActive {
