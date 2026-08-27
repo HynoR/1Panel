@@ -1,0 +1,126 @@
+package service
+
+import (
+	"errors"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/1Panel-dev/1Panel/agent/app/dto"
+	"github.com/1Panel-dev/1Panel/agent/buserr"
+	"github.com/1Panel-dev/1Panel/agent/utils/terminal"
+)
+
+// Settings driving the terminal session keep alive feature.
+const (
+	settingTerminalSessionKeepAlive = "TerminalSessionKeepAlive"
+	settingTerminalSessionMaxPinned = "TerminalSessionMaxPinned"
+	settingTerminalSessionBuffer    = "TerminalSessionBuffer"
+)
+
+// Accepted ranges and defaults for the settings above. KeepAlive and Buffer are
+// stored in minutes and KB respectively, the way the settings page shows them.
+const (
+	defaultTerminalSessionKeepAlive = 30
+	minTerminalSessionKeepAlive     = 0
+	maxTerminalSessionKeepAlive     = 1440
+
+	defaultTerminalSessionMaxPinned = 10
+	minTerminalSessionMaxPinned     = 1
+	maxTerminalSessionMaxPinned     = 50
+
+	defaultTerminalSessionBuffer = 256
+	minTerminalSessionBuffer     = 64
+	maxTerminalSessionBuffer     = 4096
+)
+
+type TerminalSessionService struct{}
+
+type ITerminalSessionService interface {
+	List(owner string) ([]dto.TerminalSessionInfo, error)
+	Pin(owner string, req dto.TerminalSessionPin) error
+	Close(owner, id string) error
+}
+
+// NewITerminalSessionService also wires the session manager to the settings
+// table. The provider is only called when the manager needs a value, so the
+// database does not have to be ready at this point.
+func NewITerminalSessionService() ITerminalSessionService {
+	terminal.DefaultManager.SetConfigProvider(loadTerminalSessionConfig)
+	return &TerminalSessionService{}
+}
+
+func (u *TerminalSessionService) List(owner string) ([]dto.TerminalSessionInfo, error) {
+	config := terminal.DefaultManager.Config()
+	infos := terminal.DefaultManager.List(owner)
+
+	list := make([]dto.TerminalSessionInfo, 0, len(infos))
+	for _, info := range infos {
+		item := dto.TerminalSessionInfo{
+			ID:           info.ID,
+			Kind:         info.Kind,
+			HostID:       info.HostID,
+			Title:        info.Title,
+			Pinned:       info.Pinned,
+			Attached:     info.Attached,
+			CreatedAt:    info.CreatedAt,
+			LastActiveAt: info.LastActiveAt,
+		}
+		if !info.Attached && !info.DetachedAt.IsZero() {
+			item.DetachedAt = new(info.DetachedAt)
+			if info.Pinned && config.KeepAlive > 0 {
+				item.ExpiresAt = new(info.DetachedAt.Add(config.KeepAlive))
+			}
+		}
+		list = append(list, item)
+	}
+	return list, nil
+}
+
+func (u *TerminalSessionService) Pin(owner string, req dto.TerminalSessionPin) error {
+	return terminalSessionErr(terminal.DefaultManager.Pin(strings.TrimSpace(req.ID), owner, req.Pinned))
+}
+
+func (u *TerminalSessionService) Close(owner, id string) error {
+	return terminalSessionErr(terminal.DefaultManager.Close(strings.TrimSpace(id), owner))
+}
+
+// terminalSessionErr translates manager errors into business errors.
+func terminalSessionErr(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, terminal.ErrSessionNotFound):
+		return buserr.New("ErrTerminalSessionNotFound")
+	case errors.Is(err, terminal.ErrPinDisabled):
+		return buserr.New("ErrTerminalSessionDisabled")
+	case errors.Is(err, terminal.ErrPinLimit):
+		return buserr.WithDetail("ErrTerminalSessionLimit", terminal.DefaultManager.Config().MaxPinned, err)
+	}
+	return err
+}
+
+// loadTerminalSessionConfig reads the keep alive settings, clamping every value
+// into its accepted range and falling back to the default when it is unusable.
+func loadTerminalSessionConfig() terminal.Config {
+	keepAlive := terminalSessionSetting(settingTerminalSessionKeepAlive, defaultTerminalSessionKeepAlive, minTerminalSessionKeepAlive, maxTerminalSessionKeepAlive)
+	maxPinned := terminalSessionSetting(settingTerminalSessionMaxPinned, defaultTerminalSessionMaxPinned, minTerminalSessionMaxPinned, maxTerminalSessionMaxPinned)
+	buffer := terminalSessionSetting(settingTerminalSessionBuffer, defaultTerminalSessionBuffer, minTerminalSessionBuffer, maxTerminalSessionBuffer)
+	return terminal.Config{
+		KeepAlive: time.Duration(keepAlive) * time.Minute,
+		MaxPinned: maxPinned,
+		RingSize:  buffer * 1024,
+	}
+}
+
+func terminalSessionSetting(key string, fallback, lower, upper int) int {
+	value, err := settingRepo.GetValueByKey(key)
+	if err != nil {
+		return fallback
+	}
+	number, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return fallback
+	}
+	return min(max(number, lower), upper)
+}

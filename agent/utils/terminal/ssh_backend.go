@@ -8,8 +8,10 @@ import (
 )
 
 // sshBackend drives one interactive shell on top of an ssh client session.
-// The ssh client itself is owned by the caller.
+// The backend owns the ssh client: closing it tears the whole connection down,
+// so that a session outliving its websocket keeps exactly one client alive.
 type sshBackend struct {
+	client  *gossh.Client
 	session *gossh.Session
 	stdin   io.WriteCloser
 }
@@ -45,7 +47,7 @@ func newSSHBackend(client *gossh.Client, cols, rows int, initCmd string, out io.
 		time.Sleep(100 * time.Millisecond)
 		_, _ = stdinPipe.Write([]byte(initCmd + "\n"))
 	}
-	return &sshBackend{session: sshSession, stdin: stdinPipe}, nil
+	return &sshBackend{client: client, session: sshSession, stdin: stdinPipe}, nil
 }
 
 // Write forwards p to the shell stdin.
@@ -63,7 +65,25 @@ func (b *sshBackend) Wait() error {
 	return b.session.Wait()
 }
 
-// Close terminates the ssh session. The ssh client stays untouched.
+// Keepalive probes the ssh connection with a global request. It may block for
+// as long as the network takes to answer, so callers should bound it.
+func (b *sshBackend) Keepalive() error {
+	if b.client == nil {
+		return nil
+	}
+	// An unsupported request is answered with a failure reply and no error,
+	// which is enough to prove the connection is still alive.
+	_, _, err := b.client.SendRequest("keepalive@openssh.com", true, nil)
+	return err
+}
+
+// Close terminates the ssh session and the ssh client owned by this backend.
 func (b *sshBackend) Close() error {
-	return b.session.Close()
+	err := b.session.Close()
+	if b.client != nil {
+		if clientErr := b.client.Close(); err == nil {
+			err = clientErr
+		}
+	}
+	return err
 }

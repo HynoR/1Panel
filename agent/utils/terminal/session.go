@@ -40,6 +40,7 @@ var errSessionClosed = errors.New("terminal session is closed")
 type shellBackend interface {
 	Write(p []byte) (int, error)
 	Resize(cols, rows int) error
+	Keepalive() error
 	Wait() error
 	Close() error
 }
@@ -162,10 +163,17 @@ func (s *Session) SetOnClosed(fn func(*Session)) {
 }
 
 // SetPinned marks the session as surviving the loss of its attachment.
+// Unpinning a session that has no websocket attached closes it right away:
+// nothing would ever come back for it, so this is the single place where the
+// "unpin a detached session" rule is implemented (Manager.Pin relies on it).
 func (s *Session) SetPinned(pinned bool) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.pinned = pinned
+	detached := s.attached == nil
+	s.mu.Unlock()
+	if !pinned && detached {
+		s.Close()
+	}
 }
 
 // Pinned reports whether the session survives the loss of its attachment.
@@ -280,9 +288,7 @@ func (s *Session) onAttachmentClosed(a *attachment) {
 	}
 	s.attached = nil
 	pinned := s.pinned
-	if pinned {
-		s.detachedAt = time.Now()
-	}
+	s.detachedAt = time.Now()
 	s.mu.Unlock()
 
 	if !pinned {
@@ -311,6 +317,14 @@ func (s *Session) Close() {
 			onClosed(s)
 		}
 	})
+}
+
+// keepalive probes the shell backend connection.
+func (s *Session) keepalive() error {
+	if s.backend == nil {
+		return nil
+	}
+	return s.backend.Keepalive()
 }
 
 // resize forwards a window size change to the shell.

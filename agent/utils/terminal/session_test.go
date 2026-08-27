@@ -27,13 +27,16 @@ func TestMain(m *testing.M) {
 
 // fakeBackend is an in memory shellBackend used instead of a real ssh session.
 type fakeBackend struct {
-	mu      sync.Mutex
-	input   bytes.Buffer
-	cols    int
-	rows    int
-	resizes int
-	closed  bool
-	exited  chan struct{}
+	mu             sync.Mutex
+	input          bytes.Buffer
+	cols           int
+	rows           int
+	resizes        int
+	keepalives     int
+	keepaliveErr   error
+	keepaliveBlock chan struct{}
+	closed         bool
+	exited         chan struct{}
 }
 
 func newFakeBackend() *fakeBackend {
@@ -52,6 +55,30 @@ func (f *fakeBackend) Resize(cols, rows int) error {
 	f.cols, f.rows = cols, rows
 	f.resizes++
 	return nil
+}
+
+func (f *fakeBackend) Keepalive() error {
+	f.mu.Lock()
+	f.keepalives++
+	err := f.keepaliveErr
+	block := f.keepaliveBlock
+	f.mu.Unlock()
+	if block != nil {
+		<-block
+	}
+	return err
+}
+
+func (f *fakeBackend) keepaliveCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.keepalives
+}
+
+func (f *fakeBackend) setKeepaliveErr(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.keepaliveErr = err
 }
 
 func (f *fakeBackend) Wait() error {
