@@ -29,7 +29,11 @@ import (
 // @Security Timestamp
 // @Router /hosts/terminal/local [get]
 func (b *BaseApi) WsLocalTerminal(c *gin.Context) {
-	b.runSSHSession(c, loadLocalConn, c.DefaultQuery("command", ""))
+	b.runSSHSession(c, sshSessionOption{
+		kind:    terminal.SessionKindLocal,
+		connect: loadLocalConn,
+		command: c.DefaultQuery("command", ""),
+	})
 }
 
 // @Tags Terminal
@@ -41,14 +45,19 @@ func (b *BaseApi) WsLocalTerminal(c *gin.Context) {
 // @Security Timestamp
 // @Router /hosts/terminal/ssh [get]
 func (b *BaseApi) WsHostSSH(c *gin.Context) {
-	b.runSSHSession(c, func() (*ssh.SSHClient, error) {
-		hostID, _ := strconv.Atoi(c.DefaultQuery("id", "0"))
-		if hostID <= 0 {
-			return nil, errors.New("missing host id")
-		}
-		host, err := service.GetHostInfo(uint(hostID))
-		return newHostSSHClient(host, err)
-	}, c.DefaultQuery("command", ""))
+	hostID, _ := strconv.Atoi(c.DefaultQuery("id", "0"))
+	b.runSSHSession(c, sshSessionOption{
+		kind:   terminal.SessionKindSSH,
+		hostID: uint(max(hostID, 0)),
+		connect: func() (*ssh.SSHClient, error) {
+			if hostID <= 0 {
+				return nil, errors.New("missing host id")
+			}
+			host, err := service.GetHostInfo(uint(hostID))
+			return newHostSSHClient(host, err)
+		},
+		command: c.DefaultQuery("command", ""),
+	})
 }
 
 // @Tags Terminal
@@ -115,30 +124,45 @@ func prepareTerminalSession(c *gin.Context) (*websocket.Conn, int, int, bool) {
 	return wsConn, cols, rows, true
 }
 
-func (b *BaseApi) runSSHSession(c *gin.Context, connect func() (*ssh.SSHClient, error), command string) {
+type sshSessionOption struct {
+	kind    string
+	hostID  uint
+	connect func() (*ssh.SSHClient, error)
+	command string
+}
+
+func (b *BaseApi) runSSHSession(c *gin.Context, opt sshSessionOption) {
 	wsConn, cols, rows, ok := prepareTerminalSession(c)
 	if !ok {
 		return
 	}
 	defer wsConn.Close()
 
-	client, clientErr := connect()
+	client, clientErr := opt.connect()
 	if wshandleError(wsConn, errors.WithMessage(clientErr, "failed to set up the connection. Please check the host information")) {
 		return
 	}
 	defer client.Close()
 
-	sws, err := terminal.NewLogicSshWsSession(cols, rows, client.Client, wsConn, command)
+	sess, err := terminal.NewSession(client.Client, terminal.SessionOptions{
+		Kind:    opt.kind,
+		HostID:  opt.hostID,
+		Title:   c.Query("title"),
+		Owner:   c.GetHeader("X-Panel-User"),
+		Cols:    cols,
+		Rows:    rows,
+		InitCmd: opt.command,
+	})
 	if wshandleError(wsConn, err) {
 		return
 	}
-	defer sws.Close()
+	defer sess.Close()
 
-	quitChan := make(chan bool, 3)
-	sws.Start(quitChan)
-	go sws.Wait(quitChan)
-
-	<-quitChan
+	att, err := sess.Attach(wsConn, cols, rows)
+	if wshandleError(wsConn, err) {
+		return
+	}
+	att.Run()
 
 	closeTerminalConn(wsConn)
 }
