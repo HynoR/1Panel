@@ -2042,7 +2042,6 @@ const message = {
         sessionRestored: '已恢复 {0} 个会话',
         sessionExpired: '会话已过期或不存在，请重新连接',
         sessionKicked: '该会话已在其他窗口打开',
-        sessionLimit: '固定会话数量已达上限',
         closePinnedConfirm: '该终端已固定，关闭后服务端会话也将一并结束，是否继续？',
         sessionKeepAlive: '会话保持时长（分钟）',
         sessionKeepAliveHelper: '固定的终端会话在离开页面后可保持的时长，0 表示关闭会话保持功能',

@@ -29,7 +29,7 @@ import i18n from '@/lang';
 import { useGlobalStore } from '@/composables/useGlobalStore';
 const { currentNode } = useGlobalStore();
 
-const emit = defineEmits(['session', 'session-expired', 'session-kicked', 'session-limit']);
+const emit = defineEmits(['session', 'session-expired', 'session-kicked']);
 
 const terminalElement = ref<HTMLDivElement | null>(null);
 const fitAddon = new FitAddon();
@@ -417,12 +417,6 @@ const closeRealTerminal = (ev: CloseEvent) => {
         case 4409:
             writeSessionNotice(i18n.global.t('terminal.sessionKicked'));
             emit('session-kicked');
-            return;
-        case 4429:
-            sessionID.value = '';
-            isAttachMode.value = false;
-            writeSessionNotice(i18n.global.t('terminal.sessionLimit'));
-            emit('session-limit');
             return;
     }
     term.value?.write('The connection has been disconnected.');

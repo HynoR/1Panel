@@ -2012,7 +2012,6 @@ const message = {
         sessionRestored: '已復原 {0} 個工作階段',
         sessionExpired: '工作階段已過期或不存在，請重新連線',
         sessionKicked: '此工作階段已在其他視窗開啟',
-        sessionLimit: '釘選工作階段數量已達上限',
         closePinnedConfirm: '此終端已釘選，關閉後伺服器端工作階段也會一併結束，是否繼續？',
         sessionKeepAlive: '工作階段保持時長（分鐘）',
         sessionKeepAliveHelper: '釘選的終端工作階段在離開頁面後可保持的時長，0 表示關閉此功能',

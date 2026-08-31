@@ -2092,7 +2092,6 @@ const message = {
         sessionRestored: '{0}개의 세션을 복원했습니다',
         sessionExpired: '세션이 만료되었거나 존재하지 않습니다. 다시 연결하세요.',
         sessionKicked: '이 세션은 다른 창에서 열렸습니다.',
-        sessionLimit: '고정된 세션 수가 최대치에 도달했습니다.',
         closePinnedConfirm: '이 터미널은 고정되어 있습니다. 닫으면 서버의 세션도 종료됩니다. 계속하시겠습니까?',
         sessionKeepAlive: '세션 유지 시간(분)',
         sessionKeepAliveHelper:

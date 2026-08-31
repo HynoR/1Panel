@@ -2177,7 +2177,6 @@ const message = {
         sessionRestored: 'Se han restaurado {0} sesiones',
         sessionExpired: 'La sesión ha caducado o ya no existe, vuelva a conectarse.',
         sessionKicked: 'Esta sesión se ha abierto en otra ventana.',
-        sessionLimit: 'Se ha alcanzado el número máximo de sesiones fijadas.',
         closePinnedConfirm:
             'Esta terminal está fijada. Al cerrarla también se finalizará la sesión en el servidor. ¿Continuar?',
         sessionKeepAlive: 'Duración de la sesión (minutos)',

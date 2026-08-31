@@ -2,9 +2,7 @@ package terminal
 
 import (
 	"bytes"
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"sync"
@@ -13,6 +11,7 @@ import (
 	"github.com/1Panel-dev/1Panel/agent/global"
 	"github.com/1Panel-dev/1Panel/agent/i18n"
 	terminalai "github.com/1Panel-dev/1Panel/agent/utils/terminal/ai"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	gossh "golang.org/x/crypto/ssh"
 )
@@ -69,6 +68,9 @@ type SessionInfo struct {
 	CreatedAt    time.Time
 	LastActiveAt time.Time
 	DetachedAt   time.Time
+	// ExpiresAt is when the reaper will close a detached session. It is only
+	// filled in by Manager.List; Session.Info leaves it zero.
+	ExpiresAt time.Time
 }
 
 // Session owns one shell and its output buffer. A websocket connection is only
@@ -118,7 +120,7 @@ func newSessionWithBackend(backend shellBackend, out *safeBuffer, opts SessionOp
 	now := time.Now()
 	lang := i18n.GetLanguageFromDB()
 	sess := &Session{
-		ID:     newSessionID(),
+		ID:     uuid.NewString(),
 		Kind:   opts.Kind,
 		HostID: opts.HostID,
 		Title:  opts.Title,
@@ -142,12 +144,6 @@ func newSessionWithBackend(backend shellBackend, out *safeBuffer, opts SessionOp
 	go sess.pump()
 	go sess.waitBackend()
 	return sess
-}
-
-func newSessionID() string {
-	var buf [16]byte
-	_, _ = rand.Read(buf[:])
-	return hex.EncodeToString(buf[:])
 }
 
 // Done is closed once the session is terminated.
@@ -354,15 +350,11 @@ func (s *Session) writeInput(data []byte) {
 func (s *Session) ensureAIInterceptor() *aiInputInterceptor {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.aiInterceptor != nil {
-		return s.aiInterceptor
-	}
 	currentVersion := terminalai.CurrentTerminalRuntimeVersion()
-	if s.aiVersion == currentVersion {
-		return s.aiInterceptor
+	if s.aiInterceptor == nil || s.aiVersion != currentVersion {
+		s.aiVersion = currentVersion
+		s.aiInterceptor = newAIInputInterceptor("", s.lang)
 	}
-	s.aiVersion = currentVersion
-	s.aiInterceptor = newAIInputInterceptor("", s.lang)
 	return s.aiInterceptor
 }
 

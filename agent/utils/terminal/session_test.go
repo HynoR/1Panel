@@ -223,8 +223,8 @@ func TestSessionAttachSendsHelloFirst(t *testing.T) {
 	if msg.Pinned == nil || *msg.Pinned {
 		t.Errorf("hello pinned = %v, want explicit false", msg.Pinned)
 	}
-	if len(sess.ID) != 32 {
-		t.Errorf("session id = %q, want 32 hex chars", sess.ID)
+	if len(sess.ID) != 36 {
+		t.Errorf("session id = %q, want a uuid", sess.ID)
 	}
 	if !sess.IsAttached() {
 		t.Error("IsAttached() = false, want true")

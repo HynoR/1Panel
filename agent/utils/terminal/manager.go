@@ -5,6 +5,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	gossh "golang.org/x/crypto/ssh"
 )
 
 // Errors returned by the Manager. Callers map them onto business errors.
@@ -120,6 +122,21 @@ func (m *Manager) Register(s *Session) {
 	}
 }
 
+// OpenSession creates a session on client with the manager's configured ring
+// size (unless the options carry one) and registers it, so that every call
+// site gets a session that is wired into the registry the same way.
+func (m *Manager) OpenSession(client *gossh.Client, opts SessionOptions) (*Session, error) {
+	if opts.RingSize <= 0 {
+		opts.RingSize = m.Config().RingSize
+	}
+	sess, err := NewSession(client, opts)
+	if err != nil {
+		return nil, err
+	}
+	m.Register(sess)
+	return sess, nil
+}
+
 // Get returns the session with that id, if it is still alive.
 func (m *Manager) Get(id string) (*Session, bool) {
 	m.mu.Lock()
@@ -132,13 +149,15 @@ func (m *Manager) Get(id string) (*Session, bool) {
 // empty owner sees everything, and sessions without an owner are visible to
 // everybody (the proxy in front of the agent does not always identify callers).
 func (m *Manager) List(owner string) []SessionInfo {
+	cfg := m.Config()
 	sessions := m.snapshot()
 	infos := make([]SessionInfo, 0, len(sessions))
 	for _, sess := range sessions {
 		info := sess.Info()
-		if !OwnerMatches(info.Owner, owner) {
+		if !ownerMatches(info.Owner, owner) {
 			continue
 		}
+		info.ExpiresAt = expiresAt(info, cfg)
 		infos = append(infos, info)
 	}
 	slices.SortFunc(infos, func(a, b SessionInfo) int { return a.CreatedAt.Compare(b.CreatedAt) })
@@ -148,7 +167,7 @@ func (m *Manager) List(owner string) []SessionInfo {
 // Pin pins or unpins a session. Unpinning a detached session closes it, see
 // Session.SetPinned.
 func (m *Manager) Pin(id, owner string, pinned bool) error {
-	sess, err := m.lookup(id, owner)
+	sess, err := m.Lookup(id, owner)
 	if err != nil {
 		return err
 	}
@@ -170,7 +189,7 @@ func (m *Manager) Pin(id, owner string, pinned bool) error {
 
 // Close terminates a session owned by owner.
 func (m *Manager) Close(id, owner string) error {
-	sess, err := m.lookup(id, owner)
+	sess, err := m.Lookup(id, owner)
 	if err != nil {
 		return err
 	}
@@ -178,16 +197,16 @@ func (m *Manager) Close(id, owner string) error {
 	return nil
 }
 
-// OwnerMatches reports whether a caller may act on a session. Either side being
+// ownerMatches reports whether a caller may act on a session. Either side being
 // empty means "unknown", which is treated as a match.
-func OwnerMatches(sessionOwner, caller string) bool {
+func ownerMatches(sessionOwner, caller string) bool {
 	return sessionOwner == "" || caller == "" || sessionOwner == caller
 }
 
-// lookup resolves an id for one caller, hiding foreign sessions.
-func (m *Manager) lookup(id, owner string) (*Session, error) {
+// Lookup resolves an id for one caller, hiding foreign sessions.
+func (m *Manager) Lookup(id, owner string) (*Session, error) {
 	sess, ok := m.Get(id)
-	if !ok || !OwnerMatches(sess.Owner, owner) {
+	if !ok || !ownerMatches(sess.Owner, owner) {
 		return nil, ErrSessionNotFound
 	}
 	return sess, nil
@@ -265,27 +284,36 @@ func (m *Manager) loop() {
 
 // reap closes every detached session whose grace period elapsed.
 func (m *Manager) reap() {
+	sessions := m.snapshot()
+	if len(sessions) == 0 {
+		return
+	}
 	cfg := m.Config()
 	now := m.timeNow()
-	for _, sess := range m.snapshot() {
-		info := sess.Info()
-		if info.Attached {
-			continue
-		}
-		// A session that was never attached has no detach timestamp, so its
-		// creation time is what the grace period is measured from.
-		since := info.DetachedAt
-		if since.IsZero() {
-			since = info.CreatedAt
-		}
-		grace := unpinnedGrace
-		if info.Pinned {
-			grace = cfg.KeepAlive
-		}
-		if now.Sub(since) >= grace {
+	for _, sess := range sessions {
+		if exp := expiresAt(sess.Info(), cfg); !exp.IsZero() && !exp.After(now) {
 			sess.Close()
 		}
 	}
+}
+
+// expiresAt returns when a detached session will be reaped, or zero for an
+// attached one. Both the reaper and List derive expiry from this single rule.
+// A session that was never attached has no detach timestamp, so its creation
+// time is what the grace period is measured from.
+func expiresAt(info SessionInfo, cfg Config) time.Time {
+	if info.Attached {
+		return time.Time{}
+	}
+	since := info.DetachedAt
+	if since.IsZero() {
+		since = info.CreatedAt
+	}
+	grace := unpinnedGrace
+	if info.Pinned {
+		grace = cfg.KeepAlive
+	}
+	return since.Add(grace)
 }
 
 // keepaliveAll probes every session. A probe can block for as long as the

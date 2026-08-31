@@ -2170,7 +2170,6 @@ const message = {
         sessionRestored: '{0} sessões restauradas',
         sessionExpired: 'A sessão expirou ou não existe mais, conecte-se novamente.',
         sessionKicked: 'Esta sessão foi aberta em outra janela.',
-        sessionLimit: 'O número máximo de sessões fixadas foi atingido.',
         closePinnedConfirm: 'Este terminal está fixado. Fechá-lo também encerrará a sessão no servidor. Continuar?',
         sessionKeepAlive: 'Duração da sessão (minutos)',
         sessionKeepAliveHelper:

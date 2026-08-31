@@ -2163,7 +2163,6 @@ const message = {
         sessionRestored: '{0} sesi telah dipulihkan',
         sessionExpired: 'Sesi telah tamat tempoh atau tidak wujud lagi, sila sambung semula.',
         sessionKicked: 'Sesi ini telah dibuka dalam tetingkap lain.',
-        sessionLimit: 'Bilangan maksimum sesi yang disemat telah dicapai.',
         closePinnedConfirm: 'Terminal ini disemat. Menutupnya juga akan menamatkan sesi pada pelayan. Teruskan?',
         sessionKeepAlive: 'Tempoh sesi dikekalkan (minit)',
         sessionKeepAliveHelper:

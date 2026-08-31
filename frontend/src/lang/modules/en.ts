@@ -2135,7 +2135,6 @@ const message = {
         sessionRestored: '{0} session(s) restored',
         sessionExpired: 'The session has expired or no longer exists, please reconnect.',
         sessionKicked: 'This session has been opened in another window.',
-        sessionLimit: 'The maximum number of pinned sessions has been reached.',
         closePinnedConfirm: 'This terminal is pinned. Closing it will also end the session on the server. Continue?',
         sessionKeepAlive: 'Session keep-alive (minutes)',
         sessionKeepAliveHelper:

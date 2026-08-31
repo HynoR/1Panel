@@ -2155,7 +2155,6 @@ const message = {
         sessionRestored: '{0} oturum geri yüklendi',
         sessionExpired: 'Oturum süresi doldu veya artık mevcut değil, lütfen yeniden bağlanın.',
         sessionKicked: 'Bu oturum başka bir pencerede açıldı.',
-        sessionLimit: 'Sabitlenmiş oturum sayısı üst sınıra ulaştı.',
         closePinnedConfirm: 'Bu terminal sabitlenmiş. Kapatmak sunucudaki oturumu da sonlandırır. Devam edilsin mi?',
         sessionKeepAlive: 'Oturum saklama süresi (dakika)',
         sessionKeepAliveHelper:

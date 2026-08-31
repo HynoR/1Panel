@@ -2113,7 +2113,6 @@ const message = {
         sessionRestored: '{0} نشست بازیابی شد',
         sessionExpired: 'نشست منقضی شده یا دیگر وجود ندارد، لطفاً دوباره متصل شوید.',
         sessionKicked: 'این نشست در پنجره دیگری باز شده است.',
-        sessionLimit: 'به حداکثر تعداد نشست‌های سنجاق‌شده رسیده‌اید.',
         closePinnedConfirm: 'این ترمینال سنجاق شده است. بستن آن نشست روی سرور را نیز پایان می‌دهد. ادامه می‌دهید؟',
         sessionKeepAlive: 'مدت نگهداری نشست (دقیقه)',
         sessionKeepAliveHelper:

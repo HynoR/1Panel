@@ -70,7 +70,6 @@
                     @session="(e: any) => onSessionReady(item, e)"
                     @session-expired="onSessionExpired(item)"
                     @session-kicked="onSessionKicked(item)"
-                    @session-limit="onSessionLimit(item)"
                 ></Terminal>
 
                 <div class="flex items-center gap-2 w-full py-2 flex-wrap">
@@ -278,7 +277,7 @@ import router from '@/routers';
 import { getCommandTree } from '@/api/modules/command';
 import { getAgentSettingInfo } from '@/api/modules/setting';
 import AiSetting from '@/views/terminal/setting/ai/index.vue';
-import { MsgError, MsgSuccess, MsgWarning } from '@/utils/message';
+import { MsgSuccess, MsgWarning } from '@/utils/message';
 
 const { currentNode, isFullScreen, isMobile, isNodeAdmin, openMenuTabs } = useGlobalStore();
 
@@ -378,42 +377,50 @@ const loadSessions = async (node: string): Promise<Array<TerminalSession>> => {
     }
 };
 
+const pushTerminalTab = (tab: {
+    title: string;
+    wsID: number;
+    node: string;
+    status?: string;
+    sessionId?: string;
+    pinned?: boolean;
+}): number => {
+    terminalTabs.value.push({
+        index: tabIndex,
+        latency: 0,
+        status: 'online',
+        sessionId: '',
+        pinned: false,
+        ...tab,
+    });
+    return tabIndex++;
+};
+
 const restoreSessions = async (): Promise<number> => {
     if (sessionKeepAlive.value === '0') {
         return 0;
     }
     const node = currentNode.value || 'local';
-    const items: Array<{ session: TerminalSession; node: string }> = [];
-    for (const session of await loadSessions('local')) {
-        if (session.kind === 'local' && node !== 'local') {
-            continue;
-        }
-        items.push({ session: session, node: 'local' });
-    }
-    if (node !== 'local') {
-        for (const session of await loadSessions(node)) {
-            if (session.kind !== 'local') {
-                continue;
-            }
-            items.push({ session: session, node: node });
-        }
-    }
+    // ssh sessions always live on the local agent; local shells live on their own node's agent.
+    const collect = async (fromNode: string, keep: (s: TerminalSession) => boolean) =>
+        (await loadSessions(fromNode)).filter(keep).map((session) => ({ session, node: fromNode }));
+    const [localItems, nodeItems] = await Promise.all([
+        collect('local', (s) => node === 'local' || s.kind !== 'local'),
+        node === 'local' ? Promise.resolve([]) : collect(node, (s) => s.kind === 'local'),
+    ]);
+    const items = [...localItems, ...nodeItems];
     if (items.length === 0) {
         return 0;
     }
     for (const item of items) {
         const session = item.session;
-        terminalTabs.value.push({
-            index: tabIndex,
+        pushTerminalTab({
             title: session.title || i18n.global.t('terminal.localhost'),
             wsID: session.kind === 'local' ? 0 : session.hostId,
-            status: 'online',
-            latency: 0,
             sessionId: session.id,
             pinned: session.pinned,
             node: item.node,
         });
-        tabIndex++;
     }
     terminalValue.value = terminalTabs.value[0].index;
     await nextTick();
@@ -460,13 +467,6 @@ const onSessionExpired = (item: any) => {
 
 const onSessionKicked = (item: any) => {
     item.status = 'closed';
-};
-
-const onSessionLimit = (item: any) => {
-    item.sessionId = '';
-    item.pinned = false;
-    item.status = 'closed';
-    MsgError(i18n.global.t('terminal.sessionLimit'));
 };
 
 const cleanTimer = () => {
@@ -612,17 +612,7 @@ const onNewLocal = async () => {
         return;
     }
     const title = i18n.global.t('terminal.localhost');
-    terminalTabs.value.push({
-        index: tabIndex,
-        title: title,
-        wsID: 0,
-        status: 'online',
-        latency: 0,
-        sessionId: '',
-        pinned: false,
-        node: currentNode.value || 'local',
-    });
-    terminalValue.value = tabIndex;
+    terminalValue.value = pushTerminalTab({ title: title, wsID: 0, node: currentNode.value || 'local' });
     nextTick(() => {
         ctx.refs[`t-${terminalValue.value}`] &&
             ctx.refs[`t-${terminalValue.value}`][0].acceptParams({
@@ -633,7 +623,6 @@ const onNewLocal = async () => {
             });
         initCmd.value = '';
     });
-    tabIndex++;
 };
 
 const onClickConn = (node: Node, data: Tree) => {
@@ -687,17 +676,12 @@ const onConnTerminal = async (title: string, wsID: number) => {
         return;
     }
     const res = await testByID(wsID);
-    terminalTabs.value.push({
-        index: tabIndex,
+    terminalValue.value = pushTerminalTab({
         title: title,
         wsID: wsID,
         status: res.data ? 'online' : 'closed',
-        latency: 0,
-        sessionId: '',
-        pinned: false,
         node: 'local',
     });
-    terminalValue.value = tabIndex;
     nextTick(() => {
         ctx.refs[`t-${terminalValue.value}`] &&
             ctx.refs[`t-${terminalValue.value}`][0].acceptParams({
@@ -709,7 +693,6 @@ const onConnTerminal = async (title: string, wsID: number) => {
             });
         initCmd.value = '';
     });
-    tabIndex++;
 };
 
 function syncTerminal() {

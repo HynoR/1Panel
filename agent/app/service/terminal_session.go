@@ -51,7 +51,6 @@ func NewITerminalSessionService() ITerminalSessionService {
 }
 
 func (u *TerminalSessionService) List(owner string) ([]dto.TerminalSessionInfo, error) {
-	config := terminal.DefaultManager.Config()
 	infos := terminal.DefaultManager.List(owner)
 
 	list := make([]dto.TerminalSessionInfo, 0, len(infos))
@@ -68,8 +67,8 @@ func (u *TerminalSessionService) List(owner string) ([]dto.TerminalSessionInfo, 
 		}
 		if !info.Attached && !info.DetachedAt.IsZero() {
 			item.DetachedAt = new(info.DetachedAt)
-			if info.Pinned && config.KeepAlive > 0 {
-				item.ExpiresAt = new(info.DetachedAt.Add(config.KeepAlive))
+			if info.Pinned && !info.ExpiresAt.IsZero() {
+				item.ExpiresAt = new(info.ExpiresAt)
 			}
 		}
 		list = append(list, item)
@@ -103,9 +102,17 @@ func terminalSessionErr(err error) error {
 // loadTerminalSessionConfig reads the keep alive settings, clamping every value
 // into its accepted range and falling back to the default when it is unusable.
 func loadTerminalSessionConfig() terminal.Config {
-	keepAlive := terminalSessionSetting(settingTerminalSessionKeepAlive, defaultTerminalSessionKeepAlive, minTerminalSessionKeepAlive, maxTerminalSessionKeepAlive)
-	maxPinned := terminalSessionSetting(settingTerminalSessionMaxPinned, defaultTerminalSessionMaxPinned, minTerminalSessionMaxPinned, maxTerminalSessionMaxPinned)
-	buffer := terminalSessionSetting(settingTerminalSessionBuffer, defaultTerminalSessionBuffer, minTerminalSessionBuffer, maxTerminalSessionBuffer)
+	values, err := settingRepo.GetValuesByKeys([]string{
+		settingTerminalSessionKeepAlive,
+		settingTerminalSessionMaxPinned,
+		settingTerminalSessionBuffer,
+	})
+	if err != nil {
+		values = nil
+	}
+	keepAlive := terminalSessionSetting(values, settingTerminalSessionKeepAlive, defaultTerminalSessionKeepAlive, minTerminalSessionKeepAlive, maxTerminalSessionKeepAlive)
+	maxPinned := terminalSessionSetting(values, settingTerminalSessionMaxPinned, defaultTerminalSessionMaxPinned, minTerminalSessionMaxPinned, maxTerminalSessionMaxPinned)
+	buffer := terminalSessionSetting(values, settingTerminalSessionBuffer, defaultTerminalSessionBuffer, minTerminalSessionBuffer, maxTerminalSessionBuffer)
 	return terminal.Config{
 		KeepAlive: time.Duration(keepAlive) * time.Minute,
 		MaxPinned: maxPinned,
@@ -113,12 +120,8 @@ func loadTerminalSessionConfig() terminal.Config {
 	}
 }
 
-func terminalSessionSetting(key string, fallback, lower, upper int) int {
-	value, err := settingRepo.GetValueByKey(key)
-	if err != nil {
-		return fallback
-	}
-	number, err := strconv.Atoi(strings.TrimSpace(value))
+func terminalSessionSetting(values map[string]string, key string, fallback, lower, upper int) int {
+	number, err := strconv.Atoi(strings.TrimSpace(values[key]))
 	if err != nil {
 		return fallback
 	}

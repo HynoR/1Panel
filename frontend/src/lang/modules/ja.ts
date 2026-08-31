@@ -2124,7 +2124,6 @@ const message = {
         sessionRestored: '{0} 件のセッションを復元しました',
         sessionExpired: 'セッションが期限切れか存在しません。再接続してください。',
         sessionKicked: 'このセッションは別のウィンドウで開かれています。',
-        sessionLimit: 'ピン留めセッションの上限に達しました。',
         closePinnedConfirm:
             'このターミナルはピン留めされています。閉じるとサーバー上のセッションも終了します。続行しますか？',
         sessionKeepAlive: 'セッション保持時間（分）',

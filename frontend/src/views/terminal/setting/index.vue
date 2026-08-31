@@ -234,11 +234,11 @@ const form = reactive({
     sessionMaxPinned: 10,
     sessionBuffer: 256,
 });
-const sessionSetting = reactive({
+let savedSession = {
     sessionKeepAlive: 30,
     sessionMaxPinned: 10,
     sessionBuffer: 256,
-});
+};
 const resetConn = ref(false);
 const opRef = ref();
 
@@ -291,21 +291,21 @@ const toNumber = (value: string | undefined, defaultValue: number): number => {
 const loadSessionSetting = async () => {
     await getAgentSettingInfo()
         .then((res) => {
-            sessionSetting.sessionKeepAlive = toNumber(res.data?.terminalSessionKeepAlive, 30);
-            sessionSetting.sessionMaxPinned = toNumber(res.data?.terminalSessionMaxPinned, 10);
-            sessionSetting.sessionBuffer = toNumber(res.data?.terminalSessionBuffer, 256);
-            form.sessionKeepAlive = sessionSetting.sessionKeepAlive;
-            form.sessionMaxPinned = sessionSetting.sessionMaxPinned;
-            form.sessionBuffer = sessionSetting.sessionBuffer;
+            savedSession = {
+                sessionKeepAlive: toNumber(res.data?.terminalSessionKeepAlive, 30),
+                sessionMaxPinned: toNumber(res.data?.terminalSessionMaxPinned, 10),
+                sessionBuffer: toNumber(res.data?.terminalSessionBuffer, 256),
+            };
+            Object.assign(form, savedSession);
         })
         .catch(() => {});
 };
 
 const onSaveSession = async () => {
     const items = [
-        { key: 'TerminalSessionKeepAlive', value: form.sessionKeepAlive, old: sessionSetting.sessionKeepAlive },
-        { key: 'TerminalSessionMaxPinned', value: form.sessionMaxPinned, old: sessionSetting.sessionMaxPinned },
-        { key: 'TerminalSessionBuffer', value: form.sessionBuffer, old: sessionSetting.sessionBuffer },
+        { key: 'TerminalSessionKeepAlive', value: form.sessionKeepAlive, old: savedSession.sessionKeepAlive },
+        { key: 'TerminalSessionMaxPinned', value: form.sessionMaxPinned, old: savedSession.sessionMaxPinned },
+        { key: 'TerminalSessionBuffer', value: form.sessionBuffer, old: savedSession.sessionBuffer },
     ].filter((item) => item.value !== item.old);
     if (items.length === 0) {
         MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
@@ -313,9 +313,7 @@ const onSaveSession = async () => {
     }
     loading.value = true;
     try {
-        for (const item of items) {
-            await updateAgentSetting({ key: item.key, value: String(item.value) });
-        }
+        await Promise.all(items.map((item) => updateAgentSetting({ key: item.key, value: String(item.value) })));
         await loadSessionSetting();
         MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
     } finally {

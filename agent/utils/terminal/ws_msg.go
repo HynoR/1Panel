@@ -15,16 +15,6 @@ func (w *safeBuffer) Write(p []byte) (int, error) {
 	defer w.mu.Unlock()
 	return w.buffer.Write(p)
 }
-func (w *safeBuffer) Bytes() []byte {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.buffer.Bytes()
-}
-func (w *safeBuffer) Reset() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.buffer.Reset()
-}
 
 // Take atomically returns a copy of the buffered bytes and empties the buffer,
 // so that bytes written between a Bytes() and a Reset() can never be lost.

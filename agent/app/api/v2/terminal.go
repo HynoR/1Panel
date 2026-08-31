@@ -147,7 +147,7 @@ func (b *BaseApi) runSSHSession(c *gin.Context, opt sshSessionOption) {
 	}
 	defer wsConn.Close()
 
-	owner := terminalSessionOwner(c)
+	owner := panelUser(c)
 	if sessionID := strings.TrimSpace(c.Query("session")); len(sessionID) != 0 {
 		attachTerminalSession(wsConn, sessionID, owner, cols, rows)
 		return
@@ -158,15 +158,14 @@ func (b *BaseApi) runSSHSession(c *gin.Context, opt sshSessionOption) {
 		return
 	}
 
-	sess, err := terminal.NewSession(client.Client, terminal.SessionOptions{
-		Kind:     opt.kind,
-		HostID:   opt.hostID,
-		Title:    sanitizeTerminalTitle(c.Query("title")),
-		Owner:    owner,
-		Cols:     cols,
-		Rows:     rows,
-		InitCmd:  opt.command,
-		RingSize: terminal.DefaultManager.Config().RingSize,
+	sess, err := terminal.DefaultManager.OpenSession(client.Client, terminal.SessionOptions{
+		Kind:    opt.kind,
+		HostID:  opt.hostID,
+		Title:   sanitizeTerminalTitle(c.Query("title")),
+		Owner:   owner,
+		Cols:    cols,
+		Rows:    rows,
+		InitCmd: opt.command,
 	})
 	if err != nil {
 		// The session owns the ssh client from here on, so it is only ours to
@@ -177,8 +176,6 @@ func (b *BaseApi) runSSHSession(c *gin.Context, opt sshSessionOption) {
 	}
 	// No defer sess.Close(): a pinned session outlives this websocket, and an
 	// unpinned one closes itself once the attachment below returns.
-	terminal.DefaultManager.Register(sess)
-
 	att, err := sess.Attach(wsConn, cols, rows)
 	if err != nil {
 		sess.Close()
@@ -193,8 +190,8 @@ func (b *BaseApi) runSSHSession(c *gin.Context, opt sshSessionOption) {
 // attachTerminalSession binds the websocket to an existing session instead of
 // opening a new ssh connection.
 func attachTerminalSession(wsConn *websocket.Conn, sessionID, owner string, cols, rows int) {
-	sess, ok := terminal.DefaultManager.Get(sessionID)
-	if !ok || !terminal.OwnerMatches(sess.Owner, owner) {
+	sess, err := terminal.DefaultManager.Lookup(sessionID, owner)
+	if err != nil {
 		closeTerminalConnWithCode(wsConn, closeCodeSessionNotFound, "session not found")
 		return
 	}
@@ -207,11 +204,6 @@ func attachTerminalSession(wsConn *websocket.Conn, sessionID, owner string, cols
 	att.Run()
 
 	closeTerminalConn(wsConn)
-}
-
-// terminalSessionOwner is the panel user the core proxy identified.
-func terminalSessionOwner(c *gin.Context) string {
-	return strings.TrimSpace(c.GetHeader("X-Panel-User"))
 }
 
 // sanitizeTerminalTitle keeps a client supplied tab name printable and short.
@@ -239,7 +231,7 @@ func sanitizeTerminalTitle(title string) string {
 // @Security Timestamp
 // @Router /hosts/terminal/sessions/search [post]
 func (b *BaseApi) SearchTerminalSessions(c *gin.Context) {
-	list, err := terminalSessionService.List(terminalSessionOwner(c))
+	list, err := terminalSessionService.List(panelUser(c))
 	if err != nil {
 		helper.InternalServer(c, err)
 		return
@@ -260,7 +252,7 @@ func (b *BaseApi) PinTerminalSession(c *gin.Context) {
 	if err := helper.CheckBindAndValidate(&req, c); err != nil {
 		return
 	}
-	if err := terminalSessionService.Pin(terminalSessionOwner(c), req); err != nil {
+	if err := terminalSessionService.Pin(panelUser(c), req); err != nil {
 		helper.InternalServer(c, err)
 		return
 	}
@@ -280,7 +272,7 @@ func (b *BaseApi) CloseTerminalSession(c *gin.Context) {
 	if err := helper.CheckBindAndValidate(&req, c); err != nil {
 		return
 	}
-	if err := terminalSessionService.Close(terminalSessionOwner(c), req.ID); err != nil {
+	if err := terminalSessionService.Close(panelUser(c), req.ID); err != nil {
 		helper.InternalServer(c, err)
 		return
 	}
