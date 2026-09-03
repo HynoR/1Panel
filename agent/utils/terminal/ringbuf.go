@@ -18,11 +18,8 @@ type ringBuffer struct {
 	written uint64 // total bytes ever written; offset of the next byte
 }
 
-func newRingBuffer(capacity int) *ringBuffer {
-	if capacity <= 0 {
-		capacity = ringSize
-	}
-	return &ringBuffer{buf: make([]byte, capacity)}
+func newRingBuffer() *ringBuffer {
+	return &ringBuffer{buf: make([]byte, ringSize)}
 }
 
 // Write appends p, dropping the oldest bytes when full. Always reports len(p).
@@ -44,13 +41,6 @@ func (r *ringBuffer) Write(p []byte) (int, error) {
 	copy(r.buf, p[k:])
 	r.written += uint64(len(p))
 	return n, nil
-}
-
-// Written is the offset of the next byte to be written.
-func (r *ringBuffer) Written() uint64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.written
 }
 
 // Oldest is the offset of the oldest byte still retained.

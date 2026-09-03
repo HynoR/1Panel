@@ -53,14 +53,8 @@ func (a *attachment) Run() {
 	})
 	go a.pingLoop()
 
+	// close() shuts the websocket, which is what ends this loop.
 	for {
-		select {
-		case <-a.done:
-			return
-		case <-a.sess.done:
-			return
-		default:
-		}
 		_, wsData, err := a.ws.ReadMessage()
 		if err != nil {
 			clean = websocket.IsCloseError(err, websocket.CloseNormalClosure)
@@ -146,7 +140,7 @@ func (a *attachment) close(code int, reason string) {
 			}
 		}()
 		close(a.done)
-		_ = a.ws.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason), time.Now().Add(time.Second))
+		sendClose(a.ws, code, reason)
 		_ = a.ws.Close()
 	})
 }

@@ -31,8 +31,11 @@ const { currentNode } = useGlobalStore();
 
 // session: agent side session id known (fresh or reattached)
 // expired: the agent no longer has the session; a reconnect must open a new one
-// closed: closed on purpose, or attached elsewhere; keep the id, do not retry
-const emit = defineEmits(['session', 'expired', 'closed']);
+const emit = defineEmits(['session', 'expired']);
+
+// Close codes of the agent's session protocol (agent/utils/terminal/session.go).
+const CLOSE_SESSION_NOT_FOUND = 4404;
+const CLOSE_ATTACHED_ELSEWHERE = 4409;
 
 const terminalElement = ref<HTMLDivElement | null>(null);
 const fitAddon = new FitAddon();
@@ -46,13 +49,14 @@ const latency = ref(0);
 // Reconnect state. Only terminals that received a session hello reconnect;
 // the agent keeps a dirty-disconnected session alive for a short grace period.
 const sessionId = ref('');
-const wsEndpoint = ref('');
-const wsArgs = ref('');
+let wsEndpoint = '';
+let wsArgs = '';
 let closing = false;
 let reconnecting = false;
 let reconnectStartedAt = 0;
 let reconnectDelay = 1000;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+// Must match graceTimeout in agent/utils/terminal/session.go: past it the agent has dropped the shell.
 const reconnectWindow = 2 * 60 * 1000;
 const initCmd = ref('');
 const hideInitCmdEcho = ref(false);
@@ -272,8 +276,8 @@ function changeTerminalSize() {
 const initWebSocket = async (endpoint_: string, args: string = '') => {
     const token = ++initWebSocketToken;
     closing = false;
-    wsEndpoint.value = endpoint_;
-    wsArgs.value = args;
+    wsEndpoint = endpoint_;
+    wsArgs = args;
     const href = window.location.href;
     const protocol = href.split('//')[0] === 'http:' ? 'ws' : 'wss';
     const host = href.split('//')[1].split('/')[0];
@@ -432,27 +436,22 @@ const closeRealTerminal = (ev: CloseEvent) => {
         // deliberate close, or a terminal without an agent side session (container, app, ...)
         term.value?.write('The connection has been disconnected.');
         term.value?.write(ev.reason);
-        emit('closed');
         return;
     }
     switch (ev.code) {
-        case 1000:
-            // the shell exited or the agent closed it; nothing left to attach to
+        case 1000: // the shell exited or the agent closed it
+        case CLOSE_SESSION_NOT_FOUND:
             sessionId.value = '';
             reconnecting = false;
-            writeNotice('31', 'The connection has been disconnected.');
+            writeNotice(
+                '31',
+                ev.code === 1000 ? 'The connection has been disconnected.' : i18n.global.t('terminal.sessionExpired'),
+            );
             emit('expired');
             return;
-        case 4404:
-            sessionId.value = '';
-            reconnecting = false;
-            writeNotice('31', i18n.global.t('terminal.sessionExpired'));
-            emit('expired');
-            return;
-        case 4409:
+        case CLOSE_ATTACHED_ELSEWHERE:
             reconnecting = false;
             writeNotice('31', i18n.global.t('terminal.sessionKicked'));
-            emit('closed');
             return;
         default:
             scheduleReconnect();
@@ -481,7 +480,7 @@ const scheduleReconnect = () => {
     reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         if (closing || !sessionId.value) return;
-        initWebSocket(wsEndpoint.value, wsArgs.value);
+        initWebSocket(wsEndpoint, wsArgs);
     }, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, 8000);
 };
@@ -615,7 +614,6 @@ defineExpose({
     isWsOpen,
     sendMsg,
     getLatency: () => latency.value,
-    getSessionId: () => sessionId.value,
     // re-fit after the element was moved back into a visible container
     refit: () => changeTerminalSize(),
 });

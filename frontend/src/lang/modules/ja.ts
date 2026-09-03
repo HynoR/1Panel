@@ -2093,6 +2093,14 @@ const message = {
         key: '秘密鍵',
         keyPassword: '秘密キーパスワード',
         emptyTerminal: '現在接続されている端子はありません。',
+        pinSession: 'セッションを固定（このページを離れても接続を維持）',
+        unpinSession: '固定を解除',
+        closePinnedConfirm:
+            'このセッションは固定されています。タブを閉じるとサーバー上のシェルが終了します。続行しますか？',
+        sessionReconnecting: '接続が切断されました。再接続しています...',
+        sessionExpired:
+            'セッションは無効になりました。Enter キーまたは再接続をクリックして新しいセッションを開いてください',
+        sessionKicked: 'このセッションは別のウィンドウで開かれました',
         lineHeight: '行の高さ',
         letterSpacing: '文字間隔',
         fontSize: 'フォントサイズ',

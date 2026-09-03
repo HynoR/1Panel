@@ -9,7 +9,6 @@
                     :ref="(el: any) => store.setInstance(item.key, el)"
                     @session="(id: string) => store.setSessionId(item.key, id)"
                     @expired="store.onExpired(item.key)"
-                    @closed="store.onClosed(item.key)"
                 />
             </Teleport>
         </template>

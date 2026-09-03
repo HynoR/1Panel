@@ -264,7 +264,7 @@ import AiSetting from '@/views/terminal/setting/ai/index.vue';
 import { MsgWarning } from '@/utils/message';
 import { TerminalSessionStore } from '@/store';
 
-const { currentNode, isFullScreen, isMobile, isNodeAdmin, openMenuTabs } = useGlobalStore();
+const { isFullScreen, isMobile, isNodeAdmin, openMenuTabs } = useGlobalStore();
 const store = TerminalSessionStore();
 
 const dialogRef = ref();
@@ -476,27 +476,20 @@ const onNewSsh = () => {
 
 const connectionError = 'Failed to set up the connection. Please check the host information';
 
-const openTab = async (title: string, wsID: number, error: string, sessionId: string = '') => {
-    const key = store.add({
+const openTab = async (title: string, wsID: number, error: string) => {
+    const entry = {
         title,
         wsID,
-        node: wsID === 0 ? currentNode.value || 'local' : 'local',
         endpoint: wsID === 0 ? '/api/v2/hosts/terminal/local' : '/api/v2/hosts/terminal/ssh',
         args: wsID === 0 ? '' : `id=${wsID}`,
-        initCmd: initCmd.value,
         status: error ? 'closed' : 'online',
-    });
+    } as const;
+    const key = store.add(entry);
     terminalValue.value = key;
+    const cmd = initCmd.value;
     initCmd.value = '';
-    const entry = store.find(key)!;
     const inst = await instanceOf(key);
-    inst?.acceptParams({
-        endpoint: entry.endpoint,
-        args: entry.args,
-        initCmd: entry.initCmd,
-        sessionId,
-        error,
-    });
+    inst?.acceptParams({ endpoint: entry.endpoint, args: entry.args, initCmd: cmd, error });
 };
 
 const onNewLocal = async () => {
