@@ -2138,7 +2138,7 @@ const message = {
         sessionReconnecting: 'Sambungan terputus, menyambung semula...',
         sessionExpired: 'Sesi tidak lagi tersedia, tekan Enter atau klik sambung semula untuk membuka sesi baharu',
         sessionKicked: 'Sesi ini telah dibuka di tetingkap lain',
-        pinnedCount: '{0} sesi',
+        sessionCount: '{0} sesi',
         lineHeight: 'Ketinggian baris',
         letterSpacing: 'Jarak huruf',
         fontSize: 'Saiz fon',

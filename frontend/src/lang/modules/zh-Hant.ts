@@ -1993,7 +1993,7 @@ const message = {
         sessionReconnecting: '連線已中斷，正在重新連線...',
         sessionExpired: '會話已失效，按 Enter 或點擊重新連線以新建會話',
         sessionKicked: '該會話已在其他視窗開啟',
-        pinnedCount: '{0} 會話',
+        sessionCount: '{0} 會話',
         lineHeight: '字體行高',
         letterSpacing: '字體間距',
         fontSize: '字體大小',
