@@ -14,9 +14,22 @@
         draggable
         :close-on-click-modal="false"
         :modal="false"
+        :show-close="false"
         class="terminal-dock-dialog"
         @closed="park"
     >
+        <!-- minimize keeps sessions alive; X closes them all (with confirm) -->
+        <template #header>
+            <div class="flex items-center">
+                <span class="el-dialog__title flex-1">{{ $t('menu.terminal') }}</span>
+                <el-tooltip :content="$t('terminal.minimize')" placement="top">
+                    <el-button link icon="Minus" @click="open = false" />
+                </el-tooltip>
+                <el-tooltip :content="$t('terminal.closeAllSessions')" placement="top">
+                    <el-button link icon="Close" @click="closeAll" />
+                </el-tooltip>
+            </div>
+        </template>
         <div class="flex items-center gap-1 mb-1">
             <el-tabs v-model="active" type="card" closable class="flex-1 terminal-dock-tabs" @tab-remove="store.remove">
                 <el-tab-pane v-for="item in store.entries" :key="item.key" :name="item.key">
@@ -93,6 +106,7 @@ import { TerminalSessionStore } from '@/store';
 import { useGlobalStore } from '@/composables/useGlobalStore';
 import { getHostTree, testByID, testLocalConn } from '@/api/modules/terminal';
 import { MsgError } from '@/utils/message';
+import { ElMessageBox } from 'element-plus';
 import { Host } from '@/api/interface/host';
 
 const store = TerminalSessionStore();
@@ -172,6 +186,22 @@ const connect = async (wsID: number, title: string) => {
         wsID,
         error: res.data ? '' : 'Authentication failed. Please check the host information!',
     });
+};
+
+const closeAll = async () => {
+    if (store.entries.length > 0) {
+        await ElMessageBox.confirm(
+            i18n.global.t('terminal.closeAllConfirm'),
+            i18n.global.t('terminal.closeAllSessions'),
+            {
+                confirmButtonText: i18n.global.t('commons.button.confirm'),
+                cancelButtonText: i18n.global.t('commons.button.cancel'),
+                type: 'warning',
+            },
+        );
+        store.closeAll();
+    }
+    open.value = false;
 };
 
 // the terminal page claims the slots itself; give ours up when navigating there
