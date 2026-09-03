@@ -2088,6 +2088,7 @@ const message = {
         sessionReconnecting: 'اتصال قطع شد، در حال اتصال مجدد...',
         sessionExpired: 'نشست دیگر در دسترس نیست، برای باز کردن نشست جدید Enter را بزنید یا روی اتصال مجدد کلیک کنید',
         sessionKicked: 'این نشست در پنجره دیگری باز شده است',
+        pinnedCount: '{0} نشست',
         lineHeight: 'ارتفاع خط',
         letterSpacing: 'فاصله بین حروف',
         fontSize: 'اندازه قلم',
