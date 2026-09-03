@@ -15,13 +15,14 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 )
 
-// Lifetime rules. A session is bound to the browser tab that opened it:
+// Lifetime rules. A session outlives its websocket:
 //   - the client closes its websocket with 1000  -> the shell is closed at once
-//   - the websocket drops any other way          -> the shell waits graceTimeout for a reattach
+//   - the websocket drops any other way (browser tab closed, network) -> the
+//     shell waits graceTimeout for a reattach, then is closed
 //
 // ponytail: all fixed; promote to settings only if someone asks.
 const (
-	graceTimeout      = 2 * time.Minute
+	graceTimeout      = 30 * time.Minute
 	keepaliveInterval = 30 * time.Second
 	keepaliveTimeout  = 10 * time.Second
 	pumpInterval      = 60 * time.Millisecond
@@ -40,21 +41,37 @@ var errSessionClosed = errors.New("terminal session is closed")
 // SessionOptions describes a session that is about to be created.
 type SessionOptions struct {
 	Owner   string
+	Title   string
+	HostID  uint // 0 = local shell
 	Cols    int
 	Rows    int
 	InitCmd string
 }
 
+// Info is the client visible snapshot of a session.
+type Info struct {
+	ID         string    `json:"id"`
+	Title      string    `json:"title"`
+	HostID     uint      `json:"hostId"`
+	Attached   bool      `json:"attached"`
+	CreatedAt  time.Time `json:"createdAt"`
+	DetachedAt time.Time `json:"detachedAt"` // zero while attached
+}
+
 // Session owns one shell; a websocket is only a detachable attachment.
 type Session struct {
-	ID    string
-	Owner string
+	ID        string
+	Owner     string
+	Title     string
+	HostID    uint
+	CreatedAt time.Time
 
-	mu       sync.Mutex
-	attached *attachment
-	grace    *time.Timer
-	cols     int
-	rows     int
+	mu         sync.Mutex
+	attached   *attachment
+	detachedAt time.Time
+	grace      *time.Timer
+	cols       int
+	rows       int
 
 	backend *sshBackend
 	ring    *ringBuffer
@@ -115,6 +132,9 @@ func Open(client *gossh.Client, opts SessionOptions) (*Session, error) {
 	s := &Session{
 		ID:            uuid.NewString(),
 		Owner:         opts.Owner,
+		Title:         opts.Title,
+		HostID:        opts.HostID,
+		CreatedAt:     time.Now(),
 		cols:          opts.Cols,
 		rows:          opts.Rows,
 		backend:       backend,
@@ -149,6 +169,7 @@ func (s *Session) Attach(ws *websocket.Conn, cols, rows int) (*attachment, error
 	}
 	previous := s.attached
 	s.attached = att
+	s.detachedAt = time.Time{}
 	if s.grace != nil {
 		s.grace.Stop()
 		s.grace = nil
@@ -205,6 +226,7 @@ func (s *Session) detach(a *attachment, clean bool) {
 		return
 	}
 	s.attached = nil
+	s.detachedAt = time.Now()
 	if !clean {
 		s.grace = time.AfterFunc(graceTimeout, s.Close)
 	}
@@ -234,6 +256,20 @@ func (s *Session) doClose() {
 		global.LOG.Debugf("close terminal backend: %v", err)
 	}
 	sessions.Delete(s.ID)
+}
+
+// Info snapshots the session for listing.
+func (s *Session) Info() Info {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return Info{
+		ID:         s.ID,
+		Title:      s.Title,
+		HostID:     s.HostID,
+		Attached:   s.attached != nil,
+		CreatedAt:  s.CreatedAt,
+		DetachedAt: s.detachedAt,
+	}
 }
 
 // resize forwards a window size change to the shell.

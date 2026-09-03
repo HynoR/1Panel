@@ -57,7 +57,7 @@ let reconnectStartedAt = 0;
 let reconnectDelay = 1000;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 // Must match graceTimeout in agent/utils/terminal/session.go: past it the agent has dropped the shell.
-const reconnectWindow = 2 * 60 * 1000;
+const reconnectWindow = 30 * 60 * 1000;
 const initCmd = ref('');
 const hideInitCmdEcho = ref(false);
 const initCmdEchoBuffer = ref('');

@@ -2125,9 +2125,6 @@ const message = {
         key: 'Özel anahtar',
         keyPassword: 'Özel anahtar şifresi',
         emptyTerminal: 'Şu anda bağlı terminal yok.',
-        pinSession: 'Oturumu sabitle (bu sayfadan ayrılınca bağlı kalsın)',
-        unpinSession: 'Sabitlemeyi kaldır',
-        closePinnedConfirm: "Bu oturum sabitlenmiş. Sekmeyi kapatmak sunucudaki shell'i sonlandırır. Devam edilsin mi?",
         sessionReconnecting: 'Bağlantı koptu, yeniden bağlanılıyor...',
         sessionExpired:
             "Oturum artık kullanılamıyor, yeni bir oturum açmak için Enter'a basın veya yeniden bağlan'a tıklayın",
