@@ -26,9 +26,50 @@
                     </template>
                 </el-tab-pane>
             </el-tabs>
-            <el-tooltip :content="$t('terminal.localhost')" placement="top">
-                <el-button icon="Plus" circle size="small" @click="newLocal" />
-            </el-tooltip>
+            <!-- same picker as the terminal page: local shell + ssh host tree -->
+            <el-popover trigger="click" width="280px" @before-enter="loadHosts">
+                <template #reference>
+                    <el-button icon="Plus" circle size="small" />
+                </template>
+                <el-button link class="w-full" @click="connect(0, $t('terminal.localhost'))">
+                    <el-icon class="mr-1"><House /></el-icon>
+                    {{ $t('terminal.localhost') }}
+                </el-button>
+                <template v-if="!isNodeAdmin">
+                    <el-divider class="my-1" />
+                    <el-input
+                        v-model="hostFilter"
+                        size="small"
+                        clearable
+                        :placeholder="$t('commons.button.search')"
+                        class="mb-1"
+                    />
+                    <el-tree
+                        ref="treeRef"
+                        node-key="id"
+                        default-expand-all
+                        :expand-on-click-node="false"
+                        :data="hostTree"
+                        :filter-node-method="filterHost"
+                        :empty-text="$t('terminal.noHost')"
+                        class="terminal-dock-tree"
+                    >
+                        <template #default="{ node, data }">
+                            <span v-if="node.level === 1" class="text-xs font-medium">
+                                {{ node.label === 'Default' ? $t('commons.table.default') : node.label }}
+                            </span>
+                            <a
+                                v-else
+                                class="text-xs hover:text-[var(--el-color-primary)] truncate"
+                                :title="node.label"
+                                @click="connect(data.id, node.label)"
+                            >
+                                {{ node.label }}
+                            </a>
+                        </template>
+                    </el-tree>
+                </template>
+            </el-popover>
         </div>
         <div v-if="store.entries.length === 0" class="terminal-dock-empty">{{ $t('terminal.emptyTerminal') }}</div>
         <!-- one slot per entry; the active one claims its Terminal from the host, the rest stay parked -->
@@ -47,11 +88,15 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import i18n from '@/lang';
+import { ElTree } from 'element-plus';
 import { TerminalSessionStore } from '@/store';
-import { testLocalConn } from '@/api/modules/terminal';
+import { useGlobalStore } from '@/composables/useGlobalStore';
+import { getHostTree, testByID, testLocalConn } from '@/api/modules/terminal';
 import { MsgError } from '@/utils/message';
+import { Host } from '@/api/interface/host';
 
 const store = TerminalSessionStore();
+const { isNodeAdmin } = useGlobalStore();
 const route = useRoute();
 const onTerminalPage = computed(() => route.path.startsWith('/terminal'));
 
@@ -100,13 +145,33 @@ watch(
     },
 );
 
-const newLocal = async () => {
-    const res = await testLocalConn();
-    if (!res.data) {
-        MsgError(i18n.global.t('terminal.connLocalErr'));
+const hostTree = ref<Array<Host.HostTree>>([]);
+const treeRef = ref<InstanceType<typeof ElTree>>();
+const hostFilter = ref('');
+const loadHosts = async () => {
+    if (isNodeAdmin.value) return;
+    const res = await getHostTree({});
+    hostTree.value = res.data;
+};
+watch(hostFilter, (v) => treeRef.value?.filter(v));
+const filterHost = (value: string, data: any) => !value || data.label.toLowerCase().includes(value.toLowerCase());
+
+const connect = async (wsID: number, title: string) => {
+    if (wsID === 0) {
+        const res = await testLocalConn();
+        if (!res.data) {
+            MsgError(i18n.global.t('terminal.connLocalErr'));
+            return;
+        }
+        active.value = await store.open({ title, wsID });
         return;
     }
-    active.value = await store.open({ title: i18n.global.t('terminal.localhost'), wsID: 0 });
+    const res = await testByID(wsID);
+    active.value = await store.open({
+        title,
+        wsID,
+        error: res.data ? '' : 'Authentication failed. Please check the host information!',
+    });
 };
 
 // the terminal page claims the slots itself; give ours up when navigating there
@@ -141,6 +206,10 @@ watch(onTerminalPage, (v) => {
     writing-mode: vertical-rl;
     font-size: 12px;
     letter-spacing: 2px;
+}
+.terminal-dock-tree {
+    max-height: 40vh;
+    overflow: auto;
 }
 .terminal-dock-slot {
     height: 60vh;
