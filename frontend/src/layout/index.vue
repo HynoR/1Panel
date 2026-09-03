@@ -48,12 +48,14 @@
             <Footer class="app-footer" v-if="!isFullScreen" />
         </div>
         <TaskList ref="taskListRef" />
+        <TerminalHost />
     </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, computed, ref, watch, onBeforeUnmount } from 'vue';
 import { Sidebar, Footer, AppMain, MobileHeader, Tabs } from './components';
+import TerminalHost from '@/components/terminal/host.vue';
 import useResize from './hooks/useResize';
 import { MenuStore, TabsStore } from '@/store';
 import { getSystemAvailable } from '@/api/modules/setting';

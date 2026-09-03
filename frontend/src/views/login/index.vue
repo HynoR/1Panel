@@ -38,6 +38,7 @@ import { ref, onMounted } from 'vue';
 import { useGlobalStore } from '@/composables/useGlobalStore';
 import { preloadImage } from '@/utils/browser';
 import { hasExternalLoginTicket } from '@/utils/external-login';
+import { TerminalSessionStore } from '@/store';
 defineOptions({ name: 'Login' });
 const { entrance, isEnterprise, themeConfig } = useGlobalStore();
 const backgroundOpacity = ref(1);
@@ -104,6 +105,7 @@ const onImgError = (event: any) => {
 };
 
 onMounted(async () => {
+    TerminalSessionStore().closeAll();
     await getStatus();
     const loginImageUrl = `/api/v2/images/loginImage?t=${Date.now()}`;
     const backgroundImageUrl = `/api/v2/images/loginBackground?t=${Date.now()}`;
