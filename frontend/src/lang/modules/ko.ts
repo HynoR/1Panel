@@ -2070,6 +2070,7 @@ const message = {
         sessionReconnecting: '연결이 끊어졌습니다. 다시 연결하는 중...',
         sessionExpired: '세션을 더 이상 사용할 수 없습니다. Enter 키를 누르거나 다시 연결을 클릭하여 새 세션을 여세요',
         sessionKicked: '이 세션은 다른 창에서 열렸습니다',
+        pinnedCount: '세션 {0}개',
         lineHeight: '줄 높이',
         letterSpacing: '자간',
         fontSize: '글꼴 크기',

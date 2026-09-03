@@ -2132,6 +2132,7 @@ const message = {
         sessionExpired:
             "Oturum artık kullanılamıyor, yeni bir oturum açmak için Enter'a basın veya yeniden bağlan'a tıklayın",
         sessionKicked: 'Bu oturum başka bir pencerede açıldı',
+        pinnedCount: '{0} oturum',
         lineHeight: 'Satır Yüksekliği',
         letterSpacing: 'Harf Aralığı',
         fontSize: 'Font Boyutu',

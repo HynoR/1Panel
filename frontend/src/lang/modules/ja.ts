@@ -2103,6 +2103,7 @@ const message = {
         sessionExpired:
             'セッションは無効になりました。Enter キーまたは再接続をクリックして新しいセッションを開いてください',
         sessionKicked: 'このセッションは別のウィンドウで開かれました',
+        pinnedCount: '{0} セッション',
         lineHeight: '行の高さ',
         letterSpacing: '文字間隔',
         fontSize: 'フォントサイズ',

@@ -2146,6 +2146,7 @@ const message = {
         sessionExpired:
             'A sessão não está mais disponível, pressione Enter ou clique em reconectar para abrir uma nova',
         sessionKicked: 'Esta sessão foi aberta em outra janela',
+        pinnedCount: '{0} sessões',
         lineHeight: 'Altura da linha',
         letterSpacing: 'Espaçamento entre letras',
         fontSize: 'Tamanho da fonte',

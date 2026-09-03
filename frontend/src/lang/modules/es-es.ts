@@ -2153,6 +2153,7 @@ const message = {
         sessionReconnecting: 'Conexión perdida, reconectando...',
         sessionExpired: 'La sesión ya no está disponible, pulse Enter o haga clic en reconectar para abrir una nueva',
         sessionKicked: 'Esta sesión se abrió en otra ventana',
+        pinnedCount: '{0} sesiones',
         lineHeight: 'Altura de línea',
         letterSpacing: 'Espaciado de letras',
         fontSize: 'Tamaño de fuente',
