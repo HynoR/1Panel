@@ -2146,6 +2146,13 @@ const message = {
         key: 'Clave privada',
         keyPassword: 'Contraseña de la clave privada',
         emptyTerminal: 'No hay ninguna terminal conectada actualmente.',
+        pinSession: 'Fijar sesión (mantener la conexión al salir de esta página)',
+        unpinSession: 'Desfijar sesión',
+        closePinnedConfirm:
+            'Esta sesión está fijada. Cerrar la pestaña finalizará el shell en el servidor. ¿Continuar?',
+        sessionReconnecting: 'Conexión perdida, reconectando...',
+        sessionExpired: 'La sesión ya no está disponible, pulse Enter o haga clic en reconectar para abrir una nueva',
+        sessionKicked: 'Esta sesión se abrió en otra ventana',
         lineHeight: 'Altura de línea',
         letterSpacing: 'Espaciado de letras',
         fontSize: 'Tamaño de fuente',

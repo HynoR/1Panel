@@ -11,14 +11,14 @@ const (
 
 type WsMsg struct {
 	Type      string `json:"type"`
-	Data      string `json:"data,omitempty"`      // WsMsgCmd
-	Line      string `json:"line,omitempty"`      // WsMsgCmd
-	Level     string `json:"level,omitempty"`     // WsMsgAINotice
-	Message   string `json:"message,omitempty"`   // WsMsgAINotice
-	Cols      int    `json:"cols,omitempty"`      // WsMsgResize
-	Rows      int    `json:"rows,omitempty"`      // WsMsgResize
-	Timestamp int    `json:"timestamp,omitempty"` // WsMsgHeartbeat
-	ID        string `json:"id,omitempty"`        // WsMsgSession
+	Data      string `json:"data,omitempty"`     // WsMsgCmd
+	Line      string `json:"line,omitempty"`     // WsMsgCmd
+	Level     string `json:"level,omitempty"`    // WsMsgAINotice
+	Message   string `json:"message,omitempty"`  // WsMsgAINotice
+	Cols      int    `json:"cols,omitzero"`      // WsMsgResize
+	Rows      int    `json:"rows,omitzero"`      // WsMsgResize
+	Timestamp int    `json:"timestamp,omitzero"` // WsMsgHeartbeat
+	ID        string `json:"id,omitempty"`       // WsMsgSession
 }
 
 func setQuit(ch chan bool) {

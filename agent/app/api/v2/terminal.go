@@ -20,6 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
+	gossh "golang.org/x/crypto/ssh"
 )
 
 // @Tags Terminal
@@ -125,48 +126,17 @@ func (b *BaseApi) runSSHSession(c *gin.Context, connect func() (*ssh.SSHClient, 
 	}
 	defer wsConn.Close()
 
-	owner := loadAuditUser(c)
-	if sessionID := strings.TrimSpace(c.Query("session")); sessionID != "" {
-		sess, ok := terminal.Lookup(sessionID, owner)
-		if !ok {
-			closeTerminalConnWithCode(wsConn, closeCodeSessionNotFound, "session not found")
-			return
-		}
-		att, err := sess.Attach(wsConn, cols, rows)
+	opts := terminal.SessionOptions{Owner: loadAuditUser(c), Cols: cols, Rows: rows, InitCmd: command}
+	err := terminal.Serve(wsConn, strings.TrimSpace(c.Query("session")), opts, func() (*gossh.Client, error) {
+		client, err := connect()
 		if err != nil {
-			global.LOG.Errorf("attach terminal session %s failed, err: %v", sessionID, err)
-			closeTerminalConnWithCode(wsConn, closeCodeSessionNotFound, "session not found")
-			return
+			return nil, errors.WithMessage(err, "failed to set up the connection. Please check the host information")
 		}
-		att.Run()
-		return
-	}
-
-	client, clientErr := connect()
-	if wshandleError(wsConn, errors.WithMessage(clientErr, "failed to set up the connection. Please check the host information")) {
-		return
-	}
-	sess, err := terminal.Open(client.Client, terminal.SessionOptions{Owner: owner, Cols: cols, Rows: rows, InitCmd: command})
+		return client.Client, nil
+	})
 	if err != nil {
-		client.Close()
 		_ = wshandleError(wsConn, err)
-		return
 	}
-	// no defer sess.Close(): a dirty disconnect leaves the shell alive for a reattach
-	att, err := sess.Attach(wsConn, cols, rows)
-	if err != nil {
-		sess.Close()
-		_ = wshandleError(wsConn, err)
-		return
-	}
-	att.Run()
-}
-
-// closeCodeSessionNotFound tells the client the session is gone or not theirs; it must not retry.
-const closeCodeSessionNotFound = 4404
-
-func closeTerminalConnWithCode(wsConn *websocket.Conn, code int, reason string) {
-	_ = wsConn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason), time.Now().Add(time.Second))
 }
 
 func closeTerminalConn(wsConn *websocket.Conn) {
