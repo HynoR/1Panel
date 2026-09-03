@@ -60,7 +60,7 @@ systemctl start 1panel-core 1panel-agent && sleep 3 && systemctl is-active 1pane
 | 4.3 | 另开一个**新浏览器标签页**登录同一面板 | 新标签页看不到旧标签页的 pinned 会话(sessionStorage 隔离) |
 | 4.4 | 在新标签页手动构造重连:复制旧标签页 ws URL(含 session id)在控制台 `new WebSocket(url)` | 旧标签页终端出现红字"该会话已在其他窗口打开",ws 关闭码 **4409**;旧标签页点刷新按钮又能抢回来 |
 | 4.5 | 关闭整个浏览器标签页,等 2 分半,再新开标签页登录 | 不会恢复;服务器上 shell 已回收 |
-| 4.6 | 登出再登录(同一标签页) | 登出时所有会话以 1000 关闭;重新登录后如果 sessionStorage 还有记录,重连会收到 4404,tab 显示为断开态且记录被清掉,不报错不卡 |
+| 4.6 | 登出再登录(同一标签页) | 登出时所有会话以 1000 关闭(agent 日志每个 session 一条 `clean=true`);登录页一挂载就清空 store 与 sessionStorage 记录;重新登录后终端页没有旧 tab,不会带旧 session id 重连,不报错不卡 |
 
 ## 5. 回归(不能坏的东西)
 
@@ -115,3 +115,11 @@ terminal session <id> detached, clean=false   # 非 1000,进入 2 分钟宽限
 - 2.6:确认关闭后应出现 `clean=true`。若日志是 `clean=false`,说明 1000 关闭码没有穿过 core → agent 的 ws 代理,请附上 core 与 agent 各自的日志片段;若日志是 `clean=true` 但 `sleep` 仍活着,请记录 `ps -o pid,ppid,stat,cmd -p <pid>` 和存活秒数(区分"没关"和"关得慢")。
 
 之后继续第 3–5 节。
+
+### 7.1 第二轮(4.6)
+
+**已修**:登出后重新登录仍从 sessionStorage 接回旧会话。现在登录页 `onMounted` 调 `TerminalSessionStore().closeAll()`,不管走的是手动登出、401 过期还是整页跳到 /login,记录都被清掉;手动登出/401 的 SPA 跳转下 Layout 卸载会先以 1000 关掉每个 ws。
+
+**重测 4.6** 时请顺带记录:登出瞬间 agent 日志里每个 session 是 `clean=true` 还是 `clean=false`。如果是 `clean=false`(或根本没有 detached 日志),说明登出路径没有触发 1000,请附上登出的具体操作步骤(右下角头像登出 / 会话过期 / 手动改 URL)。
+
+**补测**:3.5(iptables 半开)、4.5(关标签等 2 分半)仍未跑,若环境允许请补;不允许则在报告里标"跳过(环境)"。

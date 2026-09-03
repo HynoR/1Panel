@@ -103,6 +103,13 @@ const TerminalSessionStore = defineStore('TerminalSessionStore', () => {
         }
     };
 
+    // closeAll runs on the login page: a logout (or expired login) ends every session, pinned or not.
+    const closeAll = () => {
+        for (const e of [...entries.value]) {
+            remove(e.key);
+        }
+    };
+
     const setPinned = (key: string, pinned: boolean) => {
         const e = find(key);
         if (!e) return;
@@ -152,6 +159,7 @@ const TerminalSessionStore = defineStore('TerminalSessionStore', () => {
         add,
         remove,
         closeUnpinned,
+        closeAll,
         setPinned,
         setSessionId,
         onExpired,
