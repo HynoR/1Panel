@@ -10,11 +10,11 @@
             @edit="handleTabsRemove"
         >
             <el-tab-pane
-                :key="item.index"
-                v-for="item in terminalTabs"
+                :key="item.key"
+                v-for="item in store.entries"
                 :closable="true"
                 :label="item.title"
-                :name="item.index"
+                :name="item.key"
             >
                 <template #label>
                     <span class="custom-tabs-label">
@@ -41,16 +41,30 @@
                         <el-tooltip v-else :content="item.title" placement="top-start">
                             <span>&nbsp;{{ item.title.substring(0, 17) }}...&nbsp;</span>
                         </el-tooltip>
+                        <el-tooltip
+                            :content="$t(item.pinned ? 'terminal.unpinSession' : 'terminal.pinSession')"
+                            placement="top"
+                        >
+                            <el-button
+                                link
+                                class="terminal-pin-button"
+                                :class="{ 'is-pinned': item.pinned }"
+                                @click.stop="store.setPinned(item.key, !item.pinned)"
+                            >
+                                <svg-icon iconName="p-pushpin" className="terminal-pin-icon" />
+                            </el-button>
+                        </el-tooltip>
                     </span>
                 </template>
-                <Terminal
+                <!-- The Terminal itself is rendered by components/terminal/host.vue and teleported here. -->
+                <div
+                    class="terminal-slot"
+                    :ref="(el: any) => store.setSlot(item.key, el)"
                     :style="{
                         height: `calc(100vh - ${loadHeight()})`,
                         'background-color': `var(--panel-logs-bg-color)`,
                     }"
-                    :ref="'t-' + item.index"
-                    :key="item.Refresh"
-                ></Terminal>
+                ></div>
 
                 <div class="flex items-center gap-2 w-full py-2 flex-wrap">
                     <AiSetting v-if="!isMobile" class="shrink-0" />
@@ -207,7 +221,7 @@
                     </el-popover>
                 </template>
             </el-tab-pane>
-            <div v-if="terminalTabs.length === 0">
+            <div v-if="store.entries.length === 0">
                 <el-empty
                     :style="{ height: `calc(100vh - ${loadEmptyHeight()})`, 'background-color': '#000' }"
                     :description="$t('terminal.emptyTerminal')"
@@ -234,11 +248,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, getCurrentInstance, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
-import Terminal from '@/components/terminal/index.vue';
+import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import HostDialog from '@/views/terminal/terminal/host-create.vue';
 import type Node from 'element-plus/es/components/tree/src/model/node';
-import { ElTree } from 'element-plus';
+import { ElMessageBox, ElTree } from 'element-plus';
 import screenfull from 'screenfull';
 import i18n from '@/lang';
 import { Host } from '@/api/interface/host';
@@ -249,11 +262,12 @@ import { getCommandTree } from '@/api/modules/command';
 import { getAgentSettingInfo } from '@/api/modules/setting';
 import AiSetting from '@/views/terminal/setting/ai/index.vue';
 import { MsgWarning } from '@/utils/message';
+import { TerminalSessionStore } from '@/store';
 
-const { isFullScreen, isMobile, isNodeAdmin, openMenuTabs } = useGlobalStore();
+const { currentNode, isFullScreen, isMobile, isNodeAdmin, openMenuTabs } = useGlobalStore();
+const store = TerminalSessionStore();
 
 const dialogRef = ref();
-const ctx = getCurrentInstance() as any;
 
 const toggleFullscreen = () => {
     if (screenfull.isEnabled) {
@@ -266,8 +280,6 @@ const loadTooltip = () => {
 
 let timer: ReturnType<typeof setInterval> | null = null;
 const terminalValue = ref();
-const terminalTabs = ref([]) as any;
-let tabIndex = 0;
 
 const commandTree = ref();
 const quickCommandProps = {
@@ -293,6 +305,14 @@ interface Tree {
 }
 const initCmd = ref('');
 
+// The Terminal components live in the layout level host; wait for it to render ours.
+const instanceOf = async (key: string) => {
+    for (let i = 0; i < 5 && !store.instances[key]; i++) {
+        await nextTick();
+    }
+    return store.instances[key];
+};
+
 const acceptParams = async () => {
     isFullScreen.value = false;
     loadCommandTree();
@@ -301,8 +321,18 @@ const acceptParams = async () => {
     } else {
         hostTree.value = [];
     }
-    if (terminalTabs.value.length === 0) {
+    if (store.entries.length === 0) {
         await openDefaultLocalConn();
+    } else {
+        // sessions kept alive while we were away: show them and re-fit to this container
+        if (!store.find(terminalValue.value)) {
+            terminalValue.value = store.entries[0].key;
+        }
+        await nextTick();
+        for (const item of store.entries) {
+            store.instances[item.key]?.refit();
+        }
+        syncTerminal();
     }
     timer = setInterval(() => {
         syncTerminal();
@@ -326,14 +356,11 @@ const openDefaultLocalConn = async () => {
     });
 };
 
+// cleanTimer runs when the terminal page is left. Pinned sessions stay connected in the host.
 const cleanTimer = () => {
     clearInterval(Number(timer));
     timer = null;
-    for (const terminal of terminalTabs.value) {
-        if (ctx && ctx.refs[`t-${terminal.index}`][0]) {
-            terminal.status = ctx.refs[`t-${terminal.index}`][0].onClose();
-        }
-    }
+    store.closeUnpinned();
 };
 
 const loadHeight = () => {
@@ -346,27 +373,43 @@ const loadFullScreenHeight = () => {
     return openMenuTabs.value ? '105px' : '60px';
 };
 
-const handleTabsRemove = (targetName: string, action: 'remove' | 'add') => {
+const handleTabsRemove = async (targetName: string, action: 'remove' | 'add') => {
     if (action !== 'remove') {
         return;
     }
-    if (ctx) {
-        ctx.refs[`t-${targetName}`] && ctx.refs[`t-${targetName}`][0].onClose();
+    const target = store.find(targetName);
+    if (!target) {
+        return;
     }
-    const tabs = terminalTabs.value;
+    if (target.pinned && target.status === 'online') {
+        try {
+            await ElMessageBox.confirm(
+                i18n.global.t('terminal.closePinnedConfirm'),
+                i18n.global.t('commons.msg.infoTitle'),
+                {
+                    confirmButtonText: i18n.global.t('commons.button.confirm'),
+                    cancelButtonText: i18n.global.t('commons.button.cancel'),
+                    type: 'warning',
+                },
+            );
+        } catch {
+            return;
+        }
+    }
+    const tabs = store.entries;
     let activeName = terminalValue.value;
     if (activeName === targetName) {
-        tabs.forEach((tab: any, index: any) => {
-            if (tab.index === targetName) {
+        tabs.forEach((tab, index) => {
+            if (tab.key === targetName) {
                 const nextTab = tabs[index + 1] || tabs[index - 1];
                 if (nextTab) {
-                    activeName = nextTab.index;
+                    activeName = nextTab.key;
                 }
             }
         });
     }
     terminalValue.value = activeName;
-    terminalTabs.value = tabs.filter((tab: any) => tab.index !== targetName);
+    store.remove(targetName);
 };
 
 const loadHostTree = async () => {
@@ -394,16 +437,10 @@ const loadCommandTree = async () => {
     }
 };
 
-const executeCommand = (command: string) => {
-    if (!ctx) {
-        return;
-    }
-    if (isBatch.value) {
-        for (const tab of terminalTabs.value) {
-            ctx.refs[`t-${tab.index}`] && ctx.refs[`t-${tab.index}`][0].sendMsg(command + '\n');
-        }
-    } else {
-        ctx.refs[`t-${terminalValue.value}`] && ctx.refs[`t-${terminalValue.value}`][0].sendMsg(command + '\n');
+const sendToTerminals = (command: string, all: boolean) => {
+    const keys = all ? store.entries.map((e) => e.key) : [terminalValue.value];
+    for (const key of keys) {
+        store.instances[key]?.sendMsg(command);
     }
 };
 
@@ -411,22 +448,15 @@ const handleQuickCommandChange = (val: Array<string>) => {
     if (!val?.length) {
         return;
     }
-    executeCommand(val[val.length - 1]);
+    sendToTerminals(val[val.length - 1] + '\n', isBatch.value);
     quickCmd.value = '';
 };
 
 function batchInput() {
-    if (batchVal.value === '' || !ctx) {
+    if (batchVal.value === '') {
         return;
     }
-    if (isBatch.value) {
-        for (const tab of terminalTabs.value) {
-            ctx.refs[`t-${tab.index}`] && ctx.refs[`t-${tab.index}`][0].sendMsg(batchVal.value + '\n');
-        }
-        batchVal.value = '';
-        return;
-    }
-    ctx.refs[`t-${terminalValue.value}`] && ctx.refs[`t-${terminalValue.value}`][0].sendMsg(batchVal.value + '\n');
+    sendToTerminals(batchVal.value + '\n', isBatch.value);
     batchVal.value = '';
 }
 
@@ -443,30 +473,39 @@ const onNewSsh = () => {
     }
     dialogRef.value!.acceptParams({ isLocal: false });
 };
+
+const connectionError = 'Failed to set up the connection. Please check the host information';
+
+const openTab = async (title: string, wsID: number, error: string, sessionId: string = '') => {
+    const key = store.add({
+        title,
+        wsID,
+        node: wsID === 0 ? currentNode.value || 'local' : 'local',
+        endpoint: wsID === 0 ? '/api/v2/hosts/terminal/local' : '/api/v2/hosts/terminal/ssh',
+        args: wsID === 0 ? '' : `id=${wsID}`,
+        initCmd: initCmd.value,
+        status: error ? 'closed' : 'online',
+    });
+    terminalValue.value = key;
+    initCmd.value = '';
+    const entry = store.find(key)!;
+    const inst = await instanceOf(key);
+    inst?.acceptParams({
+        endpoint: entry.endpoint,
+        args: entry.args,
+        initCmd: entry.initCmd,
+        sessionId,
+        error,
+    });
+};
+
 const onNewLocal = async () => {
     const res = await testLocalConn();
     if (!res.data) {
         dialogRef.value!.acceptParams({ isLocal: true });
         return;
     }
-    terminalTabs.value.push({
-        index: tabIndex,
-        title: i18n.global.t('terminal.localhost'),
-        wsID: 0,
-        status: 'online',
-        latency: 0,
-    });
-    terminalValue.value = tabIndex;
-    nextTick(() => {
-        ctx.refs[`t-${terminalValue.value}`] &&
-            ctx.refs[`t-${terminalValue.value}`][0].acceptParams({
-                endpoint: '/api/v2/hosts/terminal/local',
-                initCmd: initCmd.value,
-                error: '',
-            });
-        initCmd.value = '';
-    });
-    tabIndex++;
+    await openTab(i18n.global.t('terminal.localhost'), 0, '');
 };
 
 const onClickConn = (node: Node, data: Tree) => {
@@ -476,37 +515,21 @@ const onClickConn = (node: Node, data: Tree) => {
     onConnTerminal(node.label, data.id);
 };
 
+// onReconnect remounts the Terminal; an entry that still has an agent session reattaches to it.
 const onReconnect = async (item: any) => {
-    if (ctx) {
-        ctx.refs[`t-${item.index}`] && ctx.refs[`t-${item.index}`][0].onClose();
-    }
-    item.Refresh = !item.Refresh;
-    if (item.wsID === 0) {
-        const res = await testLocalConn();
-        nextTick(() => {
-            ctx.refs[`t-${item.index}`] &&
-                ctx.refs[`t-${item.index}`][0].acceptParams({
-                    endpoint: '/api/v2/hosts/terminal/local',
-                    initCmd: initCmd.value,
-                    error: res.data ? '' : 'Failed to set up the connection. Please check the host information',
-                });
-            initCmd.value = '';
-        });
-        syncTerminal();
-        return;
-    }
-
-    const res = await testByID(item.wsID);
-    nextTick(() => {
-        ctx.refs[`t-${item.index}`] &&
-            ctx.refs[`t-${item.index}`][0].acceptParams({
-                endpoint: '/api/v2/hosts/terminal/ssh',
-                args: `id=${item.wsID}`,
-                initCmd: initCmd.value,
-                error: res.data ? '' : 'Failed to set up the connection. Please check the host information',
-            });
-        initCmd.value = '';
+    const res = item.wsID === 0 ? await testLocalConn() : await testByID(item.wsID);
+    const sessionId = item.sessionId;
+    item.refresh++;
+    await nextTick();
+    const inst = await instanceOf(item.key);
+    inst?.acceptParams({
+        endpoint: item.endpoint,
+        args: item.args,
+        initCmd: initCmd.value,
+        sessionId,
+        error: res.data ? '' : connectionError,
     });
+    initCmd.value = '';
     syncTerminal();
 };
 
@@ -516,33 +539,15 @@ const onConnTerminal = async (title: string, wsID: number) => {
         return;
     }
     const res = await testByID(wsID);
-    terminalTabs.value.push({
-        index: tabIndex,
-        title: title,
-        wsID: wsID,
-        status: res.data ? 'online' : 'closed',
-        latency: 0,
-    });
-    terminalValue.value = tabIndex;
-    nextTick(() => {
-        ctx.refs[`t-${terminalValue.value}`] &&
-            ctx.refs[`t-${terminalValue.value}`][0].acceptParams({
-                endpoint: '/api/v2/hosts/terminal/ssh',
-                args: `id=${wsID}`,
-                initCmd: initCmd.value,
-                error: res.data ? '' : 'Authentication failed. Please check the host information!',
-            });
-        initCmd.value = '';
-    });
-    tabIndex++;
+    await openTab(title, wsID, res.data ? '' : 'Authentication failed. Please check the host information!');
 };
 
 function syncTerminal() {
-    for (const terminal of terminalTabs.value) {
-        if (ctx && ctx.refs[`t-${terminal.index}`][0]) {
-            terminal.status = ctx.refs[`t-${terminal.index}`][0].isWsOpen() ? 'online' : 'closed';
-            terminal.latency = ctx.refs[`t-${terminal.index}`][0].getLatency();
-        }
+    for (const item of store.entries) {
+        const inst = store.instances[item.key];
+        if (!inst) continue;
+        item.status = inst.isWsOpen() ? 'online' : 'closed';
+        item.latency = inst.getLatency();
     }
 }
 
@@ -600,6 +605,34 @@ onMounted(() => {
 .tagButton {
     border: 0;
     background-color: var(--el-tabs__item);
+}
+
+.terminal-pin-button {
+    opacity: 0.45;
+    padding: 0 2px;
+    margin-right: 4px;
+    vertical-align: middle;
+
+    &:hover,
+    &:focus-visible,
+    &.is-pinned {
+        opacity: 1;
+    }
+
+    &.is-pinned {
+        color: var(--el-color-warning);
+    }
+
+    :deep(.terminal-pin-icon) {
+        width: 1em;
+        height: 1em;
+        padding: 0;
+        vertical-align: middle;
+    }
+}
+
+.terminal-slot {
+    width: 100%;
 }
 
 .host-tree {
