@@ -16,28 +16,15 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted } from 'vue';
+import { onMounted } from 'vue';
 import Terminal from '@/components/terminal/index.vue';
 import { TerminalSessionStore } from '@/store';
 
 const store = TerminalSessionStore();
 
-// Sessions restored from sessionStorage (page refresh) reattach right away,
-// inside the agent's grace period, without waiting for the terminal page.
-onMounted(async () => {
-    await nextTick();
-    for (const item of store.entries) {
-        if (item.sessionId) {
-            store.instances[item.key]?.acceptParams({
-                endpoint: item.endpoint,
-                args: item.args,
-                initCmd: '',
-                sessionId: item.sessionId,
-                error: '',
-            });
-        }
-    }
-});
+// Sessions the agent still holds (page refresh, closed browser tab) are
+// reattached right away, without waiting for the terminal page.
+onMounted(() => store.restore());
 </script>
 
 <style scoped>

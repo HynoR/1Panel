@@ -41,19 +41,6 @@
                         <el-tooltip v-else :content="item.title" placement="top-start">
                             <span>&nbsp;{{ item.title.substring(0, 17) }}...&nbsp;</span>
                         </el-tooltip>
-                        <el-tooltip
-                            :content="$t(item.pinned ? 'terminal.unpinSession' : 'terminal.pinSession')"
-                            placement="top"
-                        >
-                            <el-button
-                                link
-                                class="terminal-pin-button"
-                                :class="{ 'is-pinned': item.pinned }"
-                                @click.stop="store.setPinned(item.key, !item.pinned)"
-                            >
-                                <svg-icon iconName="p-pushpin" className="terminal-pin-icon" />
-                            </el-button>
-                        </el-tooltip>
                     </span>
                 </template>
                 <!-- The Terminal itself is rendered by components/terminal/host.vue and teleported here. -->
@@ -251,7 +238,7 @@
 import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import HostDialog from '@/views/terminal/terminal/host-create.vue';
 import type Node from 'element-plus/es/components/tree/src/model/node';
-import { ElMessageBox, ElTree } from 'element-plus';
+import { ElTree } from 'element-plus';
 import screenfull from 'screenfull';
 import i18n from '@/lang';
 import { Host } from '@/api/interface/host';
@@ -305,14 +292,6 @@ interface Tree {
 }
 const initCmd = ref('');
 
-// The Terminal components live in the layout level host; wait for it to render ours.
-const instanceOf = async (key: string) => {
-    for (let i = 0; i < 5 && !store.instances[key]; i++) {
-        await nextTick();
-    }
-    return store.instances[key];
-};
-
 const acceptParams = async () => {
     isFullScreen.value = false;
     loadCommandTree();
@@ -332,11 +311,9 @@ const acceptParams = async () => {
         for (const item of store.entries) {
             store.instances[item.key]?.refit();
         }
-        syncTerminal();
+        store.sync();
     }
-    timer = setInterval(() => {
-        syncTerminal();
-    }, 1000 * 5);
+    timer = setInterval(store.sync, 1000 * 5);
     if (!isMobile.value) {
         screenfull.on('change', () => {
             isFullScreen.value = screenfull.isFullscreen;
@@ -356,11 +333,10 @@ const openDefaultLocalConn = async () => {
     });
 };
 
-// cleanTimer runs when the terminal page is left. Pinned sessions stay connected in the host.
+// Leaving the page keeps every session connected in the host; only the poll stops.
 const cleanTimer = () => {
     clearInterval(Number(timer));
     timer = null;
-    store.closeUnpinned();
 };
 
 const loadHeight = () => {
@@ -377,24 +353,8 @@ const handleTabsRemove = async (targetName: string, action: 'remove' | 'add') =>
     if (action !== 'remove') {
         return;
     }
-    const target = store.find(targetName);
-    if (!target) {
+    if (!store.find(targetName)) {
         return;
-    }
-    if (target.pinned && target.status === 'online') {
-        try {
-            await ElMessageBox.confirm(
-                i18n.global.t('terminal.closePinnedConfirm'),
-                i18n.global.t('commons.msg.infoTitle'),
-                {
-                    confirmButtonText: i18n.global.t('commons.button.confirm'),
-                    cancelButtonText: i18n.global.t('commons.button.cancel'),
-                    type: 'warning',
-                },
-            );
-        } catch {
-            return;
-        }
     }
     const tabs = store.entries;
     let activeName = terminalValue.value;
@@ -477,19 +437,9 @@ const onNewSsh = () => {
 const connectionError = 'Failed to set up the connection. Please check the host information';
 
 const openTab = async (title: string, wsID: number, error: string) => {
-    const entry = {
-        title,
-        wsID,
-        endpoint: wsID === 0 ? '/api/v2/hosts/terminal/local' : '/api/v2/hosts/terminal/ssh',
-        args: wsID === 0 ? '' : `id=${wsID}`,
-        status: error ? 'closed' : 'online',
-    } as const;
-    const key = store.add(entry);
-    terminalValue.value = key;
     const cmd = initCmd.value;
     initCmd.value = '';
-    const inst = await instanceOf(key);
-    inst?.acceptParams({ endpoint: entry.endpoint, args: entry.args, initCmd: cmd, error });
+    terminalValue.value = await store.open({ title, wsID, initCmd: cmd, error });
 };
 
 const onNewLocal = async () => {
@@ -508,22 +458,12 @@ const onClickConn = (node: Node, data: Tree) => {
     onConnTerminal(node.label, data.id);
 };
 
-// onReconnect remounts the Terminal; an entry that still has an agent session reattaches to it.
 const onReconnect = async (item: any) => {
     const res = item.wsID === 0 ? await testLocalConn() : await testByID(item.wsID);
-    const sessionId = item.sessionId;
-    item.refresh++;
-    await nextTick();
-    const inst = await instanceOf(item.key);
-    inst?.acceptParams({
-        endpoint: item.endpoint,
-        args: item.args,
-        initCmd: initCmd.value,
-        sessionId,
-        error: res.data ? '' : connectionError,
-    });
+    const cmd = initCmd.value;
     initCmd.value = '';
-    syncTerminal();
+    await store.reconnect(item.key, res.data ? '' : connectionError, cmd);
+    store.sync();
 };
 
 const onConnTerminal = async (title: string, wsID: number) => {
@@ -534,15 +474,6 @@ const onConnTerminal = async (title: string, wsID: number) => {
     const res = await testByID(wsID);
     await openTab(title, wsID, res.data ? '' : 'Authentication failed. Please check the host information!');
 };
-
-function syncTerminal() {
-    for (const item of store.entries) {
-        const inst = store.instances[item.key];
-        if (!inst) continue;
-        item.status = inst.isWsOpen() ? 'online' : 'closed';
-        item.latency = inst.getLatency();
-    }
-}
 
 const changeFullScreen = () => {
     isFullScreen.value = screenfull.isFullscreen;
@@ -599,30 +530,6 @@ onMounted(() => {
 .tagButton {
     border: 0;
     background-color: var(--el-tabs__item);
-}
-
-.terminal-pin-button {
-    opacity: 0.45;
-    padding: 0 2px;
-    margin-right: 4px;
-    vertical-align: middle;
-
-    &:hover,
-    &:focus-visible,
-    &.is-pinned {
-        opacity: 1;
-    }
-
-    &.is-pinned {
-        color: var(--el-color-warning);
-    }
-
-    :deep(.terminal-pin-icon) {
-        width: 1em;
-        height: 1em;
-        padding: 0;
-        vertical-align: middle;
-    }
 }
 
 .terminal-slot {
