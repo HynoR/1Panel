@@ -508,6 +508,8 @@ const message = {
         closeCurrent: 'Close current',
         closeOther: 'Close other',
         closeAll: 'Close All',
+        keepAlive: 'Keep page session',
+        cancelKeepAlive: 'Stop keeping page session',
     },
     header: {
         logout: 'Logout',
@@ -2767,6 +2769,7 @@ const message = {
         portChangeHelper: 'Modify the service port and restart the service. Continue?',
         theme: 'Theme',
         menuTabs: 'Menu tabs',
+        menuTabsHelper: 'After enabling, click the lock button on a tab to keep its page session.',
         menuAccordion: 'Multiple menu expansion',
         menuAccordionHelper: 'After enabling, multiple sidebar menu groups can stay expanded at the same time.',
         componentSize: 'Component Size',
