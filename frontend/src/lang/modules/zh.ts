@@ -2023,7 +2023,7 @@ const message = {
         sessionReconnecting: '连接已断开，正在重连...',
         sessionExpired: '会话已失效，按回车或点击重连以新建会话',
         sessionKicked: '该会话已在其他窗口打开',
-        pinnedCount: '{0} 会话',
+        sessionCount: '{0} 会话',
         lineHeight: '字体行高',
         letterSpacing: '字体间距',
         fontSize: '字体大小',
