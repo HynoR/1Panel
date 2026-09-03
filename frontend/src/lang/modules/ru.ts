@@ -2123,7 +2123,7 @@ const message = {
         sessionReconnecting: 'Соединение потеряно, переподключение...',
         sessionExpired: 'Сессия больше недоступна, нажмите Enter или «Переподключить», чтобы открыть новую',
         sessionKicked: 'Эта сессия была открыта в другом окне',
-        pinnedCount: 'сессий: {0}',
+        sessionCount: 'сессий: {0}',
         lineHeight: 'Высота строки',
         letterSpacing: 'Межбуквенный интервал',
         fontSize: 'Размер шрифта',

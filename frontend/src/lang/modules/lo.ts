@@ -2054,7 +2054,7 @@ const message = {
         sessionReconnecting: 'ການເຊື່ອມຕໍ່ຂາດ, ກຳລັງເຊື່ອມຕໍ່ຄືນ...',
         sessionExpired: 'ເຊສຊັນບໍ່ສາມາດໃຊ້ໄດ້ອີກ, ກົດ Enter ຫຼືຄລິກເຊື່ອມຕໍ່ຄືນເພື່ອເປີດເຊສຊັນໃໝ່',
         sessionKicked: 'ເຊສຊັນນີ້ຖືກເປີດຢູ່ໃນໜ້າຕ່າງອື່ນ',
-        pinnedCount: '{0} ເຊສຊັນ',
+        sessionCount: '{0} ເຊສຊັນ',
         lineHeight: 'ຄວາມສູງຂອງແຖວ',
         letterSpacing: 'ໄລຍະຫ່າງຕົວອັກສອນ',
         fontSize: 'ຂະໜາດຕົວອັກສອນ',

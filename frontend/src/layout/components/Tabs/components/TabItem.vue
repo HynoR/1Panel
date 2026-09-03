@@ -76,11 +76,9 @@ const menuName = computed(() => {
     if (props.tabItem.meta.detail) {
         title = title + '-' + i18n.global.t(props.tabItem.meta.detail);
     }
-    if (props.tabItem.path === '/terminal') {
-        const pinned = terminalSessions.entries.filter((e) => e.pinned).length;
-        if (pinned > 0) {
-            title = title + ' (' + i18n.global.t('terminal.pinnedCount', [pinned]) + ')';
-        }
+    // live sessions: off the page only pinned ones survive, under a locked (keep-alive) tab all do
+    if (props.tabItem.path === '/terminal' && terminalSessions.entries.length > 0) {
+        title = title + ' (' + i18n.global.t('terminal.sessionCount', [terminalSessions.entries.length]) + ')';
     }
     return title;
 });
