@@ -557,11 +557,12 @@ const changeFullScreen = () => {
 
 defineExpose({
     acceptParams,
-    cleanTimer,
 });
 
 onBeforeUnmount(() => {
     document.removeEventListener('fullscreenchange', changeFullScreen);
+    // parent refs are already null in the parent's onUnmounted, so leave-page cleanup lives here
+    cleanTimer();
 });
 
 onMounted(() => {

@@ -98,3 +98,20 @@ git diff --stat dev-v2...HEAD | tail -3
 非阻塞问题 / 观察:
 结论:可合 / 需修后再验
 ```
+
+## 7. 第一轮反馈后的修复与重测(2026-09-03)
+
+**已修**:未 pin 会话离开终端页不关闭(2.3 / 2.8 / 2.6 同源)。原因是 `views/terminal/index.vue` 在父组件 `onUnmounted` 里调子组件 ref,此时 ref 已是 null,`closeUnpinned()` 从未执行。现在改由 `views/terminal/terminal/index.vue` 自己的 `onBeforeUnmount` 触发。
+
+**重测前**:重新 `pnpm build` 前端、重启 agent(agent 侧新增一条 debug 日志)。把 agent 日志级别调到 debug,每次 ws 断开都会打:
+
+```
+terminal session <id> detached, clean=true    # 收到 1000,立即关 shell
+terminal session <id> detached, clean=false   # 非 1000,进入 2 分钟宽限
+```
+
+**重测项**:2.3、2.6、2.8,判定以这条日志为准:
+- 2.3 / 2.8:切走后未 pin 的每个 session 都应出现 `clean=true`,并且 `ps -p <pid>` 在 5 秒内消失。
+- 2.6:确认关闭后应出现 `clean=true`。若日志是 `clean=false`,说明 1000 关闭码没有穿过 core → agent 的 ws 代理,请附上 core 与 agent 各自的日志片段;若日志是 `clean=true` 但 `sleep` 仍活着,请记录 `ps -o pid,ppid,stat,cmd -p <pid>` 和存活秒数(区分"没关"和"关得慢")。
+
+之后继续第 3–5 节。
