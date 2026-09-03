@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/1Panel-dev/1Panel/agent/app/api/v2/helper"
@@ -24,6 +25,7 @@ import (
 // @Tags Terminal
 // @Summary Ws local terminal
 // @Param command query string false "command"
+// @Param session query string false "session id to reattach"
 // @Success 200
 // @Security ApiKeyAuth
 // @Security Timestamp
@@ -36,6 +38,7 @@ func (b *BaseApi) WsLocalTerminal(c *gin.Context) {
 // @Summary Ws host SSH
 // @Param id query integer false "id"
 // @Param command query string false "command"
+// @Param session query string false "session id to reattach"
 // @Success 200
 // @Security ApiKeyAuth
 // @Security Timestamp
@@ -122,25 +125,48 @@ func (b *BaseApi) runSSHSession(c *gin.Context, connect func() (*ssh.SSHClient, 
 	}
 	defer wsConn.Close()
 
+	owner := loadAuditUser(c)
+	if sessionID := strings.TrimSpace(c.Query("session")); sessionID != "" {
+		sess, ok := terminal.Lookup(sessionID, owner)
+		if !ok {
+			closeTerminalConnWithCode(wsConn, closeCodeSessionNotFound, "session not found")
+			return
+		}
+		att, err := sess.Attach(wsConn, cols, rows)
+		if err != nil {
+			global.LOG.Errorf("attach terminal session %s failed, err: %v", sessionID, err)
+			closeTerminalConnWithCode(wsConn, closeCodeSessionNotFound, "session not found")
+			return
+		}
+		att.Run()
+		return
+	}
+
 	client, clientErr := connect()
 	if wshandleError(wsConn, errors.WithMessage(clientErr, "failed to set up the connection. Please check the host information")) {
 		return
 	}
-	defer client.Close()
-
-	sws, err := terminal.NewLogicSshWsSession(cols, rows, client.Client, wsConn, command)
-	if wshandleError(wsConn, err) {
+	sess, err := terminal.Open(client.Client, terminal.SessionOptions{Owner: owner, Cols: cols, Rows: rows, InitCmd: command})
+	if err != nil {
+		client.Close()
+		_ = wshandleError(wsConn, err)
 		return
 	}
-	defer sws.Close()
+	// no defer sess.Close(): a dirty disconnect leaves the shell alive for a reattach
+	att, err := sess.Attach(wsConn, cols, rows)
+	if err != nil {
+		sess.Close()
+		_ = wshandleError(wsConn, err)
+		return
+	}
+	att.Run()
+}
 
-	quitChan := make(chan bool, 3)
-	sws.Start(quitChan)
-	go sws.Wait(quitChan)
+// closeCodeSessionNotFound tells the client the session is gone or not theirs; it must not retry.
+const closeCodeSessionNotFound = 4404
 
-	<-quitChan
-
-	closeTerminalConn(wsConn)
+func closeTerminalConnWithCode(wsConn *websocket.Conn, code int, reason string) {
+	_ = wsConn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason), time.Now().Add(time.Second))
 }
 
 func closeTerminalConn(wsConn *websocket.Conn) {
